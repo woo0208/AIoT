@@ -234,7 +234,8 @@ def load_paper(path):
 
 
 def load_multiposture(path, stride):
-    rows = list(csv.DictReader(open(path, encoding="utf-8-sig")))
+    with open(path, encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
     lab = {"TUP": 0, "TLB": 2, "TLL": 3, "TLR": 4, "TLF": 1}  # TLF(몸통 앞으로)는 5번째 클래스 자리로
     per_sub = {}
     for i, r in enumerate(rows):
@@ -282,7 +283,8 @@ def load_ours(subjects, log=print):
 
     for sub in subjects:
         for path in sorted(glob.glob(os.path.join(OUT_DIR, f"{sub}_r*_frames.csv"))):
-            fr = list(csv.DictReader(open(path, encoding="utf-8-sig")))
+            with open(path, encoding="utf-8-sig") as f:
+                fr = list(csv.DictReader(f))
             steps = {}
             for r in fr:
                 steps.setdefault(int(r["step"]), []).append(r)
