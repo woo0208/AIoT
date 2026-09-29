@@ -150,13 +150,19 @@ class Forest:
 
 
 def rank_weights(mdi):
-    """MDI 중요도 순위대로 원 논문 Table 5 가중치 배정 (특징 6개일 때)."""
-    w = np.zeros(len(mdi))
-    if len(mdi) == len(PAPER_RANK_W):
-        for rank, j in enumerate(np.argsort(-mdi)):
-            w[j] = PAPER_RANK_W[rank]
-    else:
-        w = mdi / mdi.sum()
+    """MDI 순위대로 Table 5 가중치 배정; 6개 미만이면 상위 p개를 재정규화."""
+    p = len(mdi)
+    if p > len(PAPER_RANK_W):
+        raise ValueError(
+            "rank-based paper weights are defined for at most 6 features; "
+            "define a weighting policy explicitly before using more features"
+        )
+    rank_w = np.array(PAPER_RANK_W[:p])
+    if p < len(PAPER_RANK_W):
+        rank_w = rank_w / rank_w.sum()
+    w = np.zeros(p)
+    for rank, j in enumerate(np.argsort(-mdi)):
+        w[j] = rank_w[rank]
     return w
 
 
