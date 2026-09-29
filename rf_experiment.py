@@ -173,11 +173,60 @@ def fit_models(Xtr, ytr, K, trees, seed, lams):
     w = rank_weights(m0.mdi)
     m1 = Forest(K, trees, 2, None, seed).fit(Xtr * w, ytr)
     models = {"M0": lambda X: m0.predict(X), "M1": lambda X: m1.predict(X * w)}
+    # 예측 함수의 기존 인터페이스를 유지하면서 관찰용 모델 참조만 제공한다.
+    models["M0"].forest, models["M0"].lam = m0, None
+    models["M1"].forest, models["M1"].lam = m1, None
     for lam in lams:
         sw = (1 - lam) + lam * w / w.mean()
         m2 = Forest(K, trees, 2, sw, seed).fit(Xtr, ytr)
         models[f"M2(λ={lam:g})"] = (lambda m: (lambda X: m.predict(X)))(m2)
+        models[f"M2(λ={lam:g})"].forest = m2
+        models[f"M2(λ={lam:g})"].lam = float(lam)
     return models, w
+
+
+def root_statistics(forest, feature_set):
+    """학습된 트리만 읽는다. percentage의 분모는 root split이 존재하는 트리 수."""
+    names = {
+        "all": FEAT_NAMES,
+        "invariant": [FEAT_NAMES[i] for i in (0, 3, 4, 5)],
+        "relative": ["A", "delta_x_c", "delta_y_c", "delta_thetaL", "delta_thetaR", "delta_theta1"],
+    }[feature_set]
+    if len(names) != len(forest.mdi):
+        raise ValueError("root feature names must match the fitted feature count")
+    roots = [int(t.feat[0]) if len(t.feat) and t.feat[0] >= 0 else None for t in forest.trees]
+    counts = {name: roots.count(i) for i, name in enumerate(names)}
+    split_trees = sum(counts.values())
+    return dict(total_trees=len(roots), split_trees=split_trees,
+                leaf_only_trees=len(roots) - split_trees, feature_names=list(names),
+                root_feature_indices=roots, counts=counts,
+                percentages={name: 100 * count / split_trees if split_trees else None
+                             for name, count in counts.items()})
+
+
+def log_root_statistics(models, records, dataset, feature_set, held_out_subject, log):
+    """각 학습 실행을 독립 기록한다. 기존 사용자 정의 예측 함수에는 forest가 없을 수 있다."""
+    stats = {m: root_statistics(fn.forest, feature_set)
+             for m, fn in models.items() if hasattr(fn, "forest")}
+    for m, stat in stats.items():
+        fn = models[m]
+        record = dict(dataset=dataset, feature_set=feature_set, model=m,
+                      seed=int(fn.forest.seed), tree_count=fn.forest.T, max_features=fn.forest.mf,
+                      **{"lambda": fn.lam}, held_out_subject=held_out_subject, root_statistics=stat)
+        if m == "M1" and "M0" in stats:
+            record["root_features_equal_m0"] = stat["root_feature_indices"] == stats["M0"]["root_feature_indices"]
+        records.setdefault(m, []).append(record)
+        log(f"   [ROOT] {dataset}, features={feature_set}, held_out={held_out_subject}, "
+            f"model={m}, seed={record['seed']} (0-based), trees={record['tree_count']}, "
+            f"max_features={record['max_features']}, lambda={record['lambda']}")
+        log(f"     root split trees={stat['split_trees']}/{stat['total_trees']}; "
+            f"leaf-only={stat['leaf_only_trees']}; percentage denominator=root split trees")
+        for name, count in stat["counts"].items():
+            percentage = stat["percentages"][name]
+            value = f"{percentage:.2f}%" if percentage is not None else "N/A"
+            log(f"     {name}: {count}/{stat['split_trees']} = {value}")
+        if "root_features_equal_m0" in record:
+            log(f"     M1 root features identical to M0: {record['root_features_equal_m0']}")
 
 
 # ================================================================ 평가 지표
@@ -350,7 +399,7 @@ def transform(X, groups, is_ref, mode):
 
 
 # ================================================================ 실험
-def loso(X, y, g, K, trees, seeds, lams, name, log, ref_mask=None):
+def loso(X, y, g, K, trees, seeds, lams, name, log, ref_mask=None, feature_set="all"):
     subs = sorted(set(g), key=lambda s: (len(s), s))
     names = None
     acc = {}        # model -> list over seeds of overall acc
@@ -359,12 +408,14 @@ def loso(X, y, g, K, trees, seeds, lams, name, log, ref_mask=None):
     agree01 = []
     nonref = ~ref_mask if ref_mask is not None else None
     nonref_acc, nonref_f1 = {}, {}
+    root_records = {}
     t0 = time.time()
     for seed in range(seeds):
         preds = {}
         for si, s in enumerate(subs):
             te, tr = g == s, g != s
             models, _ = fit_models(X[tr], y[tr], K, trees, seed, lams)
+            log_root_statistics(models, root_records, name, feature_set, str(s), log)
             names = list(models)
             for m, fn in models.items():
                 preds.setdefault(m, np.empty(len(y), int))[te] = fn(X[te])
@@ -417,15 +468,20 @@ def loso(X, y, g, K, trees, seeds, lams, name, log, ref_mask=None):
                        relative_nonref_f1_sd=np.std(nonref_f1[m]))
             log(f"   {m:<14} {row['relative_nonref_acc']:.3f} ± {row['relative_nonref_acc_sd']:.3f} / "
                 f"{row['relative_nonref_f1']:.3f} ± {row['relative_nonref_f1_sd']:.3f}")
+    for row in rows:
+        if row["model"] in root_records:
+            row["root_provenance"] = json.dumps(root_records[row["model"]], ensure_ascii=False)
     return rows
 
 
-def external(Xtr, ytr, Xte, yte, meta, K, trees, seeds, lams, log, ref_mask=None):
+def external(Xtr, ytr, Xte, yte, meta, K, trees, seeds, lams, log, ref_mask=None, feature_set="all"):
     log(f"\n■ [C] 원 논문 데이터로 학습 → 우리 데이터 적용 (샘플 {len(yte)}개, 트리 {trees}, 시드 {seeds})")
     known = yte >= 0
     names, votes, accs = None, {}, {}
+    root_records = {}
     for seed in range(seeds):
         models, _ = fit_models(Xtr, ytr, K, trees, seed, lams)
+        log_root_statistics(models, root_records, "C_ours_external", feature_set, None, log)
         names = list(models)
         for m, fn in models.items():
             p = fn(Xte)
@@ -507,6 +563,9 @@ def external(Xtr, ytr, Xte, yte, meta, K, trees, seeds, lams, log, ref_mask=None
             row.update(relative_nonref_f1=np.mean(f1s), relative_nonref_f1_sd=np.std(f1s))
             log(f"   {m} non-reference Macro F1: {row['relative_nonref_f1']:.3f} ± "
                 f"{row['relative_nonref_f1_sd']:.3f}")
+    for row in rows:
+        if row["model"] in root_records:
+            row["root_provenance"] = json.dumps(root_records[row["model"]], ensure_ascii=False)
     return rows
 
 
@@ -583,13 +642,13 @@ def main():
         if not a.skip_paper_loso:
             rows += [dict(r, features=fs) for r in
                      loso(Xp, yp, gp, 5, a.trees, a.seeds, a.lams, f"[A] 원 논문 Dataset.xlsx ({fs})", log,
-                          ref_mask=ref_p if fs == "relative" else None)]
+                          ref_mask=ref_p if fs == "relative" else None, feature_set=fs)]
         if a.ours:
             if len(yo):
                 Xo = transform(Xo0, go, ref_o, fs)
                 rows += [dict(r, features=fs, dataset=f"C_ours_external ({fs})") for r in
                          external(Xp, yp, Xo, yo, meta, 5, a.trees, a.seeds, a.lams, log,
-                                  ref_mask=ref_o if fs == "relative" else None)]
+                                  ref_mask=ref_o if fs == "relative" else None, feature_set=fs)]
             else:
                 log("\n[C] analysis 폴더에서 우리 데이터를 찾지 못했습니다 (analyze_d455.py 먼저 실행).")
     Xp = transform(Xp0, gp, ref_p, "all")
