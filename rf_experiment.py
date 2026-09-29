@@ -31,6 +31,7 @@
 import argparse
 import csv
 import glob
+import json
 import math
 import os
 import statistics
@@ -264,10 +265,21 @@ def load_multiposture(path, stride):
     return np.array(X, float), np.array(y), np.array(g)
 
 
-def load_ours(subjects):
+def load_ours(subjects, log=print):
     """analysis/*_frames.csv → 회차·단계별 중앙값 1개 샘플 (원 논문처럼 사람·자세당 대표값)."""
     X, y, meta = [], [], []
     lab_idx = {l: i for i, l in enumerate(LAB5)}
+    keys = ("face_x", "face_y", "rsh_x", "rsh_y", "lsh_x", "lsh_y", "oval_area_px")
+    dropped, drop_counts = 0, {}
+
+    def record_drop(sub, s, rs, reasons, missing):
+        nonlocal dropped
+        dropped += 1
+        for reason in reasons:
+            drop_counts[reason] = drop_counts.get(reason, 0) + 1
+        log(f"[DROP] {sub} r{rs[0].get('round', '?')} step{s} {rs[0]['label']}: "
+            f"{'; '.join(reasons)}; missing features: {', '.join(missing) or 'none'}")
+
     for sub in subjects:
         for path in sorted(glob.glob(os.path.join(OUT_DIR, f"{sub}_r*_frames.csv"))):
             fr = list(csv.DictReader(open(path, encoding="utf-8-sig")))
@@ -279,12 +291,21 @@ def load_ours(subjects):
                 return statistics.median(v) if v else None
             ups = [s for s in sorted(steps) if steps[s][0]["label"] == "upright"]
             if not ups:
+                for s, rs in sorted(steps.items()):
+                    record_drop(sub, s, rs, ["missing upright calibration"],
+                                [k for k in keys if med(rs, k) is None])
                 continue
             a0 = med(steps[ups[0]], "oval_area_px")
             for s, rs in sorted(steps.items()):
                 lab = rs[0]["label"]
-                vals = [med(rs, k) for k in ("face_x", "face_y", "rsh_x", "rsh_y", "lsh_x", "lsh_y", "oval_area_px")]
+                vals = [med(rs, k) for k in keys]
                 if None in vals or not a0:
+                    missing = [k for k, v in zip(keys, vals) if v is None]
+                    reasons = ["missing feature median"] if missing else []
+                    if not a0:
+                        reasons.append("missing calibration oval_area_px" if a0 is None
+                                       else "zero calibration oval_area_px")
+                    record_drop(sub, s, rs, reasons, missing)
                     continue
                 fx, fy, lx, ly, rx, ry, oa = vals
                 # 원 논문 해상도(640x480, 4:3)로 환산: 1280x720(16:9) 가운데를 960x720(4:3)으로 자른 뒤
@@ -296,6 +317,9 @@ def load_ours(subjects):
                 X.append([oa / a0, cx(fx), cy(fy), tl, tr, t1])
                 y.append(lab_idx.get(lab, -1))
                 meta.append((sub, rs[0]["round"], s, lab))
+    log(f"[OURS] loaded samples: {len(X)}; dropped samples: {dropped}")
+    for reason, count in sorted(drop_counts.items()):
+        log(f"   drop reason: {reason}: {count}")
     return np.array(X, float), np.array(y), meta
 
 
@@ -424,6 +448,46 @@ def external(Xtr, ytr, Xte, yte, meta, K, trees, seeds, lams, log, ref_mask=None
             cnt[k] = cnt.get(k, 0) + 1
         log(f"\n   * '몸 전체 앞으로'(원 논문에 없는 자세) {len(bf)}개를 M0가 판정한 결과: {cnt}")
         log("     → 거북목으로 판정되는 비율이 높다면, 얼굴 면적 기반 특징만으로는 두 자세가 섞인다는 근거 (교수님 지적 3번)")
+    subjects = np.array([item[0] for item in meta])
+    log("\n   추가 5종 지표: Macro F1 및 참가자별 지표는 시드 평균±SD; body_forward 제외")
+    log(f"   confusion matrix: 시드별 정수 count, 행=실제 / 열=예측; 순서={LAB5}")
+    for row in rows:
+        m = row["model"]
+        f1s = [macro_f1(yte[known], p[known], K) if known.any() else float("nan") for p in votes[m]]
+        row.update(external_n=int(known.sum()), external_f1=np.mean(f1s), external_f1_sd=np.std(f1s),
+                   external_class_order=json.dumps(LAB5))
+        log(f"   {m}: Macro F1 {row['external_f1']:.3f} ± {row['external_f1_sd']:.3f}")
+        matrices = []
+        for seed, p in enumerate(votes[m]):
+            cm = np.zeros((len(LAB5), len(LAB5)), dtype=int)
+            np.add.at(cm, (yte[known], p[known]), 1)
+            matrices.append(cm.tolist())
+            log(f"   {m} confusion matrix (seed {seed + 1}, n={int(known.sum())}):")
+            for label, counts in zip(LAB5, cm):
+                log(f"     {label}: {counts.tolist()}")
+        row["external_confusion_matrices"] = json.dumps(matrices)
+        recalls = {}
+        for k, label in enumerate(LAB5):
+            mask = known & (yte == k)
+            recalls[label] = float(np.mean([np.mean(p[mask] == k) for p in votes[m]])) if mask.any() else None
+            value = f"{recalls[label]:.3f}" if mask.any() else "N/A"
+            log(f"   {m} recall {label}: {value} (n={int(mask.sum())}, 시드 평균)")
+        row["external_recalls"] = json.dumps(recalls)
+        participants = {}
+        for sub in sorted(set(subjects)):
+            mask = known & (subjects == sub)
+            if mask.any():
+                acc = [float(np.mean(p[mask] == yte[mask])) for p in votes[m]]
+                f1 = [macro_f1(yte[mask], p[mask], K) for p in votes[m]]
+                result = dict(n=int(mask.sum()), acc=float(np.mean(acc)), acc_sd=float(np.std(acc)),
+                              f1=float(np.mean(f1)), f1_sd=float(np.std(f1)))
+                log(f"   {m} participant {sub}: n={result['n']}, Accuracy {result['acc']:.3f} ± "
+                    f"{result['acc_sd']:.3f}, Macro F1 {result['f1']:.3f} ± {result['f1_sd']:.3f}")
+            else:
+                result = dict(n=0, acc=None, acc_sd=None, f1=None, f1_sd=None)
+                log(f"   {m} participant {sub}: n=0, Accuracy N/A, Macro F1 N/A")
+            participants[str(sub)] = result
+        row["external_participants"] = json.dumps(participants, ensure_ascii=False)
     if ref_mask is not None:
         nonref = known & ~ref_mask
         log("\n   추가: relative non-reference evaluation (calibration upright excluded)")
@@ -437,6 +501,10 @@ def external(Xtr, ytr, Xte, yte, meta, K, trees, seeds, lams, log, ref_mask=None
                        relative_nonref_note="calibration upright excluded; other upright retained; known labels only",
                        relative_nonref_acc=np.mean(values), relative_nonref_acc_sd=np.std(values))
             log(f"   {m:<14} {row['relative_nonref_acc']:.3f} ± {row['relative_nonref_acc_sd']:.3f}")
+            f1s = [macro_f1(yte[nonref], p[nonref], K) if nonref.any() else float("nan") for p in votes[m]]
+            row.update(relative_nonref_f1=np.mean(f1s), relative_nonref_f1_sd=np.std(f1s))
+            log(f"   {m} non-reference Macro F1: {row['relative_nonref_f1']:.3f} ± "
+                f"{row['relative_nonref_f1_sd']:.3f}")
     return rows
 
 
@@ -497,7 +565,7 @@ def main():
     ref_p = yp == 0  # 원 논문: 사람마다 정상 자세 1장이 기준
     Xo0 = yo = meta = None
     if a.ours:
-        Xo0, yo, meta = load_ours(a.ours)
+        Xo0, yo, meta = load_ours(a.ours, log=log)
         go = np.array([f"{m[0]}_r{m[1]}" for m in meta]) if len(meta) else np.array([])
         # 우리 데이터: 각 회차 첫 정상 자세(20초 구간)가 기준
         first_up = {}

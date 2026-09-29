@@ -97,7 +97,7 @@ class RelativeEvaluationTests(unittest.TestCase):
         for row in run["rows"][3:]:
             self.assertEqual(row["relative_nonref_n"], 4)
             self.assertEqual(row["relative_nonref_acc"], 0.5)
-            self.assertNotIn("relative_nonref_f1", row)
+            self.assertAlmostEqual(row["relative_nonref_f1"], 5 / 12)
         self.assertIn("이후 upright 유지", run["log"])
 
     def test_body_forward_stays_excluded(self):
@@ -124,10 +124,12 @@ class RelativeEvaluationTests(unittest.TestCase):
                                     features=mode, acc=0.6, acc_sd=0.0)
                     if i < 3:
                         expected.update(f1=0.5, f1_sd=0.0, min_subject_acc=0.6)
-                    full = {k: v for k, v in row.items() if not k.startswith("relative_nonref_")}
+                    # Step 4 adds external diagnostics; preserve every original field.
+                    legacy = {k: v for k, v in row.items() if not k.startswith("external_")}
+                    full = {k: v for k, v in legacy.items() if not k.startswith("relative_nonref_")}
                     self.assertEqual(full, expected)
                     if mode != "relative":
-                        self.assertEqual(row, expected)
+                        self.assertEqual(legacy, expected)
 
     def test_reference_remains_in_training_and_calibration(self):
         training = self.runs["relative"]["training"]
