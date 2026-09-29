@@ -52,15 +52,18 @@ HOLD_SEC_GUIDE = 2.0      # 거리 OK 유지 시간
 COUNTDOWN_SEC = 3         # 녹화 시작 전 카운트다운
 PREP_SEC = 4              # 각 자세 준비 시간
 MOVE_WARN_M = 0.03        # 촬영 구간 중 흔들림 경고 기준 (최근 2초 표준편차 2cm, 품질판정 3cm)
-LIVE_FWD_M = 0.04         # 거북목/몸 전체 앞으로: 앞 정상 자세보다 4cm 이상 가까워야 "그대로 있으세요"
+# 전방 이동 v2: 향후 추가 참가자 촬영부터 적용. 기존 P01/P02는 pilot/protocol-improvement 데이터로 유지.
+FWD_TARGET_MIN_M = 0.08
+FWD_TARGET_MAX_M = 0.12
+FWD_TARGET_TEXT = f"{FWD_TARGET_MIN_M * 100:g}~{FWD_TARGET_MAX_M * 100:g}cm"
 LIVE_BACK_M = 0.02        # 뒤로 기울임: 2cm 이상 멀어져야 함
 LIVE_SIDE_CX = 0.03       # 좌우 기울임: 얼굴 중심이 화면 폭의 3% 이상 이동해야 함
 DISP_W, DISP_H = 960, 540
 
 POSTURES = {
     "upright":      ("정상 자세",       "허리를 펴고 화면 표시점을 보세요",          "UPRIGHT"),
-    "forward_head": ("거북목",          "시선은 그대로, 턱만 앞으로 내미세요",       "FORWARD HEAD"),
-    "body_forward": ("몸 전체 앞으로",  "등을 등받이에서 떼고 상체 통째로 앞으로",   "BODY FORWARD"),
+    "forward_head": ("거북목",          f"등·어깨 고정, 정면 시선·고개 각도 유지. 머리 전체 수평 전진 (얼굴 {FWD_TARGET_TEXT})", "FORWARD HEAD"),
+    "body_forward": ("몸 전체 앞으로",  f"머리만 말고 등·어깨 포함 상체 전체를 앞으로 (얼굴 {FWD_TARGET_TEXT})", "BODY FORWARD"),
     "lean_back":    ("뒤로 기울임",     "등을 뒤로 젖히고 화면을 보세요",            "LEAN BACK"),
     "lean_left":    ("왼쪽 기울임",     "상체를 내 왼쪽으로, 고개는 돌리지 마세요",  "LEAN LEFT"),
     "lean_right":   ("오른쪽 기울임",   "상체를 내 오른쪽으로, 고개는 돌리지 마세요", "LEAN RIGHT"),
@@ -98,6 +101,15 @@ def font(size):
 KOREAN_OK = PIL_OK and font(20) is not None
 
 # ---------------- 측정 ----------------
+
+
+def evaluate_forward_distance(closer):
+    """두 전방 자세의 공통 판정. 거리 차 계산의 부동소수점 경계 오차만 허용한다."""
+    if closer < FWD_TARGET_MIN_M and not math.isclose(closer, FWD_TARGET_MIN_M, rel_tol=0, abs_tol=1e-12):
+        return "too_little"
+    if closer > FWD_TARGET_MAX_M and not math.isclose(closer, FWD_TARGET_MAX_M, rel_tol=0, abs_tol=1e-12):
+        return "too_much"
+    return "ok"
 
 
 def make_config(record_path=None):
@@ -372,11 +384,22 @@ def record_phase(subject, rnd, start_info, seq):
                 rd = [x["distance_m"] for x in recent if x["distance_m"] is not None]
                 rc = [x["face_cx"] for x in recent if x["face_cx"] is not None]
                 hint = None  # 자세가 충분하지 않을 때의 안내
+                hint_en = None
+                if ph["key"] in ("forward_head", "body_forward"):
+                    hint, hint_en = "전방 이동 측정 중", "CHECKING FORWARD DISTANCE"
                 if len(rd) >= 3 and ref_up["dist"] is not None:
                     dnow = statistics.median(rd[-5:])
                     closer = ref_up["dist"] - dnow
-                    if ph["key"] in ("forward_head", "body_forward") and closer < LIVE_FWD_M:
-                        hint = f"조금 더 앞으로 (지금 {closer*100:.0f}cm, 목표 8~12cm)"
+                    if ph["key"] in ("forward_head", "body_forward"):
+                        status = evaluate_forward_distance(closer)
+                        if status == "too_little":
+                            hint = f"조금 더 앞으로 (지금 {closer*100:.1f}cm, 목표 {FWD_TARGET_TEXT})"
+                            hint_en = "MOVE CLOSER"
+                        elif status == "too_much":
+                            hint = f"너무 많이 이동했어요. 조금 뒤로 (지금 {closer*100:.1f}cm, 목표 {FWD_TARGET_TEXT})"
+                            hint_en = "MOVE BACK"
+                        else:
+                            hint = None
                     elif ph["key"] == "lean_back" and -closer < LIVE_BACK_M:
                         hint = f"조금 더 뒤로 (지금 {-closer*100:.0f}cm)"
                 if hint is None and ph["key"] in ("lean_left", "lean_right") and len(rc) >= 3 \
@@ -386,7 +409,7 @@ def record_phase(subject, rnd, start_info, seq):
                     msg, col, msg_en = "자세를 정확히 잡아주세요", C_RED, "ADJUST POSTURE"
                     sub = f"{name} - 사람이 잘 보이지 않아요"
                 elif hint:
-                    msg, col, msg_en = "자세를 정확히 잡아주세요", C_RED, "ADJUST POSTURE"
+                    msg, col, msg_en = "자세를 정확히 잡아주세요", C_RED, hint_en or "ADJUST POSTURE"
                     sub = f"{name} - {hint}"
                 elif len(rd) >= 5 and statistics.pstdev(rd) > 0.02:
                     msg, col, msg_en = "자세를 정확히 잡아주세요", C_RED, "DON'T MOVE"
@@ -394,6 +417,8 @@ def record_phase(subject, rnd, start_info, seq):
                 else:
                     msg, col, msg_en = "그대로 있으세요", C_GREEN, f"HOLD: {name_en}"
                     sub = f"{name} - {how}"
+            if ph["key"] in ("forward_head", "body_forward"):
+                msg_en += f" | FACE {FWD_TARGET_TEXT}"
             dtxt = f"{dist * 100:.1f}cm ({mode})" if dist else "--"
             disp = make_display(img, box,
                                 f"{subject} {rnd}회차 · {ph['step']}/{len(seq)}단계 · 거리 {dtxt}",
@@ -489,8 +514,8 @@ def quality_check(phases, samples, aborted):
             prev_ups = [u for u in ups if u < pi]  # 바로 앞의 정상 자세를 기준으로 비교
             ref_up = stats[prev_ups[-1]]["med"] if prev_ups else base_up
             closer = ref_up - stats[pi]["med"]
-            if ph["key"] in ("forward_head", "body_forward") and closer < 0.015:
-                fails.append(f"{name}: 얼굴이 앞으로 거의 나오지 않음 ({closer*100:+.1f}cm)")
+            if ph["key"] in ("forward_head", "body_forward") and evaluate_forward_distance(closer) != "ok":
+                fails.append(f"{name}: 얼굴 전방 이동 {closer*100:.1f}cm — 목표 {FWD_TARGET_TEXT}")
             if ph["key"] == "lean_back" and -closer < 0.015:
                 warns.append(f"{name}: 뒤로 거의 이동하지 않음 ({-closer*100:+.1f}cm)")
             if ph["key"] in ("lean_left", "lean_right") and stats[pi]["cx"] is not None and base_cx is not None:
