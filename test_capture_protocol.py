@@ -34,7 +34,8 @@ def load_capture():
 capture = load_capture()
 
 
-def live_display_state(label, closer, reference=0.75, sample_count=10):
+def live_display_state(label, closer, reference=0.75, sample_count=10,
+                       reference_mode="face", mode="face", sample_modes=None, sample_distances=None):
     # Execute the actual UI decision block, without the surrounding camera loop.
     record = next(node for node in TREE.body if isinstance(node, ast.FunctionDef) and node.name == "record_phase")
     loop = next(node for node in ast.walk(record) if isinstance(node, ast.While))
@@ -44,20 +45,27 @@ def live_display_state(label, closer, reference=0.75, sample_count=10):
                if isinstance(node, ast.Assign) and ast.unparse(node.targets[0]) == "dtxt")
     code = compile(ast.Module(body=loop.body[start:end], type_ignores=[]), str(SOURCE_PATH), "exec")
     distance = 0.75 - closer
+    sample_modes = sample_modes if sample_modes is not None else [mode] * sample_count
+    sample_distances = sample_distances if sample_distances is not None else [distance] * sample_count
     namespace = dict(vars(capture), ph={"key": label, "kind": "hold", "dur": 10},
-                     ph_i=1, t_in=4, dist=distance, ref_up={"dist": reference, "cx": 0.5},
-                     samples=[dict(phase_idx=1, t=2 + i / 10, distance_m=distance, face_cx=0.5)
-                              for i in range(sample_count)])
+                     ph_i=1, t_in=4, dist=distance, mode=mode,
+                     ref_up={"dist": reference, "cx": 0.5,
+                             "face_dist": reference if reference_mode == "face" else None},
+                     samples=[dict(phase_idx=1, t=2 + i / 10, distance_m=d, face_cx=0.5, mode=m)
+                              for i, (m, d) in enumerate(zip(sample_modes, sample_distances))])
     exec(code, namespace)
     return namespace
 
 
-def final_quality(label, closer):
+def final_quality(label, closer, reference_mode="face", current_mode="face",
+                  reference_values=None, current_values=None):
     phases = [dict(step=1, kind="hold", key="upright", dur=10),
               dict(step=2, kind="hold", key=label, dur=10)]
-    samples = [dict(phase_idx=i, t=t, distance_m=distance, face_cx=0.5,
-                    mode="face", face_area_px=100, face_size_cm2=100)
-               for i, distance in enumerate((0.75, 0.75 - closer)) for t in (2, 3, 4, 5, 6)]
+    values = [reference_values if reference_values is not None else [(reference_mode, 0.75)] * 5,
+              current_values if current_values is not None else [(current_mode, 0.75 - closer)] * 5]
+    samples = [dict(phase_idx=i, t=2 + j / 10, distance_m=distance, face_cx=0.5,
+                    mode=mode, face_area_px=100, face_size_cm2=100)
+               for i, phase_values in enumerate(values) for j, (mode, distance) in enumerate(phase_values)]
     return capture.quality_check(phases, samples, False)
 
 
@@ -130,6 +138,107 @@ class CaptureProtocolTests(unittest.TestCase):
         fails, warns, _ = final_quality("lean_back", -0.01)
         self.assertEqual(fails, [])
         self.assertTrue(any("뒤로 거의 이동하지 않음" in warning for warning in warns))
+
+
+class FaceOnlyForwardTests(unittest.TestCase):
+    def test_face_10cm_passes(self):
+        for label in ("forward_head", "body_forward"):
+            self.assertEqual(final_quality(label, 0.10)[0], [])
+            self.assertEqual(live_display_state(label, 0.10)["col"], capture.C_GREEN)
+
+    def test_body_only_10cm_cannot_pass(self):
+        for label in ("forward_head", "body_forward"):
+            fails, _, _ = final_quality(label, 0.10, "body", "body")
+            self.assertTrue(any("얼굴 거리 측정 샘플 부족" in message for message in fails))
+            state = live_display_state(label, 0.10, reference_mode="body", mode="body")
+            self.assertEqual(state["col"], capture.C_RED)
+            self.assertIn("얼굴 거리 측정 필요", state["sub"])
+
+    def test_mixed_sources_cannot_pass(self):
+        for label in ("forward_head", "body_forward"):
+            for reference_mode, current_mode in (("face", "body"), ("body", "face")):
+                with self.subTest(label=label, reference=reference_mode, current=current_mode):
+                    self.assertTrue(final_quality(label, 0.10, reference_mode, current_mode)[0])
+                    state = live_display_state(label, 0.10, reference_mode=reference_mode, mode=current_mode)
+                    self.assertEqual(state["col"], capture.C_RED)
+
+    def test_face_7cm_fails(self):
+        for label in ("forward_head", "body_forward"):
+            self.assertIn("7.0cm", final_quality(label, 0.07)[0][0])
+            self.assertIn("더 앞으로", live_display_state(label, 0.07)["sub"])
+
+    def test_face_13cm_fails(self):
+        for label in ("forward_head", "body_forward"):
+            self.assertIn("13.0cm", final_quality(label, 0.13)[0][0])
+            self.assertIn("조금 뒤로", live_display_state(label, 0.13)["sub"])
+
+    def test_general_body_fallback_preserved(self):
+        with patch.object(capture, "face_distance", return_value=(None, None)), \
+                patch.object(capture, "body_distance", return_value=0.65) as body:
+            self.assertEqual(capture.measure_distance(None, None, 0.001), (0.65, None, "body"))
+            body.assert_called_once_with(None, 0.001)
+
+    def test_existing_face_rate_threshold_reused(self):
+        sparse = [("face", 0.65)] * 4 + [("body", 0.65)] * 6
+        enough = [("face", 0.65)] * 5 + [("body", 0.65)] * 5
+        for label in ("forward_head", "body_forward"):
+            self.assertTrue(final_quality(label, 0.1, current_values=sparse)[0])
+            self.assertEqual(final_quality(label, 0.1, current_values=enough)[0], [])
+            self.assertTrue(final_quality(label, 0.1,
+                                         reference_values=[(m, 0.75) for m, _ in sparse])[0])
+            state = live_display_state(label, 0.1, sample_modes=[m for m, _ in sparse])
+            self.assertEqual(state["col"], capture.C_RED)
+
+    def test_medians_exclude_body_values(self):
+        for label in ("forward_head", "body_forward"):
+            # All-distance reference median is .78, but face-only reference is .75.
+            ref = [("face", 0.75)] * 5 + [("body", 0.81)] * 5
+            self.assertEqual(final_quality(label, 0.1, reference_values=ref)[0], [])
+            # Mixed current median .66 would pass; face-only .68 must fail (7cm).
+            current = [("face", 0.68)] * 5 + [("body", 0.64)] * 5
+            self.assertIn("7.0cm", final_quality(label, 0.07, current_values=current)[0][0])
+            state = live_display_state(label, 0.07, sample_modes=[m for m, _ in current],
+                                       sample_distances=[d for _, d in current])
+            self.assertIn("더 앞으로", state["sub"])
+
+    def test_current_body_mode_cannot_use_recent_face_history(self):
+        for label in ("forward_head", "body_forward"):
+            state = live_display_state(label, 0.1, mode="body", sample_modes=["face"] * 9 + ["body"])
+            self.assertEqual(state["col"], capture.C_RED)
+            self.assertIn("얼굴 거리 측정 필요", state["sub"])
+
+    def test_none_face_depth_and_missing_reference_fail(self):
+        for label in ("forward_head", "body_forward"):
+            for reference, current in (([("face", None)] * 5, [("face", 0.65)] * 5),
+                                       ([("face", 0.75)] * 5, [("face", None)] * 5),
+                                       ([], [("face", 0.65)] * 5)):
+                fails = final_quality(label, 0.1, reference_values=reference, current_values=current)[0]
+                self.assertTrue(any("얼굴 거리 측정 샘플 부족" in message for message in fails))
+
+    def test_final_does_not_skip_invalid_latest_upright(self):
+        for label in ("forward_head", "body_forward"):
+            phases = [dict(step=i + 1, kind="hold", key=key, dur=10)
+                      for i, key in enumerate(("upright", "upright", label))]
+            samples = [dict(phase_idx=i, t=t, distance_m=d, mode=m, face_cx=0.5,
+                            face_area_px=100, face_size_cm2=100)
+                       for i, (m, d) in enumerate((("face", 0.75), ("body", 0.75), ("face", 0.65)))
+                       for t in (2, 3, 4, 5, 6)]
+            fails = capture.quality_check(phases, samples, False)[0]
+            self.assertTrue(any("기준 정상 자세" in message for message in fails))
+
+    def test_live_reference_uses_faces_and_clears_stale_value(self):
+        record = next(n for n in TREE.body if isinstance(n, ast.FunctionDef) and n.name == "record_phase")
+        update = next(n for n in ast.walk(record) if isinstance(n, ast.Assign)
+                      and ast.unparse(n.targets[0]) == "ref_up['face_dist']")
+        code = compile(ast.Module(body=[update], type_ignores=[]), str(SOURCE_PATH), "exec")
+        values = [("face", 0.75)] * 5 + [("body", 0.81)] * 5
+        samples = [dict(phase_idx=1, t=2, distance_m=d, mode=m) for m, d in values]
+        namespace = dict(vars(capture), samples=samples, ph_i=1, ref_up={"face_dist": 0.9})
+        exec(code, namespace)
+        self.assertEqual(namespace["ref_up"]["face_dist"], 0.75)
+        namespace["samples"] = [dict(s, mode="body") for s in samples]
+        exec(code, namespace)
+        self.assertIsNone(namespace["ref_up"]["face_dist"])
 
 
 if __name__ == "__main__":

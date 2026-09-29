@@ -112,6 +112,14 @@ def evaluate_forward_distance(closer):
     return "ok"
 
 
+def median_face_distance(samples, min_samples=1, last_n=None):
+    """전방 판정용: 유효 face 거리만 사용하며 기존 얼굴 검출률 50% 기준을 재사용."""
+    values = [s["distance_m"] for s in samples if s["mode"] == "face" and s["distance_m"] is not None]
+    if len(values) < min_samples or len(values) < 0.5 * len(samples):
+        return None
+    return statistics.median(values[-last_n:] if last_n is not None else values)
+
+
 def make_config(record_path=None):
     cfg = rs.config()
     cfg.enable_stream(rs.stream.depth, 848, 480, rs.format.z16, FPS)
@@ -321,7 +329,7 @@ def record_phase(subject, rnd, start_info, seq):
 
     markers, samples = [], []
     ph_i, ph_start, aborted = -1, None, False
-    ref_up = {"dist": None, "cx": None}  # 바로 앞 정상 자세 기준값
+    ref_up = {"dist": None, "cx": None, "face_dist": None}  # 바로 앞 정상 자세 기준값
     dist, box, mode, n = None, None, "none", 0
     rec_t0 = time.time()
     print(f"[녹화 시작] {rec_file}  (화면 안내를 따라 자세만 바꾸세요, q: 중단)")
@@ -336,6 +344,9 @@ def record_phase(subject, rnd, start_info, seq):
             # 단계 전환
             if ph_i == -1 or now - ph_start >= phases[ph_i]["dur"]:
                 if ph_i >= 0 and phases[ph_i]["kind"] == "hold" and phases[ph_i]["key"] == "upright":
+                    # 직전 upright에 face 측정이 부족하면 None으로 갱신 (이전 face 기준 재사용 금지).
+                    ref_up["face_dist"] = median_face_distance(
+                        [x for x in samples if x["phase_idx"] == ph_i and x["t"] > 1.0])
                     ud = [x["distance_m"] for x in samples if x["phase_idx"] == ph_i and x["t"] > 1.0
                           and x["distance_m"] is not None]
                     uc = [x["face_cx"] for x in samples if x["phase_idx"] == ph_i and x["t"] > 1.0
@@ -377,7 +388,12 @@ def record_phase(subject, rnd, start_info, seq):
             if ph["kind"] == "prep":
                 msg, col, msg_en = "자세를 잡아주세요", C_ORANGE, f"GET READY: {name_en}"
                 sub = f"다음: {name} - {how}"
-                if ph["key"] in ("forward_head", "body_forward", "lean_back") and dist and ref_up["dist"]:
+                if ph["key"] in ("forward_head", "body_forward"):
+                    if mode == "face" and dist is not None and ref_up["face_dist"] is not None:
+                        sub += f"  (지금 {(ref_up['face_dist'] - dist) * 100:+.0f}cm)"
+                    else:
+                        sub += "  (얼굴 인식 필요)"
+                elif ph["key"] == "lean_back" and dist and ref_up["dist"]:
                     sub += f"  (지금 {(ref_up['dist'] - dist) * 100:+.0f}cm)"
             else:
                 recent = [x for x in samples if x["phase_idx"] == ph_i and x["t"] > 0.5][-10:]  # 최근 약 2초
@@ -386,11 +402,10 @@ def record_phase(subject, rnd, start_info, seq):
                 hint = None  # 자세가 충분하지 않을 때의 안내
                 hint_en = None
                 if ph["key"] in ("forward_head", "body_forward"):
-                    hint, hint_en = "전방 이동 측정 중", "CHECKING FORWARD DISTANCE"
-                if len(rd) >= 3 and ref_up["dist"] is not None:
-                    dnow = statistics.median(rd[-5:])
-                    closer = ref_up["dist"] - dnow
-                    if ph["key"] in ("forward_head", "body_forward"):
+                    hint, hint_en = "얼굴 거리 측정 필요 - 얼굴을 카메라에 보여주세요", "FACE DISTANCE NEEDED"
+                    dnow = median_face_distance(recent, min_samples=3, last_n=5)
+                    if mode == "face" and dnow is not None and ref_up["face_dist"] is not None:
+                        closer = ref_up["face_dist"] - dnow
                         status = evaluate_forward_distance(closer)
                         if status == "too_little":
                             hint = f"조금 더 앞으로 (지금 {closer*100:.1f}cm, 목표 {FWD_TARGET_TEXT})"
@@ -400,7 +415,10 @@ def record_phase(subject, rnd, start_info, seq):
                             hint_en = "MOVE BACK"
                         else:
                             hint = None
-                    elif ph["key"] == "lean_back" and -closer < LIVE_BACK_M:
+                elif len(rd) >= 3 and ref_up["dist"] is not None:
+                    dnow = statistics.median(rd[-5:])
+                    closer = ref_up["dist"] - dnow
+                    if ph["key"] == "lean_back" and -closer < LIVE_BACK_M:
                         hint = f"조금 더 뒤로 (지금 {-closer*100:.0f}cm)"
                 if hint is None and ph["key"] in ("lean_left", "lean_right") and len(rc) >= 3 \
                         and ref_up["cx"] is not None and abs(statistics.median(rc[-5:]) - ref_up["cx"]) < LIVE_SIDE_CX:
@@ -477,7 +495,8 @@ def quality_check(phases, samples, aborted):
         ar = [s["face_area_px"] for s in ss if s.get("face_area_px") and s["mode"] == "face"]
         sz = [s["face_size_cm2"] for s in ss if s.get("face_size_cm2")]
         stats[pi] = {"med": med, "sd": sd, "cx": statistics.median(cx) if cx else None,
-                     "area": statistics.median(ar) if ar else None, "size": statistics.median(sz) if sz else None}
+                     "area": statistics.median(ar) if ar else None, "size": statistics.median(sz) if sz else None,
+                     "face_med": median_face_distance(ss)}
         name = f"{ph['step']}단계 {POSTURES[ph['key']][0]}"
         rows.append([name, med, sd, person_ratio, face_ratio, stats[pi]["area"], None, stats[pi]["size"], pi])
         if person_ratio < 0.5:
@@ -486,6 +505,23 @@ def quality_check(phases, samples, aborted):
             warns.append(f"{name}: 얼굴 검출이 적음 ({face_ratio*100:.0f}%)")
         if sd > MOVE_WARN_M:
             warns.append(f"{name}: 움직임이 큼 (흔들림 ±{sd*100:.1f}cm)")
+
+    # 전방 hard gate는 reference/current 모두 face-only. 일반 거리 통계와 fallback은 유지한다.
+    for pi, ph in enumerate(phases):
+        if ph["kind"] != "hold" or ph["key"] not in ("forward_head", "body_forward"):
+            continue
+        prev = [i for i in range(pi) if phases[i]["kind"] == "hold" and phases[i]["key"] == "upright"]
+        ref_face = stats.get(prev[-1], {}).get("face_med") if prev else None
+        current_face = stats.get(pi, {}).get("face_med")
+        name = f"{ph['step']}단계 {POSTURES[ph['key']][0]}"
+        if ref_face is None or current_face is None:
+            missing = [label for label, value in (("기준 정상 자세", ref_face), ("현재 자세", current_face))
+                       if value is None]
+            fails.append(f"{name}: 얼굴 거리 측정 샘플 부족 ({', '.join(missing)}) — 재촬영 필요")
+        else:
+            closer = ref_face - current_face
+            if evaluate_forward_distance(closer) != "ok":
+                fails.append(f"{name}: 얼굴 전방 이동 {closer*100:.1f}cm — 목표 {FWD_TARGET_TEXT}")
 
     ups = [pi for pi, ph in enumerate(phases) if ph["kind"] == "hold" and ph["key"] == "upright"
            and pi in stats and stats[pi]["med"] is not None]
@@ -514,8 +550,6 @@ def quality_check(phases, samples, aborted):
             prev_ups = [u for u in ups if u < pi]  # 바로 앞의 정상 자세를 기준으로 비교
             ref_up = stats[prev_ups[-1]]["med"] if prev_ups else base_up
             closer = ref_up - stats[pi]["med"]
-            if ph["key"] in ("forward_head", "body_forward") and evaluate_forward_distance(closer) != "ok":
-                fails.append(f"{name}: 얼굴 전방 이동 {closer*100:.1f}cm — 목표 {FWD_TARGET_TEXT}")
             if ph["key"] == "lean_back" and -closer < 0.015:
                 warns.append(f"{name}: 뒤로 거의 이동하지 않음 ({-closer*100:+.1f}cm)")
             if ph["key"] in ("lean_left", "lean_right") and stats[pi]["cx"] is not None and base_cx is not None:
