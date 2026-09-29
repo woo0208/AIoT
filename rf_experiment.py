@@ -324,13 +324,15 @@ def transform(X, groups, is_ref, mode):
 
 
 # ================================================================ 실험
-def loso(X, y, g, K, trees, seeds, lams, name, log):
+def loso(X, y, g, K, trees, seeds, lams, name, log, ref_mask=None):
     subs = sorted(set(g), key=lambda s: (len(s), s))
     names = None
     acc = {}        # model -> list over seeds of overall acc
     f1 = {}
     per_sub = {}    # model -> subject -> list of acc over seeds
     agree01 = []
+    nonref = ~ref_mask if ref_mask is not None else None
+    nonref_acc, nonref_f1 = {}, {}
     t0 = time.time()
     for seed in range(seeds):
         preds = {}
@@ -344,6 +346,11 @@ def loso(X, y, g, K, trees, seeds, lams, name, log):
         for m in names:
             acc.setdefault(m, []).append(float(np.mean(preds[m] == y)))
             f1.setdefault(m, []).append(macro_f1(y, preds[m], K))
+            if nonref is not None:
+                nonref_acc.setdefault(m, []).append(
+                    float(np.mean(preds[m][nonref] == y[nonref])) if nonref.any() else float("nan"))
+                nonref_f1.setdefault(m, []).append(
+                    macro_f1(y[nonref], preds[m][nonref], K) if nonref.any() else float("nan"))
             for s in subs:
                 per_sub.setdefault(m, {}).setdefault(s, []).append(float(np.mean(preds[m][g == s] == y[g == s])))
         agree01.append(float(np.mean(preds["M0"] == preds["M1"])))
@@ -369,10 +376,25 @@ def loso(X, y, g, K, trees, seeds, lams, name, log):
         verdict = "안정적 개선" if lo > 0 and pos > len(subs) / 2 else ("차이 없음/불확실" if lo <= 0 <= hi else "악화")
         log(f"   {m} − M1: 참가자 평균 {np.mean(d):+.3f} (95% CI {lo:+.3f}~{hi:+.3f}), "
             f"개선 {pos}명 / 악화 {neg}명 → {verdict}")
+    if nonref is not None:
+        log("\n   추가: relative non-reference evaluation (calibration upright excluded)")
+        log("   [A] 참가자당 나머지 4개 posture 평가; 정상 class 평가 샘플 0개.")
+        log("   Macro F1은 기존 함수로 평가에 존재하는 class만 평균 (5-class Macro F1 아님).")
+        log(f"   평가 샘플 {int(nonref.sum())}개; 모델별 Accuracy / Macro F1 (평균±시드SD)")
+        for row in rows:
+            m = row["model"]
+            row.update(relative_nonref_n=int(nonref.sum()),
+                       relative_nonref_note="calibration upright excluded; 4 postures; no upright class",
+                       relative_nonref_acc=np.mean(nonref_acc[m]),
+                       relative_nonref_acc_sd=np.std(nonref_acc[m]),
+                       relative_nonref_f1=np.mean(nonref_f1[m]),
+                       relative_nonref_f1_sd=np.std(nonref_f1[m]))
+            log(f"   {m:<14} {row['relative_nonref_acc']:.3f} ± {row['relative_nonref_acc_sd']:.3f} / "
+                f"{row['relative_nonref_f1']:.3f} ± {row['relative_nonref_f1_sd']:.3f}")
     return rows
 
 
-def external(Xtr, ytr, Xte, yte, meta, K, trees, seeds, lams, log):
+def external(Xtr, ytr, Xte, yte, meta, K, trees, seeds, lams, log, ref_mask=None):
     log(f"\n■ [C] 원 논문 데이터로 학습 → 우리 데이터 적용 (샘플 {len(yte)}개, 트리 {trees}, 시드 {seeds})")
     known = yte >= 0
     names, votes, accs = None, {}, {}
@@ -402,6 +424,19 @@ def external(Xtr, ytr, Xte, yte, meta, K, trees, seeds, lams, log):
             cnt[k] = cnt.get(k, 0) + 1
         log(f"\n   * '몸 전체 앞으로'(원 논문에 없는 자세) {len(bf)}개를 M0가 판정한 결과: {cnt}")
         log("     → 거북목으로 판정되는 비율이 높다면, 얼굴 면적 기반 특징만으로는 두 자세가 섞인다는 근거 (교수님 지적 3번)")
+    if ref_mask is not None:
+        nonref = known & ~ref_mask
+        log("\n   추가: relative non-reference evaluation (calibration upright excluded)")
+        log("   [C] 각 회차 첫 정상 reference만 제외; 이후 upright 유지; body_forward는 기존대로 제외.")
+        log(f"   평가 샘플 {int(nonref.sum())}개; 모델별 Accuracy (평균±시드SD)")
+        for row in rows:
+            m = row["model"]
+            values = [float(np.mean(p[nonref] == yte[nonref])) if nonref.any() else float("nan")
+                      for p in votes[m]]
+            row.update(relative_nonref_n=int(nonref.sum()),
+                       relative_nonref_note="calibration upright excluded; other upright retained; known labels only",
+                       relative_nonref_acc=np.mean(values), relative_nonref_acc_sd=np.std(values))
+            log(f"   {m:<14} {row['relative_nonref_acc']:.3f} ± {row['relative_nonref_acc_sd']:.3f}")
     return rows
 
 
@@ -477,12 +512,14 @@ def main():
         Xp = transform(Xp0, gp, ref_p, fs)
         if not a.skip_paper_loso:
             rows += [dict(r, features=fs) for r in
-                     loso(Xp, yp, gp, 5, a.trees, a.seeds, a.lams, f"[A] 원 논문 Dataset.xlsx ({fs})", log)]
+                     loso(Xp, yp, gp, 5, a.trees, a.seeds, a.lams, f"[A] 원 논문 Dataset.xlsx ({fs})", log,
+                          ref_mask=ref_p if fs == "relative" else None)]
         if a.ours:
             if len(yo):
                 Xo = transform(Xo0, go, ref_o, fs)
                 rows += [dict(r, features=fs, dataset=f"C_ours_external ({fs})") for r in
-                         external(Xp, yp, Xo, yo, meta, 5, a.trees, a.seeds, a.lams, log)]
+                         external(Xp, yp, Xo, yo, meta, 5, a.trees, a.seeds, a.lams, log,
+                                  ref_mask=ref_o if fs == "relative" else None)]
             else:
                 log("\n[C] analysis 폴더에서 우리 데이터를 찾지 못했습니다 (analyze_d455.py 먼저 실행).")
     Xp = transform(Xp0, gp, ref_p, "all")
