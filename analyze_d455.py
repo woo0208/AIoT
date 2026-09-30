@@ -21,8 +21,9 @@
     python analyze_d455.py P01 P02        # 두 사람 함께 분석 (실제 얼굴 크기 비교 포함)
     python analyze_d455.py P01 --step 2   # 2프레임마다 1장 분석 (빠르게)
     python analyze_d455.py P01 P02 --from-csv   # 이미 분석한 CSV로 요약·그래프만 다시 (수 초)
+    # provenance 없는 과거 pilot raw/CSV에는 --legacy-pilot을 명시해야 합니다.
 
-결과: analysis 폴더
+결과: analysis 폴더 (기존 평면 출력 + recording/run별 불변 사본 및 analysis_manifest.json)
     <파일>_frames.csv     프레임별 모든 값
     summary_steps.csv     회차·단계별 요약 (중앙값, 흔들림, 정상 자세 대비 변화량)
     summary_report.txt    발표용 요약 문장
@@ -33,12 +34,22 @@
 import argparse
 import bisect
 import csv
+from datetime import datetime, timezone
 import glob
+import hashlib
+import importlib.metadata
+import json
 import math
 import os
+import platform
+import re
+import shutil
 import statistics
+import subprocess
 import sys
+import tempfile
 import urllib.request
+import uuid
 import warnings
 
 warnings.filterwarnings("ignore", message=".*Glyph.*")
@@ -66,9 +77,383 @@ FACE_OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365
 IRIS_L, IRIS_R = 468, 473   # 양쪽 홍채 중심 (눈 사이 거리 점검용)
 TRIM_START, TRIM_END = 1.0, 0.5   # 각 자세 구간 앞 1초, 뒤 0.5초 제외
 BOUNDARY_DELTA_PX = 2.0           # 면적 상대오차 추정용 경계 오차 가정 (2δ/w)
+# 기존 runtime literal을 provenance와 공유한다. 값/계산 규칙은 변경하지 않는다.
+FACE_MIN_DETECTION_CONFIDENCE = 0.5
+FACE_NUM_FACES, POSE_NUM_POSES = 1, 1
+LANDMARK_RUNNING_MODE = "VIDEO"
+SHOULDER_L, SHOULDER_R = 11, 12
+FACE_DEPTH_ROI_MIN, FACE_DEPTH_ROI_MAX = 0.25, 0.75
+OVAL_DEPTH_HALF_WIDTH_PX, SHOULDER_DEPTH_HALF_WIDTH_PX = 15, 6
+DEPTH_MIN_VALID_PIXELS = 10
 
 POSTURE_KO = {"upright": "정상", "forward_head": "거북목", "body_forward": "몸 전체 앞으로",
               "lean_back": "뒤로 기울임", "lean_left": "왼쪽 기울임", "lean_right": "오른쪽 기울임"}
+
+
+# ---------------------------------------------------------------- provenance (수치 계산과 별도)
+def utc_now():
+    return datetime.now(timezone.utc)
+
+
+def new_analysis_id():
+    return f"ar_{utc_now().strftime('%Y%m%dT%H%M%S%fZ')}_{uuid.uuid4().hex}"
+
+
+def provenance_unknown(reasons, field, error):
+    reasons[field] = str(error)
+    print(f"[경고] analysis provenance {field}: {error}", file=sys.stderr)
+
+
+def artifact_info(path, reasons):
+    """전체 byte streaming hash. mtime/size를 내용 hash 대신 사용하지 않는다."""
+    result = {"filename": os.path.basename(path), "path": os.path.abspath(path),
+              "size_bytes": None, "mtime_ns": None, "sha256": None, "hash_status": "unavailable"}
+    try:
+        before = os.stat(path)
+        result.update(size_bytes=before.st_size, mtime_ns=before.st_mtime_ns)
+        digest = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+        after = os.stat(path)
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise OSError("file changed while hashing")
+        result.update(sha256=digest.hexdigest(), hash_status="complete")
+    except OSError as error:
+        provenance_unknown(reasons, os.path.abspath(path), error)
+    return result
+
+
+def analysis_environment(reasons):
+    versions = {}
+    for field, getter in (("python", platform.python_version), ("os", platform.platform),
+                          ("architecture", platform.machine)):
+        try:
+            versions[field] = getter()
+        except Exception as error:
+            versions[field] = None
+            provenance_unknown(reasons, "environment." + field, error)
+    for package in ("mediapipe", "pyrealsense2", "opencv-python", "numpy", "matplotlib"):
+        try:
+            versions[package] = importlib.metadata.version(package)
+        except Exception as error:
+            versions[package] = None
+            provenance_unknown(reasons, "environment." + package, error)
+    return versions
+
+
+def analysis_code(reasons):
+    script = os.path.abspath(__file__)
+    code = {"git_commit": None, "git_dirty": None,
+            "analyze_script_sha256": artifact_info(script, reasons)["sha256"], "path": script}
+    for key, args in (("git_commit", ["rev-parse", "HEAD"]),
+                      ("git_dirty", ["status", "--porcelain", "--untracked-files=normal"])):
+        try:
+            value = subprocess.run(["git", *args], cwd=os.path.dirname(script),
+                                   capture_output=True, text=True, check=True, timeout=3).stdout.strip()
+            if key == "git_commit" and not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value):
+                raise ValueError("Git HEAD unavailable")
+            code[key] = bool(value) if key == "git_dirty" else value
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            provenance_unknown(reasons, "code." + key, error)
+    return code
+
+
+def read_json(path):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def write_json(path, value):
+    fd, temporary = tempfile.mkstemp(prefix=".manifest-", suffix=".tmp", dir=os.path.dirname(os.path.abspath(path)))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(value, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def csv_identity(path, field="recording_id"):
+    """파일에 존재하는 ID만 확인. 없는 ID는 외부 metadata로 보완하지 않는다."""
+    if not os.path.exists(path):
+        return {field: None, "identity_status": "missing_file"}
+    with open(path, encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        if field not in (reader.fieldnames or []):
+            return {field: None, "identity_status": "legacy_no_id_column"}
+        values = {row[field] for row in reader if row.get(field) not in (None, "")}
+    if len(values) > 1:
+        raise ValueError(f"inconsistent {field} in {path}")
+    return {field: next(iter(values), None), "identity_status": "verified" if values else "empty_id_column"}
+
+
+def json_identity(path):
+    if not os.path.exists(path):
+        return {"recording_id": None, "identity_status": "missing_file"}
+    value = read_json(path).get("recording_id")
+    if value not in (None, ""):
+        safe_recording_id(value)
+    return {"recording_id": value or None,
+            "identity_status": "verified" if value else "legacy_no_id_field"}
+
+
+def new_recording_name(path, from_csv=False):
+    stem = os.path.splitext(os.path.basename(path))[0]
+    if from_csv and stem.endswith("_frames"):
+        stem = stem[:-len("_frames")]
+    return bool(re.fullmatch(r"[A-Za-z0-9-]+_r[0-9]+_[0-9]{8}_[0-9]{6}_[0-9]{6}_[a-fA-F0-9]{32}", stem))
+
+
+def known_frames_output(path, sha256):
+    # 이전 출력인지 확인만 한다. 최신 run 선택이나 lineage 자동 복구는 하지 않는다.
+    for manifest_path in glob.glob(os.path.join(OUT_DIR, "*", "ar_*", "analysis_manifest.json")):
+        for output in read_json(manifest_path).get("outputs", []):
+            if output.get("kind") == "frames" and (
+                    os.path.abspath(path) in (output.get("path"), output.get("compatibility_path")) or
+                    (sha256 is not None and output.get("sha256") == sha256)):
+                return True
+    return False
+
+
+def processing_settings(from_csv):
+    settings = {"raw_extraction_applied": not from_csv, "boundary_delta_px": BOUNDARY_DELTA_PX}
+    if not from_csv:
+        settings.update(
+            trim_start_s=TRIM_START, trim_end_s=TRIM_END, depth_alignment_target="color",
+            face_oval_indices=FACE_OVAL, iris_indices=[IRIS_L, IRIS_R], shoulder_indices=[SHOULDER_L, SHOULDER_R],
+            tasks={"face": {"min_detection_confidence": FACE_MIN_DETECTION_CONFIDENCE,
+                            "running_mode": None, "running_mode_source": "SDK default; recorded at runtime"},
+                   "mesh": {"num_faces": FACE_NUM_FACES, "running_mode": LANDMARK_RUNNING_MODE},
+                   "pose": {"num_poses": POSE_NUM_POSES, "running_mode": LANDMARK_RUNNING_MODE}},
+            depth_roi={"face_bbox_fraction": [FACE_DEPTH_ROI_MIN, FACE_DEPTH_ROI_MAX],
+                       "oval_center_half_width_px": OVAL_DEPTH_HALF_WIDTH_PX,
+                       "shoulder_half_width_px": SHOULDER_DEPTH_HALF_WIDTH_PX,
+                       "min_valid_pixels": DEPTH_MIN_VALID_PIXELS, "valid_rule": "raw_depth > 0",
+                       "bounds": "int truncation, clip to image, half-open slice",
+                       "reduction": "median(raw valid pixels) * playback depth_scale"},
+            face_selection="largest bbox area", face_depth_fallback="oval center when bbox depth is None",
+            shoulder_depth_reduction="mean of available nonzero shoulder depths",
+            video_timestamp_rule="int(ts_ms); previous+1 if not strictly increasing")
+    return settings
+
+
+def safe_recording_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        raise ValueError("unsafe or missing recording_id")
+    return value
+
+
+def legacy_recording_id(path, artifact, from_csv):
+    if artifact["sha256"] is None:
+        raise ValueError("legacy identity requires a full input SHA-256")
+    stem = os.path.splitext(os.path.basename(path))[0]
+    stem = re.sub(r"[^A-Za-z0-9_-]", "-", stem)
+    prefix = "legacy_csv_" if from_csv else "legacy_"
+    candidate = prefix + stem + "_" + artifact["sha256"][:16]
+    # Prefix collision 확인만 수행. 기존 실행을 입력으로 자동 선택하지 않는다.
+    for manifest_path in glob.glob(os.path.join(OUT_DIR, candidate, "ar_*", "analysis_manifest.json")):
+        prior = read_json(manifest_path)
+        key = "frames" if from_csv else "recording"
+        previous_hash = prior["inputs"].get(key, {}).get("sha256")
+        if previous_hash is not None and previous_hash != artifact["sha256"]:
+            return prefix + stem + "_" + artifact["sha256"]
+    return candidate
+
+
+def start_analysis_run(path, args, batch_id):
+    reasons = {}
+    legacy_pilot = bool(getattr(args, "legacy_pilot", False))
+    legacy_reason = None
+    print(f"[입력 SHA-256] {path} (전체 파일 streaming 읽기)")
+    artifact = artifact_info(path, reasons)
+    inputs, parent, models = {}, None, []
+    if args.from_csv:
+        inputs["frames"] = artifact
+        frame_identity = csv_identity(path)
+        frame_run = csv_identity(path, "analysis_run_id")
+        inputs["frames"].update(frame_identity)
+        link_path = path + ".provenance.json"
+        if os.path.exists(link_path):
+            link = read_json(link_path)
+            if artifact["sha256"] is None or link["frames_sha256"] != artifact["sha256"]:
+                raise ValueError(f"frames provenance hash mismatch: {path}")
+            manifest_path = os.path.join(os.path.dirname(link_path), link["analysis_manifest"])
+            parent_artifact = artifact_info(manifest_path, reasons)
+            if parent_artifact["sha256"] is None or parent_artifact["sha256"] != link["analysis_manifest_sha256"]:
+                raise ValueError(f"parent manifest hash mismatch: {path}")
+            previous = read_json(manifest_path)
+            if previous["status"] != "completed":
+                raise ValueError("source analysis run is not completed")
+            recording_id = safe_recording_id(previous["recording_id"])
+            parent = previous["analysis_run_id"]
+            if parent != link["analysis_run_id"] or recording_id != link["recording_id"]:
+                raise ValueError("frames/parent identity mismatch")
+            if ((frame_identity["recording_id"] is not None and frame_identity["recording_id"] != recording_id) or
+                    (frame_run["analysis_run_id"] is not None and frame_run["analysis_run_id"] != parent) or
+                    (new_recording_name(path, True) and
+                     os.path.splitext(os.path.basename(path))[0][:-len("_frames")] != recording_id)):
+                raise ValueError("frames/parent identity mismatch")
+            if not any(o.get("kind") == "frames" and o.get("sha256") == artifact["sha256"]
+                       and o.get("filename") == os.path.basename(path)
+                       for o in previous["outputs"]):
+                raise ValueError("frames not listed in parent outputs")
+            role, protocol = previous["dataset_role"], previous["protocol_version"]
+            models = [dict(m, used_in_this_run=False, source_analysis_run_id=parent)
+                      for m in previous["models"]]
+            inputs["parent_manifest"] = parent_artifact
+            inputs["frames_provenance"] = artifact_info(link_path, reasons)
+            identity_status = "linked_parent"
+        else:
+            if (new_recording_name(path, True) or frame_identity["identity_status"] != "legacy_no_id_column" or
+                    frame_run["identity_status"] != "legacy_no_id_column" or
+                    os.path.exists(os.path.join(os.path.dirname(path), "analysis_manifest.json")) or
+                    known_frames_output(path, artifact["sha256"])):
+                raise ValueError("provenance-aware frames require a verified provenance sidecar")
+            if not legacy_pilot:
+                raise ValueError("legacy CSV requires explicit --legacy-pilot")
+            recording_id = legacy_recording_id(path, artifact, True)
+            role, protocol, identity_status = "pilot", "unknown_legacy", "unresolved_raw"
+            legacy_reason = "no provenance sidecar, ID columns, or known modern output identity"
+            provenance_unknown(reasons, "parent_analysis_run_id", "legacy CSV without verified provenance sidecar")
+        inputs["frames"]["analysis_run_id"] = parent
+    else:
+        inputs["recording"] = artifact
+        base = os.path.splitext(path)[0]
+        inputs["capture_metadata"] = artifact_info(base + "_camera.json", reasons)
+        capture = read_json(base + "_camera.json") if os.path.exists(base + "_camera.json") else {}
+        inputs["markers"] = artifact_info(base + "_markers.csv", reasons)
+        inputs["markers"].update(csv_identity(base + "_markers.csv"))
+        inputs["quality"] = artifact_info(base + "_quality.json", reasons)
+        inputs["quality"].update(json_identity(base + "_quality.json"))
+        observed_ids = {value for value in (capture.get("recording_id"), inputs["markers"]["recording_id"],
+                                            inputs["quality"]["recording_id"]) if value not in (None, "")}
+        if len(observed_ids) > 1:
+            raise ValueError("capture/markers/quality recording_id mismatch")
+        if capture.get("recording_id"):
+            recording_id = safe_recording_id(capture["recording_id"])
+            if capture.get("record_file") != os.path.basename(path):
+                raise ValueError("capture metadata record_file mismatch")
+            if recording_id != os.path.basename(base):
+                raise ValueError("capture metadata recording_id/filename mismatch")
+            role, protocol = capture.get("dataset_role"), capture.get("protocol_version")
+            if role not in ("pilot", "formal", "external"):
+                raise ValueError("invalid capture dataset_role")
+            identity_status = "capture_metadata"
+        else:
+            if (new_recording_name(path) or observed_ids or "recording_id" in capture or
+                    (capture.get("schema_version") or "").startswith("capture-provenance/") or
+                    capture.get("protocol_version") not in (None, "", "unknown_legacy") or
+                    capture.get("dataset_role") in ("formal", "external") or
+                    inputs["markers"]["identity_status"] in ("verified", "empty_id_column")):
+                raise ValueError("new recording requires capture metadata recording_id; legacy downgrade forbidden")
+            if not legacy_pilot:
+                raise ValueError("legacy raw recording requires explicit --legacy-pilot")
+            recording_id = legacy_recording_id(path, artifact, False)
+            role, protocol, identity_status = "pilot", "unknown_legacy", "legacy_raw"
+            legacy_reason = "no capture recording_id or modern filename/metadata/sidecar identity"
+        if role == "formal" and any(inputs[k]["sha256"] is None for k in ("recording", "markers")):
+            raise ValueError("formal input requires full recording/markers hashes")
+    if legacy_pilot and role in ("formal", "external"):
+        raise ValueError("--legacy-pilot conflicts with formal/external dataset_role")
+    directory = os.path.join(OUT_DIR, recording_id)
+    os.makedirs(directory, exist_ok=True)
+    if not args.from_csv and artifact["sha256"] is not None:
+        for manifest_path in glob.glob(os.path.join(directory, "ar_*", "analysis_manifest.json")):
+            previous_hash = read_json(manifest_path)["inputs"].get("recording", {}).get("sha256")
+            if previous_hash is not None and previous_hash != artifact["sha256"]:
+                raise ValueError("same recording_id has different raw content")
+    while True:
+        run_id = new_analysis_id()
+        run_dir = os.path.join(directory, run_id)
+        try:
+            os.mkdir(run_dir)
+            break
+        except FileExistsError:
+            continue
+    manifest = {
+        "schema_version": "analysis-provenance/1.0.0", "analysis_run_id": run_id,
+        "analysis_batch_id": batch_id, "recording_id": recording_id,
+        "analysis_mode": "summarize_existing_frames" if args.from_csv else "extract_raw",
+        "parent_analysis_run_id": parent, "dataset_role": role, "protocol_version": protocol,
+        "legacy_input": None if legacy_reason is None else {
+            "reason": legacy_reason, "original_recording_id": None,
+            "id_generation": "legacy[_csv]_<sanitized input stem>_<SHA-256 prefix; expanded on collision>",
+            "identity_source_input": "frames" if args.from_csv else "recording",
+            "historical_provenance": "unknown",
+        },
+        "identity_status": identity_status, "started_at": utc_now().isoformat(), "ended_at": None,
+        "status": "running", "inputs": inputs, "code": analysis_code(reasons),
+        "environment": analysis_environment(reasons), "models": models, "inference_performed": False,
+        "options": {"argv": sys.argv[1:], "subjects": args.subjects, "from_csv": args.from_csv,
+                    "legacy_pilot": legacy_pilot,
+                    "step_requested": args.step, "step_effective": None if args.from_csv else max(1, args.step)},
+        "processing_settings": processing_settings(args.from_csv),
+        "playback_calibration": None, "outputs": [], "errors": [], "provenance_unknown_reasons": reasons,
+    }
+    write_json(os.path.join(run_dir, "analysis_manifest.json"), manifest)
+    return run_dir, manifest
+
+
+def record_model_artifacts(manifest, paths):
+    manifest["models"] = [dict(artifact_info(path, manifest["provenance_unknown_reasons"]),
+                               role=key, source_url=MODELS[key][1], source_url_kind="configured_download_url",
+                               version_identifier=None, used_in_this_run=False)
+                          for key, path in paths.items()]
+
+
+def mark_model_used(manifest, role):
+    if manifest is not None:
+        manifest["inference_performed"] = True
+        for model in manifest["models"]:
+            if model["role"] == role:
+                model["used_in_this_run"] = True
+
+
+def record_task_options(manifest, role, options):
+    if manifest is None:
+        return
+    values = manifest["processing_settings"]["tasks"][role]
+    for name in ("running_mode", "min_detection_confidence", "min_suppression_threshold", "num_faces", "num_poses",
+                 "min_face_detection_confidence", "min_face_presence_confidence", "min_tracking_confidence",
+                 "min_pose_detection_confidence", "min_pose_presence_confidence", "output_face_blendshapes",
+                 "output_facial_transformation_matrixes", "output_segmentation_masks"):
+        if hasattr(options, name):
+            value = getattr(options, name)
+            values[name] = getattr(value, "name", value)
+    if "running_mode_source" in values and hasattr(options, "running_mode"):
+        values["running_mode_source"] = "runtime options"
+
+
+def archive_output(path, directory, manifest, kind, row_count=None):
+    destination = os.path.join(directory, os.path.basename(path))
+    # 신규 run 경로에서도 기존 artifact를 덮어쓰지 않는다.
+    if os.path.abspath(path) != os.path.abspath(destination):
+        with open(path, "rb") as source, open(destination, "xb") as target:
+            shutil.copyfileobj(source, target)
+    item = artifact_info(destination, manifest["provenance_unknown_reasons"])
+    item.update(kind=kind, row_count=row_count, schema_version=None, compatibility_path=os.path.abspath(path))
+    manifest["outputs"].append(item)
+    return item
+
+
+def finished_manifest(manifest, error=None, ended_at=None):
+    result = dict(manifest, ended_at=ended_at or utc_now().isoformat(),
+                  status="failed" if error is not None else "completed", errors=list(manifest["errors"]))
+    if error is not None:
+        result["errors"].append(str(error))
+    return result
+
+
+def finish_analysis_run(directory, manifest, error=None, ended_at=None):
+    if manifest["status"] != "running":
+        return  # terminal 상태를 뒤집지 않는다.
+    result = finished_manifest(manifest, error, ended_at)
+    write_json(os.path.join(directory, "analysis_manifest.json"), result)
+    manifest.update(result)
 
 
 # ---------------------------------------------------------------- 준비
@@ -140,7 +525,7 @@ def median_depth(depth, x0, y0, x1, y1, scale):
         return None
     patch = depth[y0:y1, x0:x1]
     v = patch[patch > 0]
-    if v.size < 10:
+    if v.size < DEPTH_MIN_VALID_PIXELS:
         return None
     return float(np.median(v)) * scale
 
@@ -159,7 +544,7 @@ def angle_from_down(fx, fy, sx, sy):
     return math.degrees(math.atan2(abs(sx - fx), sy - fy))
 
 
-def process_recording(rec_path, models, step):
+def process_recording(rec_path, models, step, provenance=None, output_dir=None):
     import mediapipe as mp
     import pyrealsense2 as rs
     from mediapipe.tasks import python as mpt
@@ -169,14 +554,20 @@ def process_recording(rec_path, models, step):
     marks = load_markers(rec_path)
     mts = [m["ts"] for m in marks]
 
-    face_det = vision.FaceDetector.create_from_options(vision.FaceDetectorOptions(
-        base_options=mpt.BaseOptions(model_asset_path=models["face"]), min_detection_confidence=0.5))
-    mesh_det = vision.FaceLandmarker.create_from_options(vision.FaceLandmarkerOptions(
+    face_options = vision.FaceDetectorOptions(
+        base_options=mpt.BaseOptions(model_asset_path=models["face"]),
+        min_detection_confidence=FACE_MIN_DETECTION_CONFIDENCE)
+    mesh_options = vision.FaceLandmarkerOptions(
         base_options=mpt.BaseOptions(model_asset_path=models["mesh"]),
-        running_mode=vision.RunningMode.VIDEO, num_faces=1))
-    pose_det = vision.PoseLandmarker.create_from_options(vision.PoseLandmarkerOptions(
+        running_mode=getattr(vision.RunningMode, LANDMARK_RUNNING_MODE), num_faces=FACE_NUM_FACES)
+    pose_options = vision.PoseLandmarkerOptions(
         base_options=mpt.BaseOptions(model_asset_path=models["pose"]),
-        running_mode=vision.RunningMode.VIDEO, num_poses=1))
+        running_mode=getattr(vision.RunningMode, LANDMARK_RUNNING_MODE), num_poses=POSE_NUM_POSES)
+    for role, options in (("face", face_options), ("mesh", mesh_options), ("pose", pose_options)):
+        record_task_options(provenance, role, options)
+    face_det = vision.FaceDetector.create_from_options(face_options)
+    mesh_det = vision.FaceLandmarker.create_from_options(mesh_options)
+    pose_det = vision.PoseLandmarker.create_from_options(pose_options)
 
     pipe, cfg = rs.pipeline(), rs.config()
     cfg.enable_device_from_file(rec_path, repeat_playback=False)
@@ -188,6 +579,12 @@ def process_recording(rec_path, models, step):
     cin = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
     fxfy = cin.fx * cin.fy
     duration = playback.get_duration().total_seconds()
+    if provenance is not None:
+        provenance["playback_calibration"] = {
+            "depth_scale_m": depth_scale,
+            "color_intrinsics": {k: getattr(cin, k) for k in ("width", "height", "fx", "fy", "ppx", "ppy")},
+        }
+        provenance["playback_calibration"]["color_intrinsics"].update(model=str(cin.model), coeffs=list(cin.coeffs))
 
     rows, n, last_ts_ms = [], 0, -1
     print(f"[분석] {os.path.basename(rec_path)}  (약 {duration:.0f}초 분량)")
@@ -226,13 +623,15 @@ def process_recording(rec_path, models, step):
             row = {"subject": subject, "round": rnd, "step": mk["step"], "label": mk["label"],
                    "t": round(t_in, 3), "ts_ms": ts}
 
+            mark_model_used(provenance, "face")
             fres = face_det.detect(mimg)
             if fres.detections:
                 d = max(fres.detections, key=lambda x: x.bounding_box.width * x.bounding_box.height)
                 bb = d.bounding_box
                 x, y, w, h = bb.origin_x, bb.origin_y, bb.width, bb.height
                 cxp, cyp = x + w / 2, y + h / 2
-                zf = median_depth(dep, x + w * 0.25, y + h * 0.25, x + w * 0.75, y + h * 0.75, depth_scale)
+                zf = median_depth(dep, x + w * FACE_DEPTH_ROI_MIN, y + h * FACE_DEPTH_ROI_MIN,
+                                  x + w * FACE_DEPTH_ROI_MAX, y + h * FACE_DEPTH_ROI_MAX, depth_scale)
                 row.update({"face_x": cxp, "face_y": cyp, "face_w_px": w, "face_h_px": h,
                             "face_area_px": w * h, "face_score": d.categories[0].score if d.categories else None,
                             "z_face_m": zf,
@@ -242,6 +641,7 @@ def process_recording(rec_path, models, step):
             if ts_int <= last_ts_ms:
                 ts_int = last_ts_ms + 1
             last_ts_ms = ts_int
+            mark_model_used(provenance, "mesh")
             mres = mesh_det.detect_for_video(mimg, ts_int)
             if mres.face_landmarks:
                 fl = mres.face_landmarks[0]
@@ -252,7 +652,8 @@ def process_recording(rec_path, models, step):
                 if zf is None:  # 얼굴 박스가 없으면 외곽선 중심 근처 깊이
                     ox = [p[0] for p in oval]; oy = [p[1] for p in oval]
                     cx0, cy0 = sum(ox) / len(ox), sum(oy) / len(oy)
-                    zf = median_depth(dep, cx0 - 15, cy0 - 15, cx0 + 15, cy0 + 15, depth_scale)
+                    zf = median_depth(dep, cx0 - OVAL_DEPTH_HALF_WIDTH_PX, cy0 - OVAL_DEPTH_HALF_WIDTH_PX,
+                                      cx0 + OVAL_DEPTH_HALF_WIDTH_PX, cy0 + OVAL_DEPTH_HALF_WIDTH_PX, depth_scale)
                     row["z_face_m"] = zf
                 if zf:
                     row["oval_size_cm2"] = oa * zf ** 2 / fxfy * 1e4
@@ -264,13 +665,16 @@ def process_recording(rec_path, models, step):
                 if row.get("face_area_px"):
                     row["box_to_oval"] = row["face_area_px"] / oa if oa else None
 
+            mark_model_used(provenance, "pose")
             pres = pose_det.detect_for_video(mimg, ts_int)
             if pres.pose_landmarks:
                 lm = pres.pose_landmarks[0]
-                ls, rsh = lm[11], lm[12]  # 사람 기준 왼쪽/오른쪽 어깨
+                ls, rsh = lm[SHOULDER_L], lm[SHOULDER_R]  # 사람 기준 왼쪽/오른쪽 어깨
                 lx, ly, rx, ry = ls.x * W, ls.y * H, rsh.x * W, rsh.y * H
-                zl = median_depth(dep, lx - 6, ly - 6, lx + 6, ly + 6, depth_scale)
-                zr = median_depth(dep, rx - 6, ry - 6, rx + 6, ry + 6, depth_scale)
+                zl = median_depth(dep, lx - SHOULDER_DEPTH_HALF_WIDTH_PX, ly - SHOULDER_DEPTH_HALF_WIDTH_PX,
+                                  lx + SHOULDER_DEPTH_HALF_WIDTH_PX, ly + SHOULDER_DEPTH_HALF_WIDTH_PX, depth_scale)
+                zr = median_depth(dep, rx - SHOULDER_DEPTH_HALF_WIDTH_PX, ry - SHOULDER_DEPTH_HALF_WIDTH_PX,
+                                  rx + SHOULDER_DEPTH_HALF_WIDTH_PX, ry + SHOULDER_DEPTH_HALF_WIDTH_PX, depth_scale)
                 zs = [z for z in (zl, zr) if z]
                 row.update({"lsh_x": lx, "lsh_y": ly, "rsh_x": rx, "rsh_y": ry,
                             "lsh_vis": getattr(ls, "visibility", None), "rsh_vis": getattr(rsh, "visibility", None),
@@ -289,7 +693,8 @@ def process_recording(rec_path, models, step):
         mesh_det.close()
         pose_det.close()
 
-    out = os.path.join(OUT_DIR, os.path.splitext(os.path.basename(rec_path))[0] + "_frames.csv")
+    out = os.path.join(OUT_DIR if output_dir is None else output_dir,
+                       os.path.splitext(os.path.basename(rec_path))[0] + "_frames.csv")
     write_csv(out, rows)
     print(f"   -> {len(rows)} 프레임 저장: {out}")
     return rows
@@ -556,26 +961,120 @@ def plot_all(all_rows, summary):
     print(f"[그래프 저장] {OUT_DIR} 폴더의 fig1_*, fig2_fh_vs_bf.png, fig3_face_size.png")
 
 
-def load_frames_csv(subjects):
+def load_frames_csv(subjects, paths=None):
     rows = []
-    for sub in subjects:
-        for path in sorted(glob.glob(os.path.join(OUT_DIR, f"{sub}_r*_frames.csv"))):
-            with open(path, encoding="utf-8-sig") as f:
-                for r in csv.DictReader(f):
-                    out = {}
-                    for k, v in r.items():
-                        if k in ("subject", "round", "step", "label"):
+    if paths is None:
+        paths = [path for sub in subjects
+                 for path in sorted(glob.glob(os.path.join(OUT_DIR, f"{sub}_r*_frames.csv")))]
+    for path in paths:
+        with open(path, encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                out = {}
+                for k, v in r.items():
+                    if k in ("subject", "round", "step", "label"):
+                        out[k] = v
+                    elif v in ("", None):
+                        out[k] = None
+                    else:
+                        try:
+                            out[k] = float(v)
+                        except ValueError:
                             out[k] = v
-                        elif v in ("", None):
-                            out[k] = None
-                        else:
-                            try:
-                                out[k] = float(v)
-                            except ValueError:
-                                out[k] = v
-                    rows.append(out)
-            print(f"[읽기] {os.path.basename(path)}")
+                rows.append(out)
+        print(f"[읽기] {os.path.basename(path)}")
     return rows
+
+
+def run_analysis(files, args):
+    """기존 batch 집계 유지. per-recording run과 공동 출력의 기여 관계만 기록."""
+    global OUT_DIR
+    while True:
+        batch_id = new_analysis_id()
+        batch_dir = os.path.join(OUT_DIR, "batches", batch_id)
+        try:
+            os.makedirs(batch_dir, exist_ok=False)
+            break
+        except FileExistsError:
+            continue
+    runs, all_rows = [], []
+    try:
+        for path in files:
+            directory, manifest = start_analysis_run(path, args, batch_id)
+            runs.append((path, directory, manifest))
+        models = None if args.from_csv else ensure_models()
+        for path, directory, manifest in runs:
+            if args.from_csv:
+                snapshot = archive_output(path, directory, manifest, "source_frames")
+                if snapshot["sha256"] is None or snapshot["sha256"] != manifest["inputs"]["frames"]["sha256"]:
+                    raise ValueError("source frames changed before reprocessing")
+                rows = load_frames_csv(args.subjects, paths=[snapshot["path"]])
+            else:
+                record_model_artifacts(manifest, models)
+                rows = process_recording(path, models, max(1, args.step), provenance=manifest, output_dir=directory)
+                if rows:
+                    frame_path = os.path.join(directory, os.path.splitext(os.path.basename(path))[0] + "_frames.csv")
+                    frame = archive_output(frame_path, directory, manifest, "frames", len(rows))
+                    frame["compatibility_path"] = os.path.abspath(os.path.join(OUT_DIR, os.path.basename(frame_path)))
+            manifest["input_frame_rows"] = len(rows)
+            all_rows += rows
+        if not all_rows:
+            raise RuntimeError("분석된 프레임이 없습니다.")
+
+        # 공통 summary/graph 계산은 그대로 실행하고, 새 batch 경로에서만 생성한다.
+        # 이후 기존 평면 파일명으로 호환 사본을 제공한다. 과거 run 사본은 불변이다.
+        compatibility_dir = OUT_DIR
+        try:
+            OUT_DIR = batch_dir
+            summary = summarize(all_rows)
+            report(summary)
+            plot_all(all_rows, summary)
+        finally:
+            OUT_DIR = compatibility_dir
+        shared = []
+        reasons = {}
+        contributors = [m["analysis_run_id"] for _, _, m in runs]
+        for filename in sorted(os.listdir(batch_dir)):
+            path = os.path.join(batch_dir, filename)
+            if not os.path.isfile(path):
+                continue
+            item = artifact_info(path, reasons)
+            item.update(kind="batch_output", schema_version=None,
+                        row_count=len(summary) if filename == "summary_steps.csv" else None,
+                        analysis_run_ids=contributors)
+            shared.append(item)
+            shutil.copyfile(path, os.path.join(compatibility_dir, filename))
+        for path, directory, manifest in runs:
+            manifest["outputs"].extend(shared)
+            manifest["provenance_unknown_reasons"].update(reasons)
+        write_json(os.path.join(batch_dir, "analysis_batch.json"), {
+            "analysis_batch_id": batch_id, "analysis_run_ids": contributors, "outputs": shared,
+            "run_manifests": [os.path.abspath(os.path.join(d, "analysis_manifest.json")) for _, d, _ in runs],
+        })
+        ended_at = utc_now().isoformat()
+        for path, directory, manifest in runs:
+            if not args.from_csv and manifest["input_frame_rows"]:
+                frame = next(o for o in manifest["outputs"] if o["kind"] == "frames")
+                shutil.copyfile(frame["path"], frame["compatibility_path"])
+                manifest_path = os.path.join(directory, "analysis_manifest.json")
+                write_json(frame["compatibility_path"] + ".provenance.json", {
+                    "recording_id": manifest["recording_id"], "analysis_run_id": manifest["analysis_run_id"],
+                    "frames_sha256": frame["sha256"],
+                    "analysis_manifest": os.path.relpath(manifest_path, compatibility_dir),
+                    # 최종 JSON과 동일한 bytes의 hash를 먼저 연결한다. 모든 publish가
+                    # 성공한 뒤에만 completed로 확정하며, 그 전에는 parent 검증이 거부한다.
+                    "analysis_manifest_sha256": hashlib.sha256(json.dumps(
+                        finished_manifest(manifest, ended_at=ended_at), indent=2,
+                        ensure_ascii=False).encode("utf-8")).hexdigest(),
+                })
+        for _, directory, manifest in runs:
+            finish_analysis_run(directory, manifest, ended_at=ended_at)
+    except BaseException as error:
+        for _, directory, manifest in runs:
+            try:
+                finish_analysis_run(directory, manifest, error)
+            except OSError as save_error:
+                print(f"[경고] failed manifest 저장 불가: {save_error}", file=sys.stderr)
+        raise
 
 
 # ---------------------------------------------------------------- 실행
@@ -585,33 +1084,25 @@ def main():
     ap.add_argument("--step", type=int, default=1, help="N프레임마다 1장 분석 (기본 1 = 전부)")
     ap.add_argument("--from-csv", action="store_true",
                     help="녹화 파일을 다시 읽지 않고 analysis 폴더의 *_frames.csv로 요약·그래프만 다시 만들기 (빠름)")
+    ap.add_argument("--legacy-pilot", action="store_true",
+                    help="modern provenance가 없는 과거 pilot raw/CSV만 명시적으로 허용 (깨진 modern provenance 우회 불가)")
     args = ap.parse_args()
 
     os.makedirs(OUT_DIR, exist_ok=True)
     if args.from_csv:
-        all_rows = load_frames_csv(args.subjects)
-        if not all_rows:
+        files = [path for sub in args.subjects
+                 for path in sorted(glob.glob(os.path.join(OUT_DIR, f"{sub}_r*_frames.csv")))]
+        if not files:
             print("[오류] analysis 폴더에 *_frames.csv가 없습니다. --from-csv 없이 먼저 실행하세요.")
             sys.exit(1)
-        summary = summarize(all_rows)
-        report(summary)
-        plot_all(all_rows, summary)
+        run_analysis(files, args)
         print(f"\n[완료] 결과는 {OUT_DIR} 폴더에 있습니다.")
         return
     files = find_recordings(args.subjects)
     if not files:
         sys.exit(1)
     print(f"[대상] {len(files)}개 파일: " + ", ".join(os.path.basename(f) for f in files))
-    models = ensure_models()
-    all_rows = []
-    for f in files:
-        all_rows += process_recording(f, models, max(1, args.step))
-    if not all_rows:
-        print("[오류] 분석된 프레임이 없습니다.")
-        sys.exit(1)
-    summary = summarize(all_rows)
-    report(summary)
-    plot_all(all_rows, summary)
+    run_analysis(files, args)
     print(f"\n[완료] 결과는 {OUT_DIR} 폴더에 있습니다.")
 
 
