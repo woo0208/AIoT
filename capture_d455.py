@@ -216,9 +216,12 @@ def evaluate_forward_distance(closer):
     return "ok"
 
 
-def median_face_distance(samples, min_samples=1, last_n=None):
+def median_face_distance(samples, min_samples=1, last_n=None, *, sample_counts=None):
     """전방 판정용: 유효 face 거리만 사용하며 기존 얼굴 검출률 50% 기준을 재사용."""
     values = [s["distance_m"] for s in samples if s["mode"] == "face" and s["distance_m"] is not None]
+    if sample_counts is not None:
+        sample_counts.update(total_samples=len(samples), valid_face_samples=len(values),
+                             valid_face_fraction=len(values) / len(samples) if samples else None)
     if len(values) < min_samples or len(values) < 0.5 * len(samples):
         return None
     return statistics.median(values[-last_n:] if last_n is not None else values)
@@ -576,8 +579,10 @@ def record_phase(subject, rnd, start_info, seq, dataset_role):
 # ---------------- 3) 자동 품질 확인 ----------------
 
 
-def quality_check(phases, samples, aborted):
+def quality_check(phases, samples, aborted, *, include_evidence=False):
+    """기존 3개 결과 유지. report는 동일 판정에서 만든 evidence를 네 번째 결과로 받는다."""
     fails, warns, rows = [], [], []
+    forward_gate_evidence, face_counts = [], {}
     if aborted:
         fails.append("촬영이 중간에 중단되었습니다")
 
@@ -602,9 +607,10 @@ def quality_check(phases, samples, aborted):
         sd = statistics.pstdev(d) if len(d) >= 2 else 0.0
         ar = [s["face_area_px"] for s in ss if s.get("face_area_px") and s["mode"] == "face"]
         sz = [s["face_size_cm2"] for s in ss if s.get("face_size_cm2")]
+        face_counts[pi] = {}
         stats[pi] = {"med": med, "sd": sd, "cx": statistics.median(cx) if cx else None,
                      "area": statistics.median(ar) if ar else None, "size": statistics.median(sz) if sz else None,
-                     "face_med": median_face_distance(ss)}
+                     "face_med": median_face_distance(ss, sample_counts=face_counts[pi])}
         name = f"{ph['step']}단계 {POSTURES[ph['key']][0]}"
         rows.append([name, med, sd, person_ratio, face_ratio, stats[pi]["area"], None, stats[pi]["size"], pi])
         if person_ratio < 0.5:
@@ -622,14 +628,41 @@ def quality_check(phases, samples, aborted):
         ref_face = stats.get(prev[-1], {}).get("face_med") if prev else None
         current_face = stats.get(pi, {}).get("face_med")
         name = f"{ph['step']}단계 {POSTURES[ph['key']][0]}"
+        closer, reasons = None, []
         if ref_face is None or current_face is None:
             missing = [label for label, value in (("기준 정상 자세", ref_face), ("현재 자세", current_face))
                        if value is None]
             fails.append(f"{name}: 얼굴 거리 측정 샘플 부족 ({', '.join(missing)}) — 재촬영 필요")
+            if ref_face is None:
+                reasons.append("insufficient_reference_face_samples" if prev else "missing_reference")
+            if current_face is None:
+                reasons.append("insufficient_current_face_samples")
         else:
             closer = ref_face - current_face
-            if evaluate_forward_distance(closer) != "ok":
+            status = evaluate_forward_distance(closer)
+            if status != "ok":
                 fails.append(f"{name}: 얼굴 전방 이동 {closer*100:.1f}cm — 목표 {FWD_TARGET_TEXT}")
+                reasons.append("below_target" if status == "too_little" else "above_target")
+        reference_pi = prev[-1] if prev else None
+        evidence = {
+            "step": ph["step"], "phase_idx": pi, "label": ph["key"],
+            "reference_step": phases[reference_pi]["step"] if prev else None,
+            "reference_phase_idx": reference_pi,
+            "reference_label": phases[reference_pi]["key"] if prev else None,
+            "reference_face_median_m": ref_face, "current_face_median_m": current_face,
+            "closer_m": closer,
+            "forward_target_min_m": FWD_TARGET_MIN_M, "forward_target_max_m": FWD_TARGET_MAX_M,
+            "forward_validation_source": FWD_VALIDATION_SOURCE,
+            "forward_gate_result": "fail" if reasons else "pass",
+            "forward_gate_reasons": reasons,
+        }
+        # 같은 trimmed sample의 helper 집계 사용. 미측정 phase는 count=0, ratio=null.
+        for prefix, phase_idx in (("reference", reference_pi), ("current", pi)):
+            counts = face_counts.get(phase_idx, {})
+            evidence[prefix + "_total_samples"] = counts.get("total_samples", 0)
+            evidence[prefix + "_valid_face_samples"] = counts.get("valid_face_samples", 0)
+            evidence[prefix + "_valid_face_fraction"] = counts.get("valid_face_fraction")
+        forward_gate_evidence.append(evidence)
 
     ups = [pi for pi, ph in enumerate(phases) if ph["kind"] == "hold" and ph["key"] == "upright"
            and pi in stats and stats[pi]["med"] is not None]
@@ -666,6 +699,8 @@ def quality_check(phases, samples, aborted):
                     warns.append(f"{name}: 좌우 이동이 작음")
         if "lean_left" in shifts and "lean_right" in shifts and shifts["lean_left"] * shifts["lean_right"] > 0:
             warns.append("왼쪽/오른쪽 기울임이 같은 방향으로 측정됨 (방향 확인 필요)")
+    if include_evidence:
+        return fails, warns, rows, forward_gate_evidence
     return fails, warns, rows
 
 
@@ -688,7 +723,7 @@ def count_frames(path):
 
 
 def report(subject, rnd, base, rec_file, phases, samples, aborted, total_sec, provenance):
-    fails, warns, rows = quality_check(phases, samples, aborted)
+    fails, warns, rows, forward_gate_evidence = quality_check(phases, samples, aborted, include_evidence=True)
 
     print("\n[파일 확인 중] 녹화 파일의 프레임 수를 세는 중입니다... (잠시 기다려주세요)")
     try:
@@ -740,6 +775,7 @@ def report(subject, rnd, base, rec_file, phases, samples, aborted, total_sec, pr
     with open(base + "_quality.json", "w", encoding="utf-8") as f:
         json.dump({"verdict": verdict, "fails": fails, "warnings": warns, "frames": frame_line,
                    "total_sec": total_sec, "recording_id": provenance["recording_id"],
+                   "forward_gate_evidence": forward_gate_evidence,
                    "steps": [{"name": r[0], "median_m": r[1], "sd_m": r[2], "person_ratio": r[3],
                               "face_ratio": r[4], "face_area_px": r[5], "area_ratio_A": r[6],
                               "face_size_cm2": r[7]} for r in rows]},

@@ -507,5 +507,231 @@ class CaptureProvenanceTests(unittest.TestCase):
                              [{"ts": 1234.5, "label": "transition", "phase": "prep", "step": "1"}])
 
 
+class ForwardGateEvidenceTests(unittest.TestCase):
+    def inputs(self, label="forward_head", current=0.65, reference_values=None, current_values=None):
+        phases = [dict(step=1, kind="hold", key="upright", dur=10),
+                  dict(step=2, kind="hold", key=label, dur=10)]
+        values = [reference_values if reference_values is not None else [("face", 0.75)] * 5,
+                  current_values if current_values is not None else [("face", current)] * 5]
+        samples = [dict(phase_idx=i, t=2 + j / 10, distance_m=d, mode=m, face_cx=0.5,
+                        face_area_px=100, face_size_cm2=100)
+                   for i, items in enumerate(values) for j, (m, d) in enumerate(items)]
+        return phases, samples
+
+    def evidence(self, **kwargs):
+        phases, samples = self.inputs(**kwargs)
+        fails, _, _, evidence = capture.quality_check(phases, samples, False, include_evidence=True)
+        self.assertEqual(len(evidence), 1)
+        return fails, evidence[0]
+
+    def test_face_10cm_pass_evidence(self):
+        for label in ("forward_head", "body_forward"):
+            fails, ev = self.evidence(label=label)
+            self.assertEqual(fails, [])
+            self.assertEqual((ev["step"], ev["label"], ev["phase_idx"]), (2, label, 1))
+            self.assertEqual((ev["reference_step"], ev["reference_label"], ev["reference_phase_idx"]),
+                             (1, "upright", 0))
+            self.assertEqual(ev["reference_face_median_m"], 0.75)
+            self.assertEqual(ev["current_face_median_m"], 0.65)
+            self.assertAlmostEqual(ev["closer_m"], 0.10)
+            self.assertEqual(ev["forward_target_min_m"], capture.FWD_TARGET_MIN_M)
+            self.assertEqual(ev["forward_target_max_m"], capture.FWD_TARGET_MAX_M)
+            self.assertEqual(ev["forward_validation_source"], "face_only")
+            self.assertEqual(ev["forward_gate_result"], "pass")
+            self.assertEqual(ev["forward_gate_reasons"], [])
+            for prefix in ("reference", "current"):
+                self.assertEqual(ev[prefix + "_total_samples"], 5)
+                self.assertEqual(ev[prefix + "_valid_face_samples"], 5)
+                self.assertEqual(ev[prefix + "_valid_face_fraction"], 1.0)
+
+    def test_face_7cm_below_target_evidence(self):
+        fails, ev = self.evidence(current=0.68)
+        self.assertTrue(fails)
+        self.assertAlmostEqual(ev["closer_m"], 0.07)
+        self.assertEqual(ev["forward_gate_result"], "fail")
+        self.assertEqual(ev["forward_gate_reasons"], ["below_target"])
+
+    def test_face_13cm_above_target_evidence(self):
+        fails, ev = self.evidence(current=0.62)
+        self.assertTrue(fails)
+        self.assertAlmostEqual(ev["closer_m"], 0.13)
+        self.assertEqual(ev["forward_gate_result"], "fail")
+        self.assertEqual(ev["forward_gate_reasons"], ["above_target"])
+
+    def test_both_boundaries_still_pass(self):
+        for current in (0.67, 0.63):
+            fails, ev = self.evidence(current=current)
+            self.assertEqual(fails, [])
+            self.assertEqual(ev["forward_gate_result"], "pass")
+            self.assertEqual(ev["forward_gate_reasons"], [])
+
+    def test_body_only_cannot_supply_face_evidence(self):
+        fails, ev = self.evidence(reference_values=[("body", 0.75)] * 5,
+                                  current_values=[("body", 0.65)] * 5)
+        self.assertTrue(fails)
+        self.assertEqual(ev["forward_gate_result"], "fail")
+        self.assertEqual(ev["forward_gate_reasons"],
+                         ["insufficient_reference_face_samples", "insufficient_current_face_samples"])
+        self.assertIsNone(ev["closer_m"])
+        for prefix in ("reference", "current"):
+            self.assertIsNone(ev[prefix + "_face_median_m"])
+            self.assertEqual(ev[prefix + "_total_samples"], 5)
+            self.assertEqual(ev[prefix + "_valid_face_samples"], 0)
+            self.assertEqual(ev[prefix + "_valid_face_fraction"], 0.0)
+
+    def test_mixed_source_fail_evidence(self):
+        for prefix, distance in (("reference", 0.75), ("current", 0.65)):
+            fails, ev = self.evidence(**{prefix + "_values": [("body", distance)] * 5})
+            self.assertTrue(fails)
+            self.assertEqual(ev["forward_gate_result"], "fail")
+            self.assertEqual(ev["forward_gate_reasons"], [f"insufficient_{prefix}_face_samples"])
+            self.assertIsNone(ev[prefix + "_face_median_m"])
+            self.assertIsNone(ev["closer_m"])
+
+    def test_reference_valid_ratio_shortage(self):
+        fails, ev = self.evidence(reference_values=[("face", 0.75)] * 4 + [("body", 0.75)] * 6)
+        self.assertTrue(fails)
+        self.assertEqual(ev["reference_total_samples"], 10)
+        self.assertEqual(ev["reference_valid_face_samples"], 4)
+        self.assertEqual(ev["reference_valid_face_fraction"], 0.4)
+        self.assertIsNone(ev["reference_face_median_m"])
+        self.assertEqual(ev["current_face_median_m"], 0.65)
+        self.assertEqual(ev["forward_gate_reasons"], ["insufficient_reference_face_samples"])
+
+    def test_current_valid_ratio_shortage_including_none_depth(self):
+        fails, ev = self.evidence(current_values=[("face", 0.65)] * 4 + [("face", None)] * 6)
+        self.assertTrue(fails)
+        self.assertEqual(ev["current_total_samples"], 10)
+        self.assertEqual(ev["current_valid_face_samples"], 4)
+        self.assertEqual(ev["current_valid_face_fraction"], 0.4)
+        self.assertIsNone(ev["current_face_median_m"])
+        self.assertEqual(ev["forward_gate_reasons"], ["insufficient_current_face_samples"])
+        # Existing face_ratio counts mode only and must remain distinct from valid fraction.
+        phases, samples = self.inputs(current_values=[("face", 0.65)] * 4 + [("face", None)] * 6)
+        rows = capture.quality_check(phases, samples, False)[2]
+        self.assertEqual(rows[1][4], 1.0)
+
+    def test_exactly_half_valid_uses_face_medians_only(self):
+        fails, ev = self.evidence(reference_values=[("face", 0.75)] * 5 + [("body", 0.81)] * 5,
+                                  current_values=[("face", 0.65)] * 5 + [("body", 0.69)] * 5)
+        self.assertEqual(fails, [])
+        self.assertEqual(ev["reference_face_median_m"], 0.75)
+        self.assertEqual(ev["current_face_median_m"], 0.65)
+        self.assertEqual(ev["reference_valid_face_fraction"], 0.5)
+        self.assertEqual(ev["current_valid_face_fraction"], 0.5)
+        self.assertEqual(ev["forward_gate_result"], "pass")
+
+    def test_missing_reference_has_null_identity_and_zero_counts(self):
+        phases, samples = self.inputs()
+        phases[0]["kind"] = "prep"  # An upright prep must not become a hold reference.
+        fails, _, _, evidence = capture.quality_check(phases, samples, False, include_evidence=True)
+        ev = evidence[0]
+        self.assertTrue(fails)
+        self.assertEqual(ev["forward_gate_reasons"], ["missing_reference"])
+        for field in ("reference_step", "reference_phase_idx", "reference_label", "reference_face_median_m",
+                      "reference_valid_face_fraction", "closer_m"):
+            self.assertIsNone(ev[field])
+        self.assertEqual(ev["reference_total_samples"], 0)
+        self.assertEqual(ev["reference_valid_face_samples"], 0)
+
+    def test_empty_or_aborted_windows_keep_evidence(self):
+        phases, _ = self.inputs()
+        for aborted in (False, True):
+            fails, _, _, evidence = capture.quality_check(phases, [], aborted, include_evidence=True)
+            self.assertTrue(fails)
+            self.assertEqual(len(evidence), 1)
+            ev = evidence[0]
+            self.assertEqual(ev["reference_step"], 1)
+            self.assertEqual(ev["forward_gate_result"], "fail")
+            self.assertEqual(ev["forward_gate_reasons"],
+                             ["insufficient_reference_face_samples", "insufficient_current_face_samples"])
+            for prefix in ("reference", "current"):
+                self.assertEqual(ev[prefix + "_total_samples"], 0)
+                self.assertEqual(ev[prefix + "_valid_face_samples"], 0)
+                self.assertIsNone(ev[prefix + "_valid_face_fraction"])
+                self.assertIsNone(ev[prefix + "_face_median_m"])
+
+    def test_latest_upright_reference_even_when_insufficient(self):
+        phases, samples = self.inputs()
+        phases.insert(1, dict(step=8, kind="hold", key="upright", dur=10))
+        for row in samples:
+            if row["phase_idx"] == 1:
+                row["phase_idx"] = 2
+        samples.append(dict(samples[0], phase_idx=1, distance_m=0.77))
+        ev = capture.quality_check(phases, samples, False, include_evidence=True)[3][0]
+        self.assertEqual((ev["reference_step"], ev["reference_phase_idx"]), (8, 1))
+        self.assertEqual(ev["reference_face_median_m"], 0.77)
+        self.assertAlmostEqual(ev["closer_m"], 0.12)
+        samples[-1]["mode"] = "body"
+        ev = capture.quality_check(phases, samples, False, include_evidence=True)[3][0]
+        self.assertEqual(ev["reference_step"], 8)
+        self.assertIsNone(ev["reference_face_median_m"])
+        self.assertEqual(ev["forward_gate_reasons"], ["insufficient_reference_face_samples"])
+
+    def test_trimming_counts_and_medians_use_identical_windows(self):
+        phases, samples = self.inputs()
+        for phase_idx in (0, 1):
+            template = samples[phase_idx * 5]
+            # Boundary and outside samples must not affect either counts or medians.
+            samples.extend(dict(template, t=t, mode="body", distance_m=1.2)
+                           for t in (0, 1.0, 9.5, 10))
+        ev = capture.quality_check(phases, samples, False, include_evidence=True)[3][0]
+        self.assertEqual(ev["reference_total_samples"], 5)
+        self.assertEqual(ev["current_total_samples"], 5)
+        self.assertEqual(ev["reference_face_median_m"], 0.75)
+        self.assertEqual(ev["current_face_median_m"], 0.65)
+        self.assertEqual(ev["forward_gate_result"], "pass")
+
+    def test_evidence_consumes_actual_helper_results_once(self):
+        phases, samples = self.inputs()
+        helper = capture.median_face_distance
+        def offset_result(values, **kwargs):
+            return helper(values, **kwargs) + 0.01
+        with patch.object(capture, "median_face_distance", side_effect=offset_result) as median, \
+                patch.object(capture, "evaluate_forward_distance", wraps=capture.evaluate_forward_distance) as gate:
+            ev = capture.quality_check(phases, samples, False, include_evidence=True)[3][0]
+        self.assertEqual(median.call_count, 2)
+        gate.assert_called_once_with(ev["closer_m"])
+        self.assertEqual(ev["reference_face_median_m"], 0.76)
+        self.assertEqual(ev["current_face_median_m"], 0.66)
+        self.assertEqual(ev["reference_valid_face_samples"], 5)
+
+    def test_only_forward_hold_phases_have_evidence(self):
+        phases = [dict(step=i + 1, kind=kind, key=key, dur=10) for i, (kind, key) in enumerate(
+            (("hold", "upright"), ("prep", "forward_head"), ("hold", "forward_head"),
+             ("hold", "lean_back"), ("hold", "body_forward")))]
+        evidence = capture.quality_check(phases, [], False, include_evidence=True)[3]
+        self.assertEqual([(e["step"], e["label"]) for e in evidence], [(3, "forward_head"), (5, "body_forward")])
+
+    def test_existing_result_tuple_matches_baseline_fixture(self):
+        for current, expected_fail in ((0.65, []), (0.68, ["2단계 거북목: 얼굴 전방 이동 7.0cm — 목표 8~12cm"]),
+                                       (0.62, ["2단계 거북목: 얼굴 전방 이동 13.0cm — 목표 8~12cm"])):
+            phases, samples = self.inputs(current=current)
+            expected = (expected_fail, [], [["1단계 정상 자세", 0.75, 0.0, 1.0, 1.0, 100, 1.0, 100, 0],
+                                           ["2단계 거북목", current, 0.0, 1.0, 1.0, 100, 1.0, 100, 1]])
+            self.assertEqual(capture.quality_check(phases, samples, False), expected)
+            self.assertEqual(capture.quality_check(phases, samples, False, include_evidence=True)[:3], expected)
+
+    def test_quality_json_preserves_fields_and_serializes_same_evidence(self):
+        phases, samples = self.inputs()
+        provenance = {"recording_id": "test_recording", "dataset_role": "pilot"}
+        checked = capture.quality_check(phases, samples, False, include_evidence=True)
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()), \
+                patch.object(capture, "count_frames", return_value=(300, 300)), \
+                patch.object(capture, "quality_check", return_value=checked) as check:
+            base = os.path.join(directory, "test_recording")
+            capture.report("TEST", "1", base, base + ".bag", phases, samples, False, 20.0, provenance)
+            saved = json.loads(Path(base + "_quality.json").read_text())
+        check.assert_called_once_with(phases, samples, False, include_evidence=True)
+        self.assertEqual(saved.pop("forward_gate_evidence"), checked[3])
+        self.assertEqual(saved, {
+            "verdict": "ok", "fails": [], "warnings": [], "recording_id": "test_recording", "total_sec": 20.0,
+            "frames": "컬러 300 / 깊이 300 프레임 (예상 약 300, 100%)",
+            "steps": [{"name": name, "median_m": med, "sd_m": 0.0, "person_ratio": 1.0, "face_ratio": 1.0,
+                       "face_area_px": 100, "area_ratio_A": 1.0, "face_size_cm2": 100}
+                      for name, med in (("1단계 정상 자세", 0.75), ("2단계 거북목", 0.65))],
+        })
+
+
 if __name__ == "__main__":
     unittest.main()
