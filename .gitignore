@@ -1,0 +1,15 @@
+# RealSense raw recordings
+*.bag
+*.db3
+
+# Generated research data
+data/
+analysis/
+results/
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
