@@ -1,11 +1,20 @@
 """Protocol checks without a camera, GUI, or RealSense installation."""
 import ast
 import builtins
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
+import csv
+from datetime import datetime, timezone
+import hashlib
 import importlib.util
+import io
+import json
+import os
 from pathlib import Path
+import subprocess
+import tempfile
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 SOURCE_PATH = Path(__file__).with_name("capture_d455.py")
@@ -239,6 +248,263 @@ class FaceOnlyForwardTests(unittest.TestCase):
         namespace["samples"] = [dict(s, mode="body") for s in samples]
         exec(code, namespace)
         self.assertIsNone(namespace["ref_up"]["face_dist"])
+
+
+class CaptureProvenanceTests(unittest.TestCase):
+    def setUp(self):
+        def git_result(command, **kwargs):
+            return subprocess.CompletedProcess(command, 0, "a" * 40 if "rev-parse" in command else "", "")
+        self.git = patch.object(capture.subprocess, "run", side_effect=git_result).start()
+        self.addCleanup(patch.stopall)
+
+    def test_new_attempts_have_unique_ids_even_at_same_time(self):
+        with patch.object(capture, "datetime") as clock:
+            clock.now.return_value = datetime(2026, 10, 1, 14, 30, 25, 123456, tzinfo=timezone.utc)
+            ids = [capture.capture_provenance("P03", "1", "pilot")["recording_id"] for _ in range(20)]
+        self.assertEqual(len(set(ids)), 20)
+        for recording_id in ids:
+            self.assertRegex(recording_id, r"^P03_r1_20261001_143025_123456_[0-9a-f]{32}$")
+
+    def test_identity_and_seoul_timestamp(self):
+        info = capture.capture_provenance("P03-test", "2", "pilot")
+        self.assertRegex(info["recording_id"], r"^P03-test_r2_[0-9]{8}_[0-9]{6}_[0-9]{6}_[0-9a-f]{32}$")
+        started = datetime.fromisoformat(info["capture_start_time_iso"])
+        self.assertEqual(started.utcoffset().total_seconds(), 9 * 3600)
+        self.assertEqual(info["capture_start_time"], info["capture_start_time_iso"])
+        self.assertEqual(info["capture_timezone"], "Asia/Seoul")
+        self.assertEqual(info["start_time"], started.strftime("%Y%m%d_%H%M%S"))
+
+    def test_dataset_roles_are_explicit_and_valid(self):
+        for role in ("pilot", "formal", "external"):
+            args = capture.parse_capture_args(["P03", "1", "core", "--dataset-role", role])
+            self.assertEqual(args.dataset_role, role)
+            self.assertEqual(args.mode, "core")
+            self.assertEqual(capture.capture_provenance("P03", "1", role)["dataset_role"], role)
+        self.assertIsNone(capture.parse_capture_args(["P03", "1", "--dataset-role", "pilot"]).mode)
+
+    def test_missing_or_invalid_role_is_rejected(self):
+        for args in (["P03", "1"], ["P03", "1", "--dataset-role", "automatic"]):
+            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                capture.parse_capture_args(args)
+            self.assertEqual(error.exception.code, 2)
+        for role in (None, "automatic", "FORMAL", ""):
+            with self.assertRaises(ValueError):
+                capture.capture_provenance("P03", "1", role)
+
+    def test_unsafe_subject_and_invalid_round_rejected(self):
+        for subject, rnd in (("../P03", "1"), ("P03_test", "1"), ("P03/4", "1"),
+                             ("", "1"), ("P03", "0"), ("P03", "-1"), ("P03", "1/2")):
+            with self.subTest(subject=subject, rnd=rnd), self.assertRaises(ValueError):
+                capture.capture_provenance(subject, rnd, "pilot")
+
+    def test_protocol_and_gate_metadata_use_constants(self):
+        info = capture.capture_provenance("P03", "1", "formal")
+        self.assertEqual(info["protocol_version"], "capture-forward-face-v2.0.0")
+        self.assertEqual(info["forward_validation_source"], "face_only")
+        self.assertEqual(info["forward_target_min_m"], capture.FWD_TARGET_MIN_M)
+        self.assertEqual(info["forward_target_max_m"], capture.FWD_TARGET_MAX_M)
+        with patch.object(capture, "FWD_TARGET_MIN_M", 0.09), patch.object(capture, "FWD_TARGET_MAX_M", 0.11):
+            changed = capture.capture_provenance("P03", "1", "formal")
+        self.assertEqual((changed["forward_target_min_m"], changed["forward_target_max_m"]), (0.09, 0.11))
+
+    def test_git_head_and_dirty_from_script_repository(self):
+        info = capture.capture_provenance("P03", "1", "pilot")
+        self.assertEqual(info["git_commit"], "a" * 40)
+        self.assertIs(info["git_dirty"], False)
+        self.assertEqual(info["provenance_unknown_reasons"], {})
+        head_call = self.git.call_args_list[0]
+        self.assertEqual(head_call.args[0], ["git", "rev-parse", "HEAD"])
+        self.assertEqual(head_call.kwargs["cwd"], str(SOURCE_PATH.parent))
+        self.assertGreater(head_call.kwargs["timeout"], 0)
+        self.git.side_effect = lambda command, **kwargs: subprocess.CompletedProcess(
+            command, 0, "a" * 40 if "rev-parse" in command else " M capture_d455.py", "")
+        self.assertIs(capture.capture_provenance("P03", "1", "pilot")["git_dirty"], True)
+
+    def test_git_unavailable_does_not_block_metadata(self):
+        for failure in (FileNotFoundError("git unavailable"), subprocess.CalledProcessError(128, "git"),
+                        subprocess.TimeoutExpired("git", 3)):
+            self.git.side_effect = failure
+            warning = io.StringIO()
+            with redirect_stderr(warning):
+                info = capture.capture_provenance("P03", "1", "pilot")
+            self.assertIsNone(info["git_commit"])
+            self.assertIsNone(info["git_dirty"])
+            self.assertIn("git_commit", info["provenance_unknown_reasons"])
+            self.assertIn("[경고]", warning.getvalue())
+            self.assertIsNotNone(info["capture_script_sha256"])
+
+    def test_script_sha256_matches_binary_file(self):
+        info = capture.capture_provenance("P03", "1", "pilot")
+        self.assertEqual(info["capture_script_sha256"], hashlib.sha256(SOURCE_PATH.read_bytes()).hexdigest())
+
+    def test_script_hash_failure_does_not_block_metadata(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(capture, "__file__", os.path.join(directory, "missing.py")), \
+                redirect_stderr(io.StringIO()) as warning:
+            info = capture.capture_provenance("P03", "1", "pilot")
+        self.assertIsNone(info["capture_script_sha256"])
+        self.assertIn("capture_script_sha256", info["provenance_unknown_reasons"])
+        self.assertIn("[경고]", warning.getvalue())
+
+    def test_collision_reservation_preserves_existing_artifacts(self):
+        # Same candidate ID, first occupied by raw, then by a metadata reservation.
+        with tempfile.TemporaryDirectory() as directory, patch.object(capture, "datetime") as clock:
+            clock.now.return_value = datetime(2026, 10, 1, 14, 30, 25, 123456, tzinfo=timezone.utc)
+            prefix = "P03_r1_20261001_143025_123456_"
+            raw = Path(directory, prefix + "a" * 32 + ".db3")
+            raw.write_bytes(b"existing recording")
+            with patch.object(capture.uuid, "uuid4", side_effect=[types.SimpleNamespace(hex=x * 32)
+                                                                 for x in ("a", "b", "b", "c")]):
+                base1, info1 = capture.reserve_capture("P03", "1", "pilot", directory)
+                saved = Path(base1 + "_camera.json").read_bytes()
+                base2, info2 = capture.reserve_capture("P03", "1", "pilot", directory)
+            self.assertNotEqual(info1["recording_id"], info2["recording_id"])
+            self.assertEqual(raw.read_bytes(), b"existing recording")
+            self.assertEqual(Path(base1 + "_camera.json").read_bytes(), saved)
+            self.assertEqual(json.loads(Path(base2 + "_camera.json").read_text())["recording_id"],
+                             info2["recording_id"])
+            self.assertIsNone(info2["record_file"])
+
+    def test_exclusive_reservation_retries_a_concurrent_collision(self):
+        real_open = builtins.open
+        collisions = []
+        def racing_open(path, mode="r", *args, **kwargs):
+            if mode == "x" and not collisions:
+                collisions.append(path)
+                with real_open(path, mode, *args, **kwargs) as f:
+                    f.write("other process reservation")
+                raise FileExistsError(path)
+            return real_open(path, mode, *args, **kwargs)
+        with tempfile.TemporaryDirectory() as directory, patch("builtins.open", side_effect=racing_open):
+            base, _ = capture.reserve_capture("P03", "1", "pilot", directory)
+            self.assertNotEqual(base + "_camera.json", collisions[0])
+            self.assertEqual(Path(collisions[0]).read_text(), "other process reservation")
+
+    def test_failed_start_keeps_attempt_reservation(self):
+        reserve = capture.reserve_capture
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            stack.enter_context(patch.object(capture, "reserve_capture", side_effect=lambda s, r, role:
+                                            reserve(s, r, role, directory)))
+            pipe = Mock()
+            pipe.start.side_effect = RuntimeError("camera unavailable")
+            stack.enter_context(patch.object(capture.rs, "pipeline", return_value=pipe, create=True))
+            config = stack.enter_context(patch.object(capture, "make_config", side_effect=lambda path: path))
+            stack.enter_context(redirect_stdout(io.StringIO()))
+            with self.assertRaises(RuntimeError):
+                capture.record_phase("P03", "1", None, capture.SEQ_CORE, "pilot")
+            files = list(Path(directory).glob("*_camera.json"))
+            self.assertEqual(len(files), 1)
+            info = json.loads(files[0].read_text())
+            self.assertIsNone(info["record_file"])
+            self.assertEqual([Path(call.args[0]).stem for call in config.call_args_list],
+                             [info["recording_id"]] * 2)
+
+    def test_recording_sidecars_and_existing_reader_compatibility(self):
+        # Run the real recording/writer/report paths with three fake camera frames.
+        reserve = capture.reserve_capture
+        intr = types.SimpleNamespace(width=1280, height=720, fx=600, fy=600,
+                                     ppx=640, ppy=360, model="test", coeffs=[0] * 5)
+        depth_intr = types.SimpleNamespace(**dict(vars(intr), width=848, height=480))
+        cs, ds = Mock(), Mock()
+        cs.as_video_stream_profile.return_value = cs
+        ds.as_video_stream_profile.return_value = ds
+        cs.get_intrinsics.return_value = intr
+        ds.get_intrinsics.return_value = depth_intr
+        ds.get_extrinsics_to.return_value = types.SimpleNamespace(rotation=[1] * 9, translation=[0] * 3)
+        dev = Mock()
+        dev.first_depth_sensor.return_value.get_depth_scale.return_value = 0.001
+        dev.first_depth_sensor.return_value.get_option.return_value = 95
+        dev.get_info.side_effect = lambda key: {"name": "D455-test", "serial_number": "test-serial",
+                                               "firmware_version": "test-fw", "usb_type_descriptor": "3.2"}[key]
+        profile = Mock()
+        profile.get_device.return_value = dev
+        profile.get_stream.side_effect = lambda key: cs if key == "color" else ds
+        pipe, frames = Mock(), Mock()
+        pipe.start.side_effect = [RuntimeError("db3 unsupported"), profile]
+        pipe.wait_for_frames.return_value = frames
+        frames.get_color_frame.return_value.get_data.return_value = capture.np.zeros((4, 4, 3), dtype="uint8")
+        frames.get_color_frame.return_value.get_frame_number.return_value = 7
+        frames.get_timestamp.return_value = 1234.5
+        rs = Mock()
+        rs.pipeline.return_value = pipe
+        rs.stream = types.SimpleNamespace(color="color", depth="depth")
+        rs.format = types.SimpleNamespace(bgr8="bgr8", z16="z16")
+        rs.camera_info = types.SimpleNamespace(**{x: x for x in (
+            "name", "serial_number", "firmware_version", "usb_type_descriptor")})
+        rs.align.return_value.process.return_value.get_depth_frame.return_value.get_data.return_value = \
+            capture.np.zeros((4, 4), dtype="uint16")
+        start_info = {"distance_m": 0.75, "mode": "face"}
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            reservation = stack.enter_context(patch.object(capture, "reserve_capture", side_effect=lambda s, r, role:
+                                                          reserve(s, r, role, directory)))
+            stack.enter_context(patch.object(capture, "rs", rs))
+            stack.enter_context(patch.object(capture, "measure_distance", return_value=(0.75, (0, 0, 2, 2), "face")))
+            stack.enter_context(patch.object(capture, "make_display"))
+            stack.enter_context(patch.object(capture, "beep"))
+            stack.enter_context(patch.object(capture.cv2, "imshow", create=True))
+            stack.enter_context(patch.object(capture.cv2, "waitKey", side_effect=[-1, -1, ord("q")], create=True))
+            stack.enter_context(redirect_stdout(io.StringIO()))
+            result = capture.record_phase("P03", "1", start_info, capture.SEQ_CORE, "pilot")
+            base, rec_file, phases, samples, aborted, _, provenance = result
+            reservation.assert_called_once_with("P03", "1", "pilot")
+            recording_id = provenance["recording_id"]
+            self.assertEqual(Path(base).name, recording_id)
+            self.assertEqual(Path(rec_file).suffix, ".bag")
+            self.assertEqual([c.args[0] for c in rs.config.return_value.enable_record_to_file.call_args_list],
+                             [base + ".db3", base + ".bag"])
+            streams = [c.args for c in rs.config.return_value.enable_stream.call_args_list]
+            self.assertEqual(streams, [("depth", 848, 480, "z16", 15),
+                                       ("color", 1280, 720, "bgr8", 15)] * 2)
+            camera = json.loads(Path(base + "_camera.json").read_text())
+            expected_old = {
+                "subject": "P03", "round": "1", "start_time": provenance["start_time"],
+                "record_file": recording_id + ".bag", "start_distance": start_info,
+                "target_range_m": [0.70, 0.80], "fps": 15,
+                "sequence": [list(p) for p in capture.SEQ_CORE], "prep_sec": 4,
+                "device": "D455-test", "serial": "test-serial", "firmware": "test-fw", "usb": "3.2",
+                "depth_scale_m": 0.001, "color_intrinsics": capture.intr_to_dict(intr),
+                "depth_intrinsics": capture.intr_to_dict(depth_intr),
+                "depth_to_color_extrinsics": {"rotation": [1] * 9, "translation": [0] * 3},
+                "stereo_baseline_mm": 95,
+            }
+            self.assertEqual({k: camera[k] for k in expected_old}, expected_old)
+            self.assertEqual(camera["recording_id"], recording_id)
+            self.assertEqual(camera["protocol_version"], capture.PROTOCOL_VERSION)
+            for kind in ("markers", "samples"):
+                with open(base + f"_{kind}.csv", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    data = list(reader)
+                    self.assertEqual(reader.fieldnames[-1], "recording_id")
+                    expected_columns = (
+                        ["wall_time", "frame_timestamp_ms", "color_frame_number", "step", "phase", "label",
+                         "planned_sec", "distance_m", "distance_mode"] if kind == "markers" else
+                        ["phase_idx", "step", "phase", "label", "t", "distance_m", "mode", "face_cx",
+                         "face_w_px", "face_h_px", "face_area_px", "face_size_cm2"])
+                    self.assertEqual(reader.fieldnames[:-1], expected_columns)
+                self.assertTrue(data)
+                self.assertTrue(all(row["recording_id"] == recording_id for row in data))
+            self.assertEqual(samples[0]["distance_m"], 0.75)
+            self.assertEqual(samples[0]["face_area_px"], 4)
+            self.assertEqual(samples[0]["face_size_cm2"], 4 * 0.75 ** 2 / 600 ** 2 * 1e4)
+            stack.enter_context(patch.object(capture, "count_frames", return_value=(15, 15)))
+            capture.report("P03", "1", base, rec_file, phases, samples, aborted, 1.0, provenance)
+            quality = json.loads(Path(base + "_quality.json").read_text())
+            self.assertEqual(quality["recording_id"], recording_id)
+            self.assertEqual(quality["fails"], capture.quality_check(phases, samples, aborted)[0])
+            self.assertEqual(quality["verdict"], "retake")
+            for kind, filename in camera["sidecar_files"].items():
+                self.assertEqual(filename, Path(base + f"_{kind}." + ("csv" if kind in ("markers", "samples") else "json")).name)
+                self.assertTrue(Path(directory, filename).exists())
+
+            # Execute unchanged reader functions without importing analysis hardware/models.
+            analysis_tree = ast.parse(SOURCE_PATH.with_name("analyze_d455.py").read_text())
+            functions = [n for n in analysis_tree.body if isinstance(n, ast.FunctionDef)
+                         and n.name in ("parse_name", "load_markers")]
+            namespace = {"os": os, "csv": csv}
+            exec(compile(ast.Module(body=functions, type_ignores=[]), "analysis_readers", "exec"), namespace)
+            self.assertEqual(namespace["parse_name"](rec_file), ("P03", "1"))
+            self.assertEqual(namespace["load_markers"](rec_file),
+                             [{"ts": 1234.5, "label": "transition", "phase": "prep", "step": "1"}])
 
 
 if __name__ == "__main__":

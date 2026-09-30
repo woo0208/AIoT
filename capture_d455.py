@@ -3,8 +3,8 @@
 
 설치:  pip install pyrealsense2 opencv-python numpy pillow
 사용법:
-    python capture_d455.py P01 1          # 전체 자세 (정상/거북목/몸전체전방/뒤/왼/오른)
-    python capture_d455.py P01 1 core     # 핵심 자세만 (정상/거북목/몸전체전방)
+    python capture_d455.py P01 1 --dataset-role pilot       # 전체 자세
+    python capture_d455.py P01 1 core --dataset-role pilot  # 핵심 자세만
 
 흐름:
   1) 거리 안내: 70~80cm 맞추면 2초 유지 후 3초 카운트다운 -> 녹화 시작
@@ -15,13 +15,19 @@
      (q: 중단 -> 재촬영 필요로 처리)
   3) 자동 확인: 녹화가 끝나면 cmd에 "정상적으로 촬영되었습니다" 또는 "재촬영이 필요합니다" 출력
 """
+import argparse
 import csv
+from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import math
 import os
+import re
 import statistics
+import subprocess
 import sys
 import time
+import uuid
 
 import cv2
 import numpy as np
@@ -55,6 +61,9 @@ MOVE_WARN_M = 0.03        # 촬영 구간 중 흔들림 경고 기준 (최근 2�
 # 전방 이동 v2: 향후 추가 참가자 촬영부터 적용. 기존 P01/P02는 pilot/protocol-improvement 데이터로 유지.
 FWD_TARGET_MIN_M = 0.08
 FWD_TARGET_MAX_M = 0.12
+PROTOCOL_VERSION = "capture-forward-face-v2.0.0"
+FWD_VALIDATION_SOURCE = "face_only"
+DATASET_ROLES = ("pilot", "formal", "external")
 FWD_TARGET_TEXT = f"{FWD_TARGET_MIN_M * 100:g}~{FWD_TARGET_MAX_M * 100:g}cm"
 LIVE_BACK_M = 0.02        # 뒤로 기울임: 2cm 이상 멀어져야 함
 LIVE_SIDE_CX = 0.03       # 좌우 기울임: 얼굴 중심이 화면 폭의 3% 이상 이동해야 함
@@ -99,6 +108,101 @@ def font(size):
 
 
 KOREAN_OK = PIL_OK and font(20) is not None
+
+# ---------------- 촬영 식별 / provenance ----------------
+
+
+def validate_capture_identity(subject, rnd, dataset_role):
+    if not re.fullmatch(r"[A-Za-z0-9-]+", subject):
+        raise ValueError("subject는 영문·숫자·하이픈만 사용할 수 있습니다.")
+    if not re.fullmatch(r"[0-9]+", rnd) or int(rnd) < 1:
+        raise ValueError("round는 양의 정수 문자열이어야 합니다.")
+    if dataset_role not in DATASET_ROLES:
+        raise ValueError(f"dataset_role은 {', '.join(DATASET_ROLES)} 중 하나여야 합니다.")
+
+
+def capture_provenance(subject, rnd, dataset_role):
+    """촬영 시도당 한 번 생성. Git/hash 실패는 기록하고 촬영은 계속한다."""
+    validate_capture_identity(subject, rnd, dataset_role)
+    # 신규 수집의 Asia/Seoul(UTC+09:00). Windows의 별도 tzdata 설치 없이 사용.
+    started = datetime.now(timezone(timedelta(hours=9), "Asia/Seoul"))
+    stamp = started.strftime("%Y%m%d_%H%M%S")
+    iso = started.isoformat(timespec="microseconds")
+    info = {
+        "schema_version": "capture-provenance/1.0.0",
+        "recording_id": f"{subject}_r{rnd}_{stamp}_{started.microsecond:06d}_{uuid.uuid4().hex}",
+        "subject": subject, "round": rnd, "start_time": stamp,
+        "dataset_role": dataset_role, "protocol_version": PROTOCOL_VERSION,
+        "capture_start_time": iso, "capture_start_time_iso": iso,
+        "capture_timezone": "Asia/Seoul",
+        "git_commit": None, "git_dirty": None, "capture_script_sha256": None,
+        "forward_target_min_m": FWD_TARGET_MIN_M, "forward_target_max_m": FWD_TARGET_MAX_M,
+        "forward_validation_source": FWD_VALIDATION_SOURCE,
+        "provenance_unknown_reasons": {},
+    }
+
+    def unavailable(field, error):
+        info["provenance_unknown_reasons"][field] = str(error)
+        print(f"[경고] capture provenance {field} 확인 불가: {error}", file=sys.stderr)
+
+    script = os.path.abspath(__file__)
+    for field, args in (("git_commit", ["rev-parse", "HEAD"]),
+                        ("git_dirty", ["status", "--porcelain", "--untracked-files=normal"])):
+        try:
+            value = subprocess.run(["git", *args], cwd=os.path.dirname(script),
+                                   capture_output=True, text=True, check=True, timeout=3).stdout.strip()
+            if field == "git_commit" and not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value):
+                raise ValueError("Git HEAD commit hash unavailable")
+            info[field] = bool(value) if field == "git_dirty" else value
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            unavailable(field, error)
+    try:
+        digest = hashlib.sha256()
+        with open(script, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+        info["capture_script_sha256"] = digest.hexdigest()
+    except OSError as error:
+        unavailable("capture_script_sha256", error)
+    return info
+
+
+def reserve_capture(subject, rnd, dataset_role, directory="data"):
+    """camera sidecar를 로컬 ID 예약으로 배타 생성. 실패한 시도의 예약도 보존한다."""
+    info = capture_provenance(subject, rnd, dataset_role)
+    os.makedirs(directory, exist_ok=True)
+    suffixes = (".db3", ".bag", "_camera.json", "_markers.csv", "_samples.csv", "_quality.json")
+    while True:
+        base = os.path.join(directory, info["recording_id"])
+        if not any(os.path.lexists(base + suffix) for suffix in suffixes):
+            try:
+                with open(base + "_camera.json", "x", encoding="utf-8") as f:
+                    info["record_file"] = None  # 실제 SDK 저장 형식 선택 후 갱신
+                    info["sidecar_files"] = {
+                        name: os.path.basename(base + f"_{name}.{ext}")
+                        for name, ext in (("camera", "json"), ("markers", "csv"),
+                                          ("samples", "csv"), ("quality", "json"))
+                    }
+                    json.dump(info, f, indent=2, ensure_ascii=False)
+                return base, info
+            except FileExistsError:
+                pass
+        # 아직 발급되지 않은 충돌 후보만 교체한다. 실제 촬영 중 ID는 바뀌지 않는다.
+        info["recording_id"] = info["recording_id"].rsplit("_", 1)[0] + "_" + uuid.uuid4().hex
+
+
+def parse_capture_args(argv=None):
+    parser = argparse.ArgumentParser(description="D455 자세 촬영")
+    parser.add_argument("subject")
+    parser.add_argument("round")
+    parser.add_argument("mode", nargs="?", type=str.lower, choices=("core",), default=None)
+    parser.add_argument("--dataset-role", required=True, choices=DATASET_ROLES)
+    args = parser.parse_args(argv)
+    try:
+        validate_capture_identity(args.subject, args.round, args.dataset_role)
+    except ValueError as error:
+        parser.error(str(error))
+    return args
 
 # ---------------- 측정 ----------------
 
@@ -271,10 +375,9 @@ def intr_to_dict(i):
             "ppx": i.ppx, "ppy": i.ppy, "model": str(i.model), "coeffs": list(i.coeffs)}
 
 
-def record_phase(subject, rnd, start_info, seq):
-    os.makedirs("data", exist_ok=True)
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-    base = os.path.join("data", f"{subject}_r{rnd}_{stamp}")
+def record_phase(subject, rnd, start_info, seq, dataset_role):
+    base, provenance = reserve_capture(subject, rnd, dataset_role)
+    stamp = provenance["start_time"]
 
     profile, rec_file, pipe = None, None, None
     for ext in (".db3", ".bag"):
@@ -314,6 +417,8 @@ def record_phase(subject, rnd, start_info, seq):
         info["stereo_baseline_mm"] = depth_sensor.get_option(rs.option.stereo_baseline)
     except Exception:
         info["stereo_baseline_mm"] = None
+    provenance["record_file"] = os.path.basename(rec_file)
+    info.update(provenance)
     with open(base + "_camera.json", "w", encoding="utf-8") as f:
         json.dump(info, f, indent=2, ensure_ascii=False)
     if not str(info["usb"]).startswith("3"):
@@ -363,7 +468,8 @@ def record_phase(subject, rnd, start_info, seq):
                 markers.append({"wall_time": now, "frame_timestamp_ms": frames.get_timestamp(),
                                 "color_frame_number": color.get_frame_number(), "step": ph["step"],
                                 "phase": ph["kind"], "label": ph["key"] if ph["kind"] == "hold" else "transition",
-                                "planned_sec": ph["dur"], "distance_m": dist, "distance_mode": mode})
+                                "planned_sec": ph["dur"], "distance_m": dist, "distance_mode": mode,
+                                "recording_id": provenance["recording_id"]})
                 beep(1300 if ph["kind"] == "hold" else 700, 90)
             ph = phases[ph_i]
             t_in = now - ph_start
@@ -381,7 +487,8 @@ def record_phase(subject, rnd, start_info, seq):
                     samples.append({"phase_idx": ph_i, "step": ph["step"], "phase": ph["kind"], "label": ph["key"],
                                     "t": round(t_in, 3), "distance_m": dist, "mode": mode, "face_cx": cx,
                                     "face_w_px": box[2] if box else None, "face_h_px": box[3] if box else None,
-                                    "face_area_px": area_px, "face_size_cm2": size_cm2})
+                                    "face_area_px": area_px, "face_size_cm2": size_cm2,
+                                    "recording_id": provenance["recording_id"]})
 
             name, how, name_en = POSTURES[ph["key"]]
             remain = max(0.0, ph["dur"] - t_in)
@@ -451,7 +558,8 @@ def record_phase(subject, rnd, start_info, seq):
         total_sec = time.time() - rec_t0
         markers.append({"wall_time": time.time(), "frame_timestamp_ms": None, "color_frame_number": None,
                         "step": None, "phase": "end", "label": "aborted" if aborted else "end",
-                        "planned_sec": None, "distance_m": dist, "distance_mode": mode})
+                        "planned_sec": None, "distance_m": dist, "distance_mode": mode,
+                        "recording_id": provenance["recording_id"]})
         with open(base + "_markers.csv", "w", newline="", encoding="utf-8") as f:
             wr = csv.DictWriter(f, fieldnames=list(markers[0].keys()))
             wr.writeheader()
@@ -463,7 +571,7 @@ def record_phase(subject, rnd, start_info, seq):
                 wr.writerows(samples)
         beep(1000, 150); beep(1000, 150)
         print(f"[녹화 종료] {rec_file}")
-    return base, rec_file, phases, samples, aborted, total_sec
+    return base, rec_file, phases, samples, aborted, total_sec, provenance
 
 # ---------------- 3) 자동 품질 확인 ----------------
 
@@ -579,7 +687,7 @@ def count_frames(path):
     return nc, nd
 
 
-def report(subject, rnd, base, rec_file, phases, samples, aborted, total_sec):
+def report(subject, rnd, base, rec_file, phases, samples, aborted, total_sec, provenance):
     fails, warns, rows = quality_check(phases, samples, aborted)
 
     print("\n[파일 확인 중] 녹화 파일의 프레임 수를 세는 중입니다... (잠시 기다려주세요)")
@@ -631,23 +739,22 @@ def report(subject, rnd, base, rec_file, phases, samples, aborted, total_sec):
 
     with open(base + "_quality.json", "w", encoding="utf-8") as f:
         json.dump({"verdict": verdict, "fails": fails, "warnings": warns, "frames": frame_line,
-                   "total_sec": total_sec,
+                   "total_sec": total_sec, "recording_id": provenance["recording_id"],
                    "steps": [{"name": r[0], "median_m": r[1], "sd_m": r[2], "person_ratio": r[3],
                               "face_ratio": r[4], "face_area_px": r[5], "area_ratio_A": r[6],
                               "face_size_cm2": r[7]} for r in rows]},
                   f, indent=2, ensure_ascii=False)
     if verdict == "retake":
         print(f" 같은 회차 번호로 다시 찍으세요:  python capture_d455.py {subject} {rnd}"
-              + (" core" if len(phases) == len(SEQ_CORE) * 2 else ""))
-        print(" (실패한 파일은 지우거나 이름 앞에 X_ 를 붙여 구분하세요)\n")
+              + (" core" if len(phases) == len(SEQ_CORE) * 2 else "")
+              + f" --dataset-role {provenance['dataset_role']}")
+        print(" (실패한 촬영본도 보존하세요. 재촬영에는 새 recording_id가 부여됩니다.)\n")
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("사용법: python capture_d455.py <참가자ID> <회차> [core]")
-        sys.exit(1)
-    subject, rnd = sys.argv[1], sys.argv[2]
-    seq = SEQ_CORE if (len(sys.argv) > 3 and sys.argv[3].lower() == "core") else SEQ_FULL
+    args = parse_capture_args()
+    subject, rnd = args.subject, args.round
+    seq = SEQ_CORE if args.mode == "core" else SEQ_FULL
     if not KOREAN_OK:
         print("[안내] 한글 표시를 위해 'pip install pillow'를 설치하세요. 지금은 영어로 표시합니다.")
     total = sum(s for _, s in seq) + PREP_SEC * len(seq)
@@ -658,7 +765,7 @@ def main():
         if action != "start":
             print("녹화 없이 종료했습니다.")
             return
-        result = record_phase(subject, rnd, start_info, seq)
+        result = record_phase(subject, rnd, start_info, seq, args.dataset_role)
     finally:
         cv2.destroyAllWindows()
     report(subject, rnd, *result)
