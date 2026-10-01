@@ -40,13 +40,14 @@ This read order is not a single precedence chain. Route conflicts by authority:
 - current implementation facts → Git / source / tests
 - current research direction, scope, terminology, and roadmap → `AIoT_RESEARCH_MASTER.md`
 - research decision status, rationale, OPEN/DEFERRED state, and supersession/resolution history → `RESEARCH_DECISION_LOG.md`
-- implemented data/schema contracts → `RESEARCH_DATA_SCHEMA.md`
-- future Patch 4 exact schema → `GOV-005` / `OPEN-001` in the Decision Log until Patch 4 Design Freeze
+- data/schema contracts → `RESEARCH_DATA_SCHEMA.md`
+- Patch 4 exact frame contract → `DATA-003` + `RESEARCH_DATA_SCHEMA.md` §F (`frames-schema/1.0.0`), frozen-but-unimplemented
 - other unimplemented/future schema designs → confirm their status in `RESEARCH_DECISION_LOG.md` before treating them as implemented or frozen contracts
 
-The Step 1.5 Patch 4 field details in `RESEARCH_DATA_SCHEMA.md` are pre-freeze
-proposals where routed to `GOV-005` / `OPEN-001`; do not treat them as frozen
-merely because candidate fields or values appear in that document.
+The Step 1.5 Patch 4 field details were pre-freeze proposals. After `DATA-003`
+resolved `OPEN-001`, Schema §F is the exact frozen Patch 4 frame contract. Do not
+reopen or change that contract implicitly during implementation; other future
+schema sections still require their own Decision Log status.
 
 This applies to research-sensitive areas including provenance, canonical schema,
 landmark/depth extraction, participant or recording inclusion, F0/F_cal/F1/F2,
@@ -264,16 +265,17 @@ raw schema.
 ## Hip / Arm Policy
 
 Hip landmarks are a confirmed core raw-observation direction for future
-body/trunk geometry (`FEAT-003`). Candidate Patch 4 fields may include left/right
-position, depth, visibility, and validity, but exact Patch 4 naming, depth
-extraction, and missing/validity serialization remain governed by `OPEN-001`.
+body/trunk geometry (`FEAT-003`). `DATA-003` freezes the exact Patch 4 bilateral
+hip raw-observation contract in Schema §F, including naming, geometric in-frame
+validity, depth extraction, and missing/validity serialization. Do not redefine
+that contract during implementation.
 
 Do not define trunk-angle formulas merely by adding hip landmarks.
 
-Elbow and wrist landmarks have strengthened rationale as candidate raw
-observations for upper-body skeletal/context analysis. Their exact Patch 4
-disposition — include, reserve, or exclude-and-version-later — remains
-`OPEN-001` and must not be inferred here.
+Elbow and wrist landmarks remain candidate observations for future upper-body
+skeletal/context analysis, but `frames-schema/1.0.0` freezes their Patch 4
+disposition as `exclude-and-version-later` with no reserved empty columns. Any
+later inclusion requires an explicit schema-version update and research decision.
 
 Raw observation storage does not imply F1/F2 model-feature use. Do not
 automatically promote elbow/wrist data into F1 or F2 or add arm-up/down as a
@@ -514,9 +516,10 @@ research roadmap in `CLAUDE.md`.
 
 At the current canonical state:
 
-- agent-instruction alignment precedes Foundation Patch 4 work,
-- Foundation Patch 4 requires an explicit Design Freeze before implementation,
-- `OPEN-001` must not be implicitly resolved from Step 1.5 schema proposals.
+- agent-instruction alignment is complete,
+- Foundation Patch 4 Design Freeze is complete via `DATA-003`,
+- Patch 4 implementation is next and must follow Schema §F `frames-schema/1.0.0`,
+- do not reopen `OPEN-001` or alter the frozen contract implicitly during implementation.
 
 Only perform the currently requested scope.
 

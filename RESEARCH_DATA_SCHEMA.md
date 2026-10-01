@@ -1,14 +1,15 @@
 # Research Data Schema — recording / provenance / analysis
 
-- 명세 버전: `research-data-schema/1.1.0`
+- 명세 버전: `research-data-schema/1.2.0`
 - 최초 작성일: 2026-09-30
-- Canonicalization amendment: **2026-10-01 — GOV-005 / OPEN-001에 따른 Patch 4 pre-freeze authority/status overlay를 추가했다. 이 amendment는 field/data contract 또는 capture protocol 변경을 의미하지 않는다.**
-- 상태: **Hybrid contract/design record. 현재 구현 사실은 Git/source/test와 canonical Foundation records가 우선한다. 아직 구현되지 않은 future schema/path는 설계안이며, Patch 4 exact canonical contract는 2026-10-01 Research Decision Log의 GOV-005/OPEN-001에 따라 Design Freeze 전 proposal이다.**
+- Canonicalization amendment: **2026-10-01 — GOV-005 / OPEN-001에 따른 Patch 4 pre-freeze authority/status overlay를 추가했다. 이 amendment는 field/data contract 또는 capture protocol 변경을 의미하지 않았다.**
+- Patch 4 Design Freeze amendment: **2026-10-01 — `DATA-003`이 `OPEN-001`을 해소하여 `frames-schema/1.0.0` exact canonical frame contract를 freeze한다. 이 amendment는 contract 확정이며 구현 완료 또는 capture protocol 변경을 의미하지 않는다.**
+- 상태: **Hybrid contract/design record. 현재 구현 사실은 Git/source/test와 canonical Foundation records가 우선한다. §F의 Patch 4 exact frame contract는 `DATA-003`에 따라 frozen-but-unimplemented이며, 그 밖의 future schema/path는 해당 Decision Log status가 우선한다.**
 - 적용 지침: [AGENTS.md](AGENTS.md). 연구 결과는 목표값이 아니라 증거로 취급한다.
 - 2026-09-30 Step 1.5 원작성 범위: 당시 산출물은 이 문서뿐이었으며, 소스·테스트·기존 데이터의 변경, 파일 이동, 모델 다운로드, 성능 실험은 수행하지 않았다.
 
 
-### 2026-10-01 canonicalization 전 status overlay
+### 2026-10-01 authority/status overlay
 
 이 문서에는 작성 당시의 **현재 구현 설명**, 이미 구현된 provenance 방향, 그리고 **future/unimplemented 설계안**이 함께 있다.
 따라서 다음 권위 규칙을 적용한다.
@@ -18,16 +19,18 @@
 → Git / source / test + canonical docs/foundation 우선
 
 future/unimplemented design
-→ 설계 proposal 또는 confirmed direction으로 읽음
-→ exact contract가 Decision Log의 OPEN item이면 Design Freeze 전 final contract로 간주하지 않음
+→ 해당 Research Decision Log status를 확인
+→ confirmed/frozen decision과 아직 OPEN인 설계를 구분
 
 Patch 4 exact canonical frame contract
-→ GOV-005 / OPEN-001 우선
+→ DATA-003이 OPEN-001을 해소
+→ frames-schema/1.0.0 contract는 frozen
+→ 단, Patch 4 구현 완료를 뜻하지 않음
 ```
 
-특히 §F.1/§F.3/§F.4의 candidate version/header/field detail과 이를 참조·요약하는 §K 5a/5b, §L, §N.2/§N.3의 exact contract 표현은
-**Patch 4 pre-freeze proposal**이다. 아래 표와 이름은 설계 검토 재료로 보존하지만 자동 채택하지 않는다.
-이 status overlay는 Patch 1~3에서 이미 구현·검증된 provenance/lineage 동작을 되돌리는 것이 아니다.
+2026-10-01 canonicalization 시점에는 §F.1/§F.3/§F.4와 이를 요약하는 §K/§L/§N의 exact Patch 4 내용이 `GOV-005 / OPEN-001`에 따라 **pre-freeze proposal**이었다.
+이후 같은 날 Patch 4 Design Freeze에서 `DATA-003`이 `OPEN-001`을 해소했으므로, 현재 §F의 version/header/field/serialization/hip/arm contract는 **frozen-but-unimplemented** 상태다.
+이 status 전이는 Patch 1~3에서 이미 구현·검증된 provenance/lineage 동작을 되돌리거나 F1/F2 research formula를 확정하지 않는다.
 
 절별 해석은 다음과 같다.
 
@@ -37,7 +40,8 @@ Patch 4 exact canonical frame contract
 → 현재 구현 여부/값은 최신 Git/source/test + canonical Foundation record로 재확인.
 
 §F
-→ Patch 4 fixed-frame/raw-observation proposal. exact contract는 OPEN-001.
+→ DATA-003에 따른 Patch 4 frames-schema/1.0.0 exact frozen contract.
+→ 아직 구현 완료가 아님.
 
 §G~I
 → 후속 lineage/selection/file-layout target architecture. 현재 구현 완료를 뜻하지 않음.
@@ -47,10 +51,11 @@ Patch 4 exact canonical frame contract
 → backward-compatibility 원칙/설계 기록. 실제 adapter 동작은 source/test로 확인.
 
 §K
-→ Step 1.5 당시 future implementation plan. 현재 operational Patch roadmap 권위가 아님.
+→ Step 1.5 당시 future implementation plan을 현재 decision에 맞게 해석하는 참고 절.
+→ operational Patch roadmap 권위는 Research Master가 우선.
 
 §L~N
-→ Step 1.5 상태 요약·validation proposal. Research Master/Decision Log의 현재 status가 우선.
+→ 현재 confirmed/open 경계와 validation 방향 요약. Research Master/Decision Log의 현재 status가 우선.
 ```
 
 ## 0. 현재 구현과 변경 금지 경계
@@ -311,21 +316,109 @@ model entry는 `role`, `filename`, `sha256`, `size_bytes`, `source_url`, `versio
 
 ## F. canonical frame schema
 
-### F.1 fixed schema proposal
+### F.1 `frames-schema/1.0.0` frozen contract
 
-현재 Step 1.5 proposal은 candidate label `frames-schema/1.1.0`과 **고정 열·고정 순서·명시적 단위**를 제안한다.
-아래 candidate version label, exact field list/count/order는 `OPEN-001`이 닫히기 전 final Patch 4 contract가 아니다.
-현재 `row.keys()` 합집합 방식에서 fixed writer로 이동한다는 방향과 exact header 계약을 구분한다.
+`DATA-003`의 Patch 4 Design Freeze에 따라 최초 fixed canonical frame schema를 다음과 같이 확정한다.
 
-- 현재 proposal은 기존 31개 field의 **기존 의미·값 보존**을 전제로 F.3/F.4 candidate field를 뒤에 배치한다. exact final list/count/order와 schema label은 `OPEN-001`이다.
-- current proposal의 writer 표현은 UTF-8-sig/header, missing 빈 셀(JSON 대응 null), 검출 실패를 숫자 0으로 채우지 않는 방식을 사용한다. exact serialization contract는 Patch 4 Design Freeze에서 확정한다.
-- current proposal의 boolean candidate 표현은 `true/false`이고 legacy unknown은 빈 셀이다. exact boolean writer/reader contract는 `OPEN-001`이다. NaN/Infinity를 정상 측정값으로 저장하지 않는 방향과 schema 오류를 새 posture drop 정책으로 전환하지 않는 원칙은 유지한다.
-- RGB/depth 부재, trim, `--step` 등 **기존 frame 선택을 보존한다는 방향**은 유지한다. 선택되지 않은 프레임을 가상 row로 만들거나 기존 row를 새 confidence 기준으로 제거하는 변경은 이번 proposal의 목적이 아니다.
-- 검출 여부와 valid flag는 관찰용이며 새로운 촬영/학습 acceptance threshold가 아니라는 방향을 유지한다.
-- current proposal은 검출 실패/optional 비활성화에서도 fixed column을 유지하고 missing/validity로 상태를 구분한다. exact missing/validity serialization과 final column set은 `OPEN-001`에서 freeze한다.
-- F0/F_cal 정의는 보존하고 F1/F2용 feature 배열이나 수식은 이 문서에서 정하지 않는다.
+```text
+schema label
+= frames-schema/1.0.0
 
-### F.2 현재 추출 가능한 31개 필드
+legacy pre-Patch-4 dynamic frame CSV
+= unversioned legacy format
+
+ordered canonical header
+= legacy 31-field prefix
+  + Patch 4 metadata/state 17 fields
+  + bilateral hip raw-observation 12 fields
+= total 60 fields
+```
+
+기존 31개 field는 **이름·순서·단위·계산 의미를 그대로 유지**한다. 신규 field는 뒤에만 append한다. 현재 `row.keys()` 합집합 기반 dynamic header는 Patch 4 구현에서 canonical frames 전용 fixed writer로 대체 대상이다. 이 절의 contract freeze는 아직 Python 구현이 완료됐다는 뜻이 아니다.
+
+정확한 60-field 순서는 다음이다.
+
+```text
+# legacy ordered prefix: 1..31
+subject
+round
+step
+label
+t
+ts_ms
+face_x
+face_y
+face_w_px
+face_h_px
+face_area_px
+face_score
+z_face_m
+face_size_cm2
+oval_area_px
+oval_size_cm2
+ipd_px
+ipd_cm
+box_to_oval
+lsh_x
+lsh_y
+rsh_x
+rsh_y
+lsh_vis
+rsh_vis
+z_lsh_m
+z_rsh_m
+z_sh_m
+theta1_deg
+theta2_deg
+theta3_deg
+
+# Patch 4 metadata/state: 32..48
+frame_schema_version
+recording_id
+analysis_run_id
+frame_index
+color_frame_number
+depth_frame_number
+mediapipe_ts_ms
+face_depth_source
+face_detected
+face_mesh_detected
+pose_detected
+face_depth_valid
+lsh_valid
+rsh_valid
+lsh_depth_valid
+rsh_depth_valid
+shoulder_depth_source
+
+# bilateral hip raw observations: 49..60
+left_hip_x_px
+left_hip_y_px
+left_hip_depth_m
+left_hip_visibility
+left_hip_valid
+left_hip_depth_valid
+right_hip_x_px
+right_hip_y_px
+right_hip_depth_m
+right_hip_visibility
+right_hip_valid
+right_hip_depth_valid
+```
+
+다음 serialization 원칙을 freeze한다.
+
+- missing numeric/string observation: Python `None` → CSV empty cell → JSON-equivalent `null`.
+- canonical boolean CSV: lowercase `true` / `false`; unknown은 empty cell. reader는 각각 `True` / `False` / `None`으로 복원한다.
+- 새 writer는 boolean truth value에 `0/1`을 사용하지 않는다.
+- explicit state/source enum의 literal `missing`은 빈 measurement cell과 별개의 상태값이다.
+- `0`, `-1`, interpolation 등 synthetic numeric sentinel로 raw missing observation을 채우지 않는다.
+- NaN/Infinity를 정상 측정값으로 저장하지 않는다.
+- RGB/depth 부재, trim, `--step` 등 기존 frame 선택 의미를 바꾸지 않으며 선택되지 않은 frame을 가상 row로 생성하지 않는다.
+- 검출/validity field는 관찰 상태이며 새 posture/capture acceptance threshold가 아니다.
+- F0/F_cal 정의와 기존 31개 계산값을 보존하며 F1/F2 feature 배열·수식은 이 schema에서 정하지 않는다.
+
+### F.2 legacy ordered prefix 31 fields
 
 | 기존 필드(이 순서) | 형식·단위·현재 의미 |
 |---|---|
@@ -348,50 +441,99 @@ model entry는 `role`, `filename`, `sha256`, `size_bytes`, `source_url`, `versio
 
 좌표계는 **원래 color 이미지의 비반전 pixel 좌표**다. capture의 거울 UI 좌표나 RF의 640×480 환산 좌표로 덮어쓰지 않는다. analysis는 depth를 color에 align한다. `lsh/rsh`의 사람 기준과 RF가 사용하는 화면 좌우 어깨 mapping을 명시적으로 구분한다.
 
-### F.3 candidate metadata/관찰 필드 (Patch 4 pre-freeze)
+### F.3 Patch 4 metadata/state 17 fields
 
-아래 표 순서는 **candidate metadata/header proposal**이다. 모델·코드 hash 같은 run 공통 정보는 manifest에 저장하고 ID로 연결하는 방향을 제안하며, exact Patch 4 열 목록·순서·채택 범위는 `OPEN-001`에서 확정한다.
+| 순서 | 신규 필드 | frozen 의미·정책 |
+|---:|---|---|
+| 32 | `frame_schema_version` | 항상 `frames-schema/1.0.0` |
+| 33 | `recording_id` | source recording identity; manifest/provenance에서 전달 |
+| 34 | `analysis_run_id` | current analysis execution identity |
+| 35 | `frame_index` | trim / `--step` filtering 전에 증가하는 **1-based source playback traversal index**. 연속일 필요 없음 |
+| 36 | `color_frame_number` | 실제 color frame 객체의 supporting source identifier |
+| 37 | `depth_frame_number` | 실제 depth frame 객체의 supporting source identifier |
+| 38 | `mediapipe_ts_ms` | VIDEO API에 실제 전달한 monotonic-corrected `ts_int` |
+| 39 | `face_depth_source` | 새 writer: `bbox_roi / oval_center_roi / missing`; legacy reader에서만 `unknown_legacy` 허용 |
+| 40 | `face_detected` | face detector detection 존재 여부 |
+| 41 | `face_mesh_detected` | face mesh landmark result 존재 여부 |
+| 42 | `pose_detected` | pose landmark result 존재 여부 |
+| 43 | `face_depth_valid` | 기존 bbox/oval depth 경로에서 canonical `z_face_m` 측정값을 얻었는지 |
+| 44 | `lsh_valid` | left shoulder landmark가 finite이며 normalized x/y가 color-frame bounds `0 <= x,y < 1` 안인지 |
+| 45 | `rsh_valid` | right shoulder에 동일 규칙 적용 |
+| 46 | `lsh_depth_valid` | `lsh_valid=true`이고 기존 shoulder depth primitive가 측정값을 반환했는지 |
+| 47 | `rsh_depth_valid` | `rsh_valid=true`이고 기존 shoulder depth primitive가 측정값을 반환했는지 |
+| 48 | `shoulder_depth_source` | canonical depth-valid state 기준 `both / left_only / right_only / missing`; legacy reader에서만 `unknown_legacy` 허용 |
 
-| 신규 필드 | 확보 방법·정책 |
-|---|---|
-| `frame_schema_version` | `frames-schema/1.1.0` |
-| `recording_id`, `analysis_run_id` | manifest에서 전달 |
-| `dataset_role`, `protocol_version` | catalog/capture에서 전달 |
-| `frame_index` | playback 처리 순번 `n`을 보존; filtering 전에 증가하는 기존 순번 |
-| `color_frame_number`, `depth_frame_number` | 실제 frame 객체에서 얻는 식별값; 현재 CSV에는 없음 |
-| `mediapipe_ts_ms` | VIDEO API에 실제 전달한 `ts_int`; 현재 원래 timestamp와 별도로 보정할 수 있으므로 따로 보존 |
-| `image_width`, `image_height` | 실제 color 이미지 W/H |
-| `depth_alignment_target` | `color` |
-| `face_bbox_x`, `face_bbox_y` | 이미 지역변수에 있는 bbox origin. 새 검출을 하지 않고 보존 |
-| `face_depth_source` | `bbox_center / oval_center / missing / unknown_legacy`; **body fallback source가 아님** |
-| `face_detected`, `face_mesh_detected`, `pose_detected` | 실제 task result 유무. 저장된 scalar 하나에서 검출 성공을 역추정하지 않음 |
-| `face_depth_valid`, `lsh_depth_valid`, `rsh_depth_valid` | 기존 depth 계산이 유효 값을 반환했는지. 새 pixel/visibility threshold 없음 |
-| `shoulder_depth_source` | `both / left_only / right_only / missing / unknown_legacy` |
+canonical frame-row key는 다음으로 확정한다.
 
-candidate frame-row 기본키로 `(analysis_run_id, recording_id, frame_index)`를 제안한다. exact Patch 4 key contract는 `OPEN-001`의 Design Freeze 대상이며, timestamp만으로 유일성을 보장하지 않는 방향은 유지한다. 프레임 timestamp domain을 확인할 수 있으면 analysis manifest의 stream metadata에 기록하고, 확인 불가이면 unknown으로 둔다.
+```text
+(analysis_run_id, recording_id, frame_index)
+```
 
-### F.4 hip raw 방향과 arm 선택적 확장 후보 (Patch 4 pre-freeze)
+`color_frame_number` / `depth_frame_number`는 supporting provenance이며 key가 아니다. timestamp만으로 row identity를 정의하지 않는다.
 
-현재 코드의 pose 저장 경로는 shoulder 값을 추출하며, 아래 hip/elbow/wrist 필드는 현재 31개 CSV에 없다. 다음은 **향후 formal canonical writer의 설계**이며 이미 구현·측정되었다는 뜻이 아니다. 현재 `z_face_m/z_lsh_m/z_rsh_m/z_sh_m`은 사용 가능한 기존 원재료다.
+`dataset_role`, `protocol_version`, `image_width`, `image_height`, `depth_alignment_target`, `face_bbox_x`, `face_bbox_y`는 `frames-schema/1.0.0`의 신규 frame header에 추가하지 않는다. run/recording-level provenance는 기존 manifest/catalog에서 연결하고, bbox origin은 기존 legacy face center/size에서 raw contract상 중복 저장하지 않는다.
 
-| 신규 필드(그룹 내 열 순서) | 단위·의미 | 수집 정책 |
-|---|---|---|
-| `left_hip_x`, `left_hip_y`, `left_hip_depth`, `left_hip_visibility`, `left_hip_valid`, `left_hip_depth_valid` | 원래 color pixel x/y, aligned depth의 m 단위 거리, 모델 visibility, 2D 좌표 유효 여부, depth 유효 여부 | candidate fields; hip observation 방향은 유지, exact naming/contract는 OPEN-001 |
-| `right_hip_x`, `right_hip_y`, `right_hip_depth`, `right_hip_visibility`, `right_hip_valid`, `right_hip_depth_valid` | 위와 동일, 사람 기준 오른쪽 hip | candidate fields; hip observation 방향은 유지, exact naming/contract는 OPEN-001 |
-| `left_elbow_x`, `left_elbow_y`, `left_elbow_depth`, `left_elbow_visibility`, `left_elbow_valid`, `left_elbow_depth_valid` | 위와 동일한 좌표·단위·플래그 규약 | optional 원재료 후보 |
-| `right_elbow_x`, `right_elbow_y`, `right_elbow_depth`, `right_elbow_visibility`, `right_elbow_valid`, `right_elbow_depth_valid` | 위와 동일 | optional 원재료 후보 |
-| `left_wrist_x`, `left_wrist_y`, `left_wrist_depth`, `left_wrist_visibility`, `left_wrist_valid`, `left_wrist_depth_valid` | 위와 동일 | optional 원재료 후보 |
-| `right_wrist_x`, `right_wrist_y`, `right_wrist_depth`, `right_wrist_visibility`, `right_wrist_valid`, `right_wrist_depth_valid` | 위와 동일 | optional 원재료 후보 |
+D02의 legacy 31-field preservation 때문에 기존 `lsh_x/lsh_y/rsh_x/rsh_y/z_lsh_m/z_rsh_m/z_sh_m` 값과 계산 경로 자체를 Patch 4에서 소급 변경하지 않는다. 따라서 out-of-frame shoulder에서 과거 depth 경로가 값을 만들 가능성이 있더라도 새 `lsh_valid/rsh_valid` 및 canonical `*_depth_valid`가 사용 가능 상태를 별도로 표현한다. 새 validity state를 이유로 legacy numeric prefix를 다시 계산하거나 비우지 않는다.
 
-- 좌우는 모두 **사람 기준**이다. `*_depth`는 m 단위이며 모델의 정규화 z나 world landmark z와 혼용하지 않는다. 이 필드 자체를 완성된 3D 좌표로 부르지 않는다.
-- hip는 핵심 observation 방향이지만, **exact column 의무/field naming/serialization은 OPEN-001**이다. 어떤 계약을 채택하더라도 모든 프레임의 hip non-null을 hard gate로 만드는 방향은 아니다. 가림·화면 밖·depth 누락을 이유로 임의 좌표를 생성하거나 새로운 posture drop 기준을 도입하지 않는다.
-- candidate `*_valid` / `*_depth_valid` 의미는 2D 좌표 유효성과 depth 추출 유효성을 분리하는 것이다. exact field 이름과 serialization은 Design Freeze 전 proposal이다. 새로운 visibility 합격 threshold를 여기서 정하지 않는다.
-- current proposal은 미검출/부분 depth 실패/비활성화/legacy unknown을 missing과 validity/state로 구분한다. exact missing representation은 `OPEN-001`에서 확정한다.
-- analysis manifest의 `processing_settings.raw_observation_groups`에 `hip`, `elbow`, `wrist`별 `enabled / disabled / unknown_legacy`를 기록한다. 사용한 모델의 landmark index mapping·좌우 규약·depth ROI/추출 설정도 기록한다. 구체적인 추가 landmark 매핑은 구현 시 고정 모델 계약과 대조·테스트하며, 이번 문서에서 새 detector나 ROI threshold를 확정하지 않는다.
-- 현재 proposal은 optional arm의 **수집 활성화**와 header 예약을 분리하여, disabled일 때 missing과 manifest 상태를 남기는 방식을 제안한다. 그러나 arm을 final Patch 4 header에 `include / reserve / exclude-and-version-later` 중 어떻게 둘지는 `OPEN-001`이며 아직 확정하지 않는다.
-- elbow/wrist를 raw observation으로 저장할 경우 이후 오류 분석·ablation뿐 아니라 upper-body skeletal/context representation의 원재료로 재사용할 수 있다는 것이 proposal의 rationale다. 이는 arm field 저장을 이미 확정했다는 뜻이 아니며, primary 5-class classifier의 핵심 feature로도 확정하지 않는다. exact Patch 4 처리와 formal batch 활성화 정책은 `OPEN-001`을 따른다.
+### F.4 bilateral hip raw observation 12 fields / arm disposition
 
-전체 face/pose landmark, deprojected 3D 좌표, IR 좌우 영상, 새로운 ROI 품질 통계는 이 schema의 필수 항목으로 추가 확정하지 않는다. 필요한 경우 별도 version으로 확장한다. shoulder/hip가 가려져 관측되지 않는 문제는 실제 수집·장비 validation에서 확인하며 좌표나 depth를 추정 생성하지 않는다.
+`FEAT-003`과 `DATA-003`에 따라 hip는 Patch 4 canonical raw contract의 core observation이다.
+
+| 순서 | 신규 필드 | 단위·frozen 의미 |
+|---:|---|---|
+| 49 | `left_hip_x_px` | 사람 기준 left hip의 원래 color-image pixel x. valid일 때만 값 존재 |
+| 50 | `left_hip_y_px` | color-image pixel y. valid일 때만 값 존재 |
+| 51 | `left_hip_depth_m` | aligned D455 depth, meters |
+| 52 | `left_hip_visibility` | MediaPipe raw visibility. acceptance threshold로 사용하지 않음 |
+| 53 | `left_hip_valid` | geometric in-frame validity |
+| 54 | `left_hip_depth_valid` | valid hip에서 depth primitive가 측정값을 반환했는지 |
+| 55 | `right_hip_x_px` | 사람 기준 right hip pixel x |
+| 56 | `right_hip_y_px` | pixel y |
+| 57 | `right_hip_depth_m` | aligned D455 depth, meters |
+| 58 | `right_hip_visibility` | MediaPipe raw visibility |
+| 59 | `right_hip_valid` | geometric in-frame validity |
+| 60 | `right_hip_depth_valid` | valid hip에서 depth primitive가 측정값을 반환했는지 |
+
+Hip validity는 confidence threshold가 아니라 geometry/state contract다.
+
+```text
+pose result 존재
+AND landmark x/y finite
+AND 0 <= normalized x < 1
+AND 0 <= normalized y < 1
+→ hip_valid = true
+```
+
+- valid이면 `x_px = normalized_x * image_width`, `y_px = normalized_y * image_height`를 저장한다.
+- out-of-frame 또는 otherwise invalid이면 x/y는 empty, `hip_valid=false`, depth는 empty, `hip_depth_valid=false`이며 depth extraction을 시도하지 않는다.
+- pose result는 있으나 hip가 out-of-frame인 경우 MediaPipe visibility 자체는 raw observation으로 보존한다. pose result가 없으면 visibility도 missing이다.
+- Patch 4에서 visibility threshold를 새 acceptance 기준으로 만들지 않는다.
+
+Hip depth는 **기존 shoulder `median_depth()` primitive**를 재사용한다.
+
+```text
+ROI half-width = 6 px
+valid raw depth pixel = raw_depth > 0
+minimum valid raw depth pixels = 10
+reduction = median
+meters = raw median * recording depth_scale
+```
+
+- `hip_valid=true`일 때만 depth extraction을 시도한다.
+- hip 중심은 frame 안이지만 ROI 일부가 경계를 넘는 경우 기존 primitive의 image-bound clipping을 허용한다.
+- 측정값을 얻으면 `hip_depth_valid=true`; 얻지 못하면 hip x/y/visibility와 `hip_valid=true`는 유지하되 depth는 empty, `hip_depth_valid=false`다.
+- hip 전용 ROI size, confidence threshold, interpolation/hole-filling/reconstruction rule을 추가하지 않는다.
+
+Elbow/wrist는 `frames-schema/1.0.0`에서 다음과 같이 freeze한다.
+
+```text
+elbow/wrist disposition
+= exclude-and-version-later
+```
+
+즉 elbow/wrist field를 header에 포함하지 않고 빈 예약 열도 만들지 않는다. 이후 필요성이 확인되면 명시적 frame schema version update로 추가한다. 이 결정은 elbow/wrist가 formal 촬영에서 항상 보인다는 보장이 아니다. 나중 재추출 가능성은 촬영 당시 RGB/depth coverage, raw 보존, fixed model artifact 등에 조건부다. formal collection 전 실제 framing/coverage 위험은 `OPEN-005` / `OPEN-006` 경로에서 다루며 Patch 4에서 새 capture acceptance threshold를 만들지 않는다.
+
+전체 face/pose landmark, deprojected 3D 좌표, IR 좌우 영상, hip midpoint, trunk axis/angle, 새로운 ROI 품질 통계는 `frames-schema/1.0.0`의 필수 raw column으로 추가하지 않는다. derived geometry와 model feature는 별도 계층이다.
 
 ### F.5 Raw / Derived / Model feature의 세 계층
 
@@ -402,10 +544,6 @@ candidate frame-row 기본키로 `(analysis_run_id, recording_id, frame_index)`�
 | Model feature set | F0 / F_cal / F1 / F2 | 확정된 연구 명세가 관측/derived 값 중 입력을 선택. 선택·순서·정규화·feature version은 이후 별도 계약이며 provenance로 원재료까지 추적 |
 
 hip midpoint와 trunk angle은 hip raw landmark 열이 아니다. 새 derived geometry나 모델용 정규화 값을 canonical raw column에 추가하여 연구 가설과 원재료 계약을 섞지 않는다.
-
-호환성 예외로 기존 31개에는 이미 `theta*_deg`, `face_size_cm2`, `oval_size_cm2`, `ipd_cm`, `box_to_oval` 같은 계산값이 있다. 이들은 **legacy/current 계산 필드**로 명시하여 그대로 보존하고 순수 raw 관찰이라고 재명명하지 않는다. 기존 summary의 reference 기반 파생값도 그대로 보존하되 F1/F2의 필수 입력으로 자동 승계하지 않는다. 신규 derived 산출물의 구체적 파일 형식·수식은 후속 설계 대상으로 남긴다.
-
-기존 `face_area_px`, `oval_area_px`, `oval_size_cm2`, `box_to_oval`은 rectangular bbox와 facial contour/oval representation의 approximation/fidelity를 재검토하는 **secondary exploratory analysis**에 사용할 수 있다. 이 가능성은 새 raw field나 sensor-calibration target을 요구하지 않으며, exact area-error formula·evaluation metric·F1/F2 포함 여부·최종 논문 채택 여부를 확정하지 않는다.
 
 ## G. step summary와 RF lineage
 
@@ -517,9 +655,11 @@ manifests/
 
 ### J.2 loader 정책
 
+- `frames-schema/1.0.0` reader는 exact 60-field contract와 schema label을 검증한다. canonical boolean은 `true -> True`, `false -> False`, empty -> `None`으로 복원한다.
+- source enum은 새 writer의 canonical 값만 정상 contract로 인정한다. `unknown_legacy`는 legacy reader/canonical view에서만 사용한다.
 - old CSV의 기존 31개/44개 측정 필드는 이름·단위·값을 유지한다. 누락 열은 canonical view에서 null로 표현한다.
 - legacy import row를 구별할 필요가 있으면 adapter sidecar에 원본 CSV row 번호를 둔다. 그것을 실제 카메라 frame number라고 부르지 않는다.
-- `face_depth_source`, 검출 boolean, frame number 등 알 수 없는 새 metadata를 기존 scalar만 보고 채우지 않는다. `unknown_legacy` 또는 null을 사용한다.
+- `face_depth_source`, 검출/validity boolean, frame number 등 알 수 없는 새 metadata를 기존 scalar만 보고 채우지 않는다. `unknown_legacy` 또는 null을 사용하고 false로 강제하지 않는다.
 - legacy 입력은 명시적 pilot 경로/옵션으로 읽는다. 새 formal manifest로 조용히 편입하지 않는다.
 - 중복 촬영이 없는 기존 입력의 숫자 결과는 호환성 기준으로 유지한다. 중복 자료가 모호하게 섞인 경우 canonical 경로는 오류/선택 요구로 처리하고, 임의로 과거 결과와 같게 만들기 위해 계속 병합하지 않는다.
 - 현재 RF의 feature/drop/평가 규칙을 legacy adapter가 바꾸지 않는다.
@@ -527,7 +667,7 @@ manifests/
 ## K. 이후 구현 순서 — 최소 patch 단위
 
 이 절은 Step 1.5 당시의 future implementation plan이다. 현재 operational Patch 번호/순서는 Research Master와 canonical Foundation records가 우선한다.
-각 항목의 exact Patch 4 field 계약은 GOV-005/OPEN-001의 pre-freeze status를 따른다.
+`DATA-003`이 `OPEN-001`을 해소했으므로 Patch 4 frame-field 계약은 §F의 `frames-schema/1.0.0` frozen contract를 따른다. 그 밖의 future design은 해당 Decision Log status를 따른다.
 아래 새 모듈·테스트 이름은 미래 계획이며 이번 Step의 생성 파일이 아니다.
 
 | Patch | 수정/추가 대상 | 하는 일 | 하지 말아야 할 것 | 필요한 테스트 | 예상 위험 |
@@ -536,8 +676,8 @@ manifests/
 | 2. capture metadata | `capture_d455.py`, provenance 테스트 | ID를 raw/metadata/markers/samples에 전파, protocol/code/settings 기록 | streams·시간·label·depth 계산·기존 CSV 열 의미 변경 | 기존 열/값 보존, 실패 시도 ID, dirty code hash, fallback 형식 동일 ID | 중단 시 metadata 미완성, 기존 flat 파일 소비자 |
 | 3. gate evidence | `capture_d455.py`, `test_capture_protocol.py` | 기존 final gate 계산 근거를 quality에 추가 | threshold·window·median·face 비율·shoulder gate 변경 | pass/fail 값 동일, 정확한 counts/분모, 부족 시 null, 최신 upright 사용 | 진단 재계산과 실제 판정의 불일치 |
 | 4. 모델 lock·analysis run | `analyze_d455.py`, 분석 provenance 테스트 | 고정 모델 hash 검증, run manifest·고유 출력 경로 | 다른 모델로 조용히 교체, 추출 옵션/trim 변경 | cached model 검증, hash mismatch, run overwrite 금지, from-csv parent 표기 | 기존 모델 정체 불명, 라이브러리 버전 차이 |
-| 5a. canonical frames 기반 | `analyze_d455.py`, frame schema 테스트 | 기존 31개 값 보존 + fixed-header candidate + metadata/source 플래그 + F.4 arm-handling proposal | F1/F2 구현, 새 confidence/depth drop 조건 | 검출 누락에도 header 고정 방향, 기존 값 동일, 사람/화면 좌우, timestamp 두 종류 | 검출 실패와 unknown 혼동, RGB/depth 대응; exact header/arm contract는 OPEN-001, hip 구현 전 formal schema 완성으로 간주 금지 |
-| 5b. body raw observations | `analyze_d455.py`, landmark/schema 전용 테스트 | hip 관찰 추출, 선택적 elbow/wrist 추출·상태 기록; 모델 mapping과 기존 depth 추출 정책 대조 | midpoint/trunk angle/feature 구현, 기존 31개 재계산 변경, 새 shoulder/hip 촬영 gate | 좌우·pixel/m 단위, 화면 밖·가림·미검출·depth 결측, optional 비활성화에도 동일 header, 기존 row/값 보존 | hip 가시성·edge depth 불안정, 모델 좌표와 센서 depth 혼동 |
+| 5a. canonical frames 기반 | `analyze_d455.py`, frame schema 테스트 | §F의 exact 60-field `frames-schema/1.0.0` fixed header, key/source/boolean/missing contract 구현 | F1/F2 구현, legacy 31 재해석, 새 confidence/depth drop 조건 | exact header/order, legacy 31 값 동일, boolean round-trip, key/frame-index gap, enum/unknown 처리 | dynamic writer 잔존, legacy adapter와 canonical writer 혼동, schema label 불일치 |
+| 5b. body raw observations | `analyze_d455.py`, landmark/schema 전용 테스트 | bilateral hip 12-field 추출, geometric in-frame validity, 기존 shoulder depth primitive 재사용; elbow/wrist는 제외 | midpoint/trunk angle/feature 구현, 기존 31개 재계산 변경, 새 shoulder/hip 촬영 gate, elbow/wrist 빈 예약 열 | 좌우·pixel/m 단위, out-of-frame이면 hip x/y/depth missing, in-frame depth 실패 분리, shoulder validity와 legacy 값 보존 | hip 가시성·edge depth 불안정, capture coverage 미보증, 모델 좌표와 센서 depth 혼동 |
 | 6. summary·legacy | `analyze_d455.py`, summary/legacy 테스트 | recording/run 단위 grouping와 reference 격리, legacy 명시적 import | 직전 upright를 첫 upright로 교체, 기존 FEATS 통계 변경 | 두 retake 절대 병합 금지, 두 run 분리, 기존 단일 take 수치 동일 | 기존 오병합 결과와의 차이, from-csv lineage 누락 |
 | 7. manifest 선택·RF 연결 | 선택 도구/manifest validator, `rf_experiment.py` 입력·출력부, 전용 테스트 | 선택 이력·snapshot, RF 병렬 lineage와 실행 디렉터리 | Tree/Forest/weight/λ/feature/평가 마스크 변경, root stats 변경 | 중복 선택 거부, seed/fold 불변, 기존 prediction/metrics 동일, 결과→raw 추적 | sample 순서·LOSO 그룹·relative reference의 우발 변경 |
 | 8. 무결성·통합 검증 | `check_recording.py`, 통합 테스트, 운영 절차 | artifact/marker 연결과 run 완결성 검증, 실제 카메라 smoke test | 추가 검사 결과로 과거 데이터 자동 삭제, 새 연구 acceptance 조건 암묵 도입 | raw+sidecar mismatch, 실패 run 배제, end-to-end lineage, 전체 기존 unittest | 실제 SDK/장치 차이, EOF와 재생 실패 구분 |
@@ -550,14 +690,14 @@ manifests/
 
 현재 구현 여부와 설계 방향을 구분한다. ID·role·provenance 등 이미 구현된 부분은 Git/source/test 및 canonical Foundation records로 확인한다.
 Step 1.5에서 확정 방향으로 유지하는 것은 feature 역할 분리, F1/F2의 zero-personal-calibration, raw/derived/model 계층 분리, head/shoulder/hip 관찰 필요성 같은 **연구/데이터 방향**이다.
-반면 fixed raw writer의 exact version/header/field/missing/arm 계약은 GOV-005/OPEN-001에 따라 Patch 4 pre-freeze proposal이며, 이 문서의 과거 `확정` 표현만으로 final contract가 되지 않는다.
+fixed raw writer의 exact version/header/field/missing/arm 계약은 `DATA-003`이 `OPEN-001`을 해소하면서 §F의 `frames-schema/1.0.0`으로 freeze되었다. 단, contract freeze는 Patch 4 Python 구현 완료를 의미하지 않는다.
 
 다음은 구현자가 임의 결정하지 않는다.
 
 1. **F1/F2의 구체적 수식·입력 차원·missing 처리·derived geometry 계약**. F0의 기존 baseline과 F_cal의 relative 비교 역할은 보존한다. 현재 all/invariant/relative를 이름만 바꿔 F1/F2로 간주하지 않는다. 6개 초과 weight 정책도 별도 연구 결정이다.
 2. formal/external의 모집·조건·반복측정 단위와 허용 촬영 회수, `ok_with_warnings`의 eligibility, 기술적 예외 승인자. 수집 전에 H의 selection policy를 완성한다.
 3. 실제 고정할 MediaPipe 모델 artifact/hash 및 환경 조합. 현재 로컬에 없거나 확인하지 않은 파일의 버전을 추정하지 않는다.
-4. face/head·shoulder·hip를 F1/F2에 필요한 핵심 observation 방향으로 유지한다. elbow/wrist는 upper-body skeletal/context representation에 유용한 추가 candidate raw observation이지만, exact `include / reserve / exclude-and-version-later`는 Patch 4 Design Freeze에서 결정한다. hip의 exact field naming/depth extraction/missing contract도 같은 freeze 대상이다. 그 밖의 전체 landmark·3D·IR 저장 필요성도 자동 확장하지 않는다.
+4. face/head·shoulder·hip를 F1/F2에 필요한 핵심 observation 방향으로 유지한다. Patch 4에서는 hip 12-field exact contract를 §F.4처럼 사용하고, elbow/wrist는 `exclude-and-version-later`로 freeze되었다. 그 밖의 전체 landmark·3D·IR 저장 필요성은 자동 확장하지 않는다. elbow/wrist formal coverage 보증은 이 exclusion에서 도출하지 않으며 OPEN-005/OPEN-006의 후속 protocol/validation 경계를 따른다.
 5. F1/F2의 개인 사전 calibration 불필요 원칙은 확정 방향이다. 현재 capture/summary의 직전 upright와 기존 RF의 첫 upright 정책은 비교 경로에서 보존하며 통일하지 않는다. 연구자는 최종 feature 경로에 reference 의존성이 없는지 검증할 계획을 정한다.
 6. M절 장비 validation의 거리·반복 수·landmark/depth/3D geometry 안정성 metric·오차/변동 산출법·허용 기준, hip를 관측할 실제 구도. 실제 결과 없이 범위 적합성이나 fallback 필요성을 확정하지 않는다.
 
@@ -599,13 +739,17 @@ formal experiment 전에 별도 validation으로 다음을 확인한다.
 
 ## N. Step 1.5 변경 영향 및 후속 결정
 
-1. **기존 31개 field 의미 변경: 없음.** 이름·단위·계산·누락 처리의 기존 동작은 보존 대상이다. legacy/current 계산 필드를 raw와 구분해서 설명했으며 삭제·재계산하지 않는다. 기존 summary와 RF/WRF 및 M0/M1/M2 비교도 유지한다.
-2. **신규 canonical raw 후보**: 좌우 hip x/y/depth/visibility 및 2D/depth validity candidate를 설계했고, elbow/wrist도 upper-body skeletal/context representation에 활용 가능한 optional candidate로 기술했다. 이 exact field naming/count/order는 Patch 4 pre-freeze proposal이다. raw landmark 관찰과 derived skeletal/body geometry, 최종 model feature 선택을 분리하며 hip midpoint·trunk angle 등은 derived 계층으로 남긴다.
-3. **Mandatory / optional status**: 기존 값 의미 보존과 head/shoulder/hip 관찰 필요성은 방향으로 유지한다. 그러나 formal Patch 4 header의 exact metadata/hip/arm 열 계약, arm 예약 여부, boolean/missing serialization은 `OPEN-001`이 닫히기 전 final mandatory contract가 아니다. legacy 미확인 metadata는 기존 unknown 원칙을 유지한다.
-4. **P01/P02 compatibility**: 기존 pilot 원본·CSV·수치·legacy ID mapping을 유지한다. 새 hip/arm 값이 없으면 missing이며 임의 복원하거나 formal로 승격하지 않는다. 필요 시 raw를 새 analysis run으로 재분석할 수 있으나 이번에는 실행하지 않는다.
-5. **후속 코드 patch 대상**: K의 1~4 provenance 기반 작업 후 `analyze_d455.py`의 5a 고정 schema, 5b hip/optional arm 관찰을 분리한다. 이후 `analyze_d455.py` summary/legacy, `rf_experiment.py` 입력·출력 lineage, `check_recording.py` schema·연결 검증으로 이어간다. `capture_d455.py`는 예정된 ID/metadata/evidence 관찰 기록만 대상이며 face-only gate를 바꾸지 않는다. 전용 테스트는 각 후속 patch에서 작성한다.
-6. **F1/F2 미확정 범위**: calibration-free 2D upper-body skeletal/body-relative geometry와 RGB-D·metric 3D/sagittal candidate family라는 방향만 명시한다. head-forward relative to trunk / whole-trunk-forward / whole-body translation confounder를 분석하되, exact landmark set·graph/edge·수식·feature 개수·trunk-axis/angle 공식·projection·normalization·selection·threshold·성능은 확정하거나 추정하지 않는다. 정면 D455 proxy를 actual spine angle로 주장하지 않는다. 새로운 arm feature나 40 cm fallback도 정의하지 않는다.
-7. **연구자 결정 사항**: 정확한 F1/F2·derived 계약과 결측 처리, Patch 4 arm include/reserve/exclude, 고정 모델/환경, 장비 validation의 literature-informed candidate range·거리 grid·반복·landmark/depth/3D-repeatability/RGB-depth coupling/distance-stability metric·허용 기준, hip 관측 가능 구도, 기존 selection policy의 warnings·재촬영·승인 기준을 후속 확정한다. bbox-vs-contour/oval의 exact error metric과 최종 연구 채택 여부도 deferred 상태다. 개인 사전 calibration을 최종 방법의 필수 조건으로 되돌리는 것은 미결정 항목이 아니다.
-8. **기존 provenance 유지**: recording_id, analysis_run_id, dataset_role, protocol_version, git/file/model hash, selection manifest·이력, legacy pilot mapping, raw→frames→summary 및 raw→frames→RF traceability를 삭제·단순화하지 않았다. 문서/schema 설계 version 변경은 기존 촬영 protocol 변경을 의미하지 않는다.
+1. **기존 31개 field 의미 변경: 없음.** 이름·순서·단위·계산 의미의 기존 동작은 `frames-schema/1.0.0`의 ordered prefix로 보존한다. 신규 validity가 legacy numeric 값을 소급 재계산하거나 비우지 않는다. 기존 summary와 RF/WRF 및 M0/M1/M2 비교도 유지한다.
+2. **Patch 4 exact canonical frame contract: frozen.** `DATA-003`이 `OPEN-001`을 해소했으며 §F의 60-field `frames-schema/1.0.0`이 exact contract다. legacy 31 + metadata/state 17 + bilateral hip 12 순서를 사용한다.
+3. **Hip / arm status:** hip는 exact 12-field raw observation contract를 사용한다. elbow/wrist는 `exclude-and-version-later`이며 빈 예약 열도 두지 않는다. 향후 필요하면 explicit schema-version update가 필요하다.
+4. **Validity / missing / boolean:** hip는 geometric in-frame validity와 depth validity를 분리하고, shoulder에는 `lsh_valid/rsh_valid`를 신규 상태로 추가한다. missing measurement는 CSV empty/JSON null, canonical boolean은 lowercase `true/false`, unknown은 empty다. numeric sentinel이나 임의 보간으로 raw missing을 채우지 않는다.
+5. **P01/P02 compatibility:** 기존 pilot 원본·CSV·수치·legacy ID mapping을 유지한다. 새 field를 기존 scalar에서 추정 생성하지 않는다. legacy unknown은 `unknown_legacy` 또는 null로 남긴다. raw를 새 analysis run으로 재분석할 수 있으나 별도 provenance와 당시 실제 coverage가 전제다.
+6. **후속 코드 Patch 4 대상:** `analyze_d455.py`의 canonical frame writer/reader, exact 60-field header, source enums, boolean/missing parsing, shoulder validity, hip extraction/depth validity 및 전용 regression test를 구현한다. `capture_d455.py`에 새 shoulder/hip/arm coverage acceptance gate를 이번 contract에서 추가하지 않는다.
+7. **F1/F2 미확정 범위:** calibration-free 2D upper-body skeletal/body-relative geometry와 RGB-D·metric 3D/sagittal candidate family라는 방향만 유지한다. exact landmark graph·수식·feature 개수·trunk-axis/angle·projection·normalization·selection·threshold·성능은 `OPEN-002/OPEN-003`이며 Patch 4 raw contract에서 결정하지 않는다.
+8. **후속 연구자 결정 사항:** formal/external exact protocol과 framing/coverage 절차는 `OPEN-005`, D455 exact 거리 grid·반복·landmark/depth/3D-repeatability/RGB-depth coupling/distance-stability metric·허용 기준은 `OPEN-006`이다. `rank_weights` p>6 정책은 `OPEN-004`다. bbox-vs-contour/oval exact error metric과 최종 연구 채택 여부도 deferred 상태다.
+9. **Coverage 한계:** 현재 capture가 hip/elbow/wrist의 in-frame/depth coverage를 보증하지 않는다는 점은 Patch 4 schema가 해결하지 않는다. `frames-schema/1.0.0`은 관측/결측 상태를 표현하고, 실제 formal framing 및 hardware stability는 후속 protocol/validation에서 확인한다.
+10. **기존 provenance 유지:** recording_id, analysis_run_id, dataset_role, protocol_version, git/file/model hash, selection manifest·이력, legacy pilot mapping, raw→frames→summary 및 raw→frames→RF traceability를 삭제·단순화하지 않는다.
 
-2026-09-30 Step 1.5 원작성 당시 수정 대상은 `RESEARCH_DATA_SCHEMA.md` 한 파일이었다. 당시 Python 소스·테스트·데이터 변경, 새 파일 생성, F1/F2 구현, RF 실험, commit/push는 수행하지 않았다. 2026-10-01 canonicalization amendment는 GOV-005/OPEN-001 status/authority 정합화이며 field/data contract 또는 capture protocol을 새로 freeze하지 않는다.
+2026-09-30 Step 1.5 원작성 당시 수정 대상은 `RESEARCH_DATA_SCHEMA.md` 한 파일이었다. 당시 Python 소스·테스트·데이터 변경, 새 파일 생성, F1/F2 구현, RF 실험, commit/push는 수행하지 않았다.
+2026-10-01 canonicalization amendment는 GOV-005/OPEN-001 status/authority 정합화였으며 field/data contract를 freeze하지 않았다.
+2026-10-01 Patch 4 Design Freeze amendment는 `DATA-003`에 따라 `frames-schema/1.0.0` exact contract를 freeze하지만, Python 구현 완료·formal collection 승인·capture protocol 변경을 의미하지 않는다.

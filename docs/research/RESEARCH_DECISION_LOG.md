@@ -1,6 +1,6 @@
 # Research Decision Log
 
-- 문서 버전: `v1.0`
+- 문서 버전: `v1.1`
 - 기준일: `2026-10-01`
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
@@ -1392,3 +1392,190 @@ final-test 결과를 본 parameter 변경
 | Version | Date | Summary |
 |---|---|---|
 | `v1.0` | 2026-10-01 | 현재 Research Master를 만들면서 기존 대화·schema·history·Foundation 기록에서 이미 확정된 연구/데이터/실험/거버넌스 결정을 최초 통합. 미확정 항목은 OPEN entry로 분리 |
+| `v1.1` | 2026-10-01 | `DATA-003`을 append하여 Patch 4 `frames-schema/1.0.0` exact canonical frame contract를 freeze하고 `OPEN-001`을 해소 |
+
+---
+
+# 12. Post-Canonicalization Decision Entries
+
+## DATA-003 — Patch 4 canonical frame contract Design Freeze
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-01
+**Decision timing:** Patch 4 Design Freeze after research-document canonicalization and agent-authority alignment
+
+### Decision
+
+Patch 4의 최초 fixed canonical frame contract를 다음과 같이 freeze한다.
+
+```text
+frame schema label
+= frames-schema/1.0.0
+
+legacy pre-Patch-4 dynamic frame CSV
+= unversioned legacy format
+
+canonical header
+= legacy 31-field ordered prefix
+  + Patch 4 metadata/state 17 fields
+  + bilateral hip raw-observation 12 fields
+= total 60 fields
+```
+
+기존 31개 field는 이름·순서·단위·계산 의미를 그대로 보존한다. 신규 field는 뒤에만 append한다.
+
+### Exact ordered Patch 4 extension
+
+기존 31개 뒤의 17개 metadata/state field는 다음 순서로 고정한다.
+
+```text
+frame_schema_version
+recording_id
+analysis_run_id
+frame_index
+color_frame_number
+depth_frame_number
+mediapipe_ts_ms
+face_depth_source
+face_detected
+face_mesh_detected
+pose_detected
+face_depth_valid
+lsh_valid
+rsh_valid
+lsh_depth_valid
+rsh_depth_valid
+shoulder_depth_source
+```
+
+그 뒤 bilateral hip raw-observation 12개를 다음 순서로 고정한다.
+
+```text
+left_hip_x_px
+left_hip_y_px
+left_hip_depth_m
+left_hip_visibility
+left_hip_valid
+left_hip_depth_valid
+right_hip_x_px
+right_hip_y_px
+right_hip_depth_m
+right_hip_visibility
+right_hip_valid
+right_hip_depth_valid
+```
+
+### Identity / provenance contract
+
+canonical frame-row key는 다음이다.
+
+```text
+(analysis_run_id, recording_id, frame_index)
+```
+
+`frame_index`는 trim / `--step` filtering 전에 증가하는 **1-based source playback traversal index**다. 따라서 canonical CSV에서 연속일 필요가 없다.
+`color_frame_number`와 `depth_frame_number`는 supporting source-frame provenance이며 canonical key에는 포함하지 않는다.
+
+source enum은 다음을 사용한다.
+
+```text
+face_depth_source:
+  bbox_roi
+  oval_center_roi
+  missing
+
+shoulder_depth_source:
+  both
+  left_only
+  right_only
+  missing
+```
+
+`unknown_legacy`는 legacy reader/canonical view에서만 허용하며 새 `frames-schema/1.0.0` writer가 생성하지 않는다.
+
+### Geometric validity / depth contract
+
+Hip의 `*_valid`는 visibility threshold가 아니라 **geometric in-frame validity**다.
+
+```text
+pose result 존재
+AND x/y finite
+AND 0 <= normalized x < 1
+AND 0 <= normalized y < 1
+→ hip_valid = true
+```
+
+hip가 out-of-frame 또는 otherwise invalid이면 x/y와 depth는 missing, `hip_valid=false`, `hip_depth_valid=false`이며 depth extraction을 시도하지 않는다. MediaPipe visibility는 별도 raw value로 보존하며 Patch 4 acceptance threshold로 사용하지 않는다.
+
+Hip depth는 기존 shoulder `median_depth()` primitive를 재사용한다.
+
+```text
+ROI half-width = 6 px
+valid raw depth pixel = raw_depth > 0
+minimum valid raw depth pixels = 10
+reduction = median
+unit conversion = recording depth_scale → meters
+```
+
+in-frame hip에서 depth를 얻지 못하면 `hip_valid=true`를 유지하고 depth만 missing, `hip_depth_valid=false`로 기록한다. Patch 4는 hip 전용 ROI tuning, visibility threshold, interpolation/reconstruction rule을 추가하지 않는다.
+
+`lsh_valid/rsh_valid`는 기존 shoulder landmark가 실제 color-frame bounds 안에 있는지를 나타내는 신규 canonical state다. D02의 legacy 31-field 보존 때문에 기존 `lsh_x/rsh_x/z_lsh_m/z_rsh_m` 계산값 자체를 소급 변경하지 않는다. canonical `lsh_depth_valid/rsh_depth_valid`와 `shoulder_depth_source`는 새 in-frame validity를 함께 고려하여 해석한다.
+
+### Missing / boolean serialization
+
+```text
+Python missing observation → None
+CSV missing numeric/string observation → empty cell
+JSON equivalent → null
+```
+
+numeric sentinel `0`, `-1` 또는 임의 보간값으로 missing을 채우지 않는다. explicit state/source enum의 literal `missing`은 빈 measurement cell과 별개다.
+
+canonical boolean CSV 표현은 lowercase ASCII다.
+
+```text
+true  → True
+false → False
+empty → None / unknown
+```
+
+새 writer는 canonical boolean에 `0/1`을 사용하지 않는다. legacy에서 새 state를 복원할 수 없으면 false로 강제하지 않고 unknown으로 남긴다.
+
+### Arm disposition
+
+`frames-schema/1.0.0`에는 elbow/wrist raw-observation column을 **포함하지 않고 예약 빈 열도 두지 않는다**.
+
+```text
+elbow/wrist
+→ exclude-and-version-later
+```
+
+향후 연구상 필요성이 확인되면 명시적 schema-version update로 추가한다. 이 제외는 formal 촬영에서 elbow/wrist coverage가 보장된다는 뜻이 아니다. 이후 raw 재추출 가능성은 촬영 당시 실제 RGB/depth 관측 가능성, raw 보존, 고정 model artifact 등에 조건부다. formal collection 전 framing/coverage 위험은 `OPEN-005` / `OPEN-006`의 protocol·hardware-validation 경로에서 별도로 다룬다. Patch 4에서 새 capture acceptance threshold를 도입하지 않는다.
+
+### Rationale
+
+Patch 4의 목적은 F1/F2 feature를 설계하는 것이 아니라, 현재 dynamic frame writer를 재현 가능한 fixed raw-observation contract로 바꾸고 FEAT-003에서 확정한 hip observation을 안전하게 추가하는 것이다. 기존 31개 값의 의미를 보존하고 raw observation / derived geometry / selected model feature를 분리해야 이후 연구 가설이 데이터 원재료 계약을 소급 변경하지 않는다.
+
+또한 static code audit에서 현재 capture가 hip/elbow/wrist in-frame/depth coverage를 보증하지 않고, 기존 shoulder depth 경로도 landmark image-bound state를 별도 기록하지 않는 점을 확인했다. 따라서 Patch 4는 coverage hard gate를 새로 만들지 않고 in-frame/depth validity를 표현하며, 실제 coverage 검증은 후속 protocol/hardware-validation 결정으로 분리한다.
+
+### Evidence / Source
+
+- `analyze_d455.py`의 현재 dynamic `write_csv()`와 shoulder/depth extraction 경로
+- `test_analysis_provenance.py`의 legacy 31-field regression baseline
+- `FEAT-003`, `FEAT-004`, `FEAT-007`, `CAP-004`
+- `GOV-005`, `OPEN-001`
+- `RESEARCH_DATA_SCHEMA.md` §F / §J / §K / §L / §N
+- Patch 4 Design Freeze D01~D11 review and final ratification at repository baseline `065c823e17fcc01206b07d93a07256046694d2ed`
+
+### Impact
+
+- 이 entry가 `OPEN-001`을 해소한다. append-only 규칙에 따라 과거 `OPEN-001` entry의 `Status: DEFERRED`는 수정하지 않는다.
+- `RESEARCH_DATA_SCHEMA.md`의 Patch 4 pre-freeze proposal을 본 결정에 맞는 frozen-but-unimplemented contract로 갱신한다.
+- Patch 4 구현은 이 contract를 따라야 하며, 본 entry 자체는 구현 완료를 의미하지 않는다.
+- F1/F2 exact formula·derived geometry는 계속 `OPEN-002` / `OPEN-003`이다.
+- `rank_weights`의 p>6 정책은 계속 `OPEN-004`다.
+- formal framing/coverage protocol과 D455 exact validation plan은 계속 `OPEN-005` / `OPEN-006`이다.
+- hip midpoint, trunk axis/angle, sagittal projection, arm feature/class는 Patch 4 canonical raw field에 추가하지 않는다.
+
+Supersedes:
+Resolves: OPEN-001

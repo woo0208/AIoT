@@ -1,12 +1,12 @@
 # AIoT Research Master
 
-- 문서 버전: `v1.0`
+- 문서 버전: `v1.1`
 - 기준일: `2026-10-01`
 - 상태: **CURRENT / Living Document**
 - 권장 위치: `docs/research/AIoT_RESEARCH_MASTER.md`
 - 역할: **현재 연구 방향·범위·용어·로드맵의 Single Source of Truth**
 - 관련 문서:
-  - `RESEARCH_DATA_SCHEMA.md` — 데이터 계약. 단, Patch 4 future schema 세부는 Design Freeze 전 proposal로 취급
+  - `RESEARCH_DATA_SCHEMA.md` — 데이터 계약. Patch 4 exact frame contract는 `DATA-003`에 따라 `frames-schema/1.0.0`으로 frozen-but-unimplemented이며, 그 밖의 future schema는 해당 Decision Log status를 확인
   - `docs/research/RESEARCH_DECISION_LOG.md` — 의사결정 이력
   - `docs/history/*` — 과거 상태·소급 복원
   - `docs/foundation/*` — Foundation 변경 기록
@@ -30,7 +30,7 @@
 |---|---|
 | 실제 Git/source/test | 현재 구현 사실 |
 | `AIoT_RESEARCH_MASTER.md` | 현재 연구 목적·역할·운영 로드맵 |
-| `RESEARCH_DATA_SCHEMA.md` | 구현된 데이터/provenance 계약과 future 설계안을 함께 담은 schema 문서. 구현 사실은 Git/source/test가 우선하며, Patch 4 exact future contract는 GOV-005/OPEN-001에 따라 Design Freeze 전 proposal |
+| `RESEARCH_DATA_SCHEMA.md` | 구현된 데이터/provenance 계약과 future 설계안을 함께 담은 schema 문서. 구현 사실은 Git/source/test가 우선하며, Patch 4 exact frame contract는 `DATA-003`에 따라 `frames-schema/1.0.0`으로 frozen-but-unimplemented |
 | `RESEARCH_DECISION_LOG.md` | 왜 현재 결론에 도달했는지에 대한 의사결정 이력 |
 | History/Foundation records | 과거 상태와 각 변경의 근거 |
 | Experiment Protocol | formal/external 실험 실행 절차 |
@@ -46,31 +46,30 @@
 
 데이터 형식 충돌
 → RESEARCH_DATA_SCHEMA 확인
-→ 아직 구현되지 않은 future exact contract이면 Decision Log의 GOV-005 / OPEN-001도 함께 확인
+→ Patch 4 exact frame contract이면 `DATA-003` + Schema §F 확인
+→ 그 밖의 아직 구현되지 않은 future design이면 Decision Log status도 함께 확인
 
 결정 이유/변경 이력 충돌
 → Decision Log + 해당 Foundation Record 확인
 ```
 
-단, `RESEARCH_DATA_SCHEMA.md`의 Step 1.5 future canonical writer 세부는
-**Patch 4 Design Freeze 전 proposal**이다. 이 status는 §F뿐 아니라 동일 설계를 참조·요약하는 §K/§L/§N의 future Patch 4 문구에도 적용한다.
-
-`OPEN-001`이 닫히기 전까지 최소 다음은 final canonical contract로 간주하지 않는다.
+2026-10-01 Patch 4 Design Freeze에서 `DATA-003`이 `OPEN-001`을 해소했다.
+따라서 `RESEARCH_DATA_SCHEMA.md` §F의 `frames-schema/1.0.0` exact 60-field contract는
+**frozen-but-unimplemented** 상태다.
 
 ```text
-schema/version label의 최종값
-canonical exact field list / count / order
-F.3 metadata·enum의 exact Patch 4 채택 범위
-hip depth field naming
-hip depth ROI / extraction contract
-raw validity / missing serialization의 exact contract
-elbow/wrist include / reserve / exclude-and-version-later
-boolean writer/reader final contract 표현
+legacy 31-field ordered prefix
++ Patch 4 metadata/state 17 fields
++ bilateral hip raw-observation 12 fields
+= total 60 fields
 ```
 
+이 contract freeze는 Patch 4 Python 구현 완료, F1/F2 feature formula 확정, formal collection 승인,
+새 capture acceptance gate 도입을 의미하지 않는다.
+
 이미 구현·검증된 Patch 1~3 provenance/lineage 동작은 그대로 유지한다.
-future/unimplemented schema section은 현재 구현 완료를 뜻하지 않으며,
-확정 방향과 exact contract의 구분은 `GOV-005` / `OPEN-001`을 따른다.
+그 밖의 future/unimplemented schema section은 현재 구현 완료를 뜻하지 않으며,
+각 설계의 confirmed/open status는 해당 Decision Log entry를 따른다.
 
 ---
 
@@ -78,17 +77,19 @@ future/unimplemented schema section은 현재 구현 완료를 뜻하지 않으�
 
 ## 1.1 Repository 기준
 
-본 Research Master / Decision Log의 **canonicalization 검토 baseline**:
+본 v1.1 / Patch 4 Design Freeze 정합화의 **review parent baseline**:
 
 ```text
 branch: main
-baseline commit: 474733cbc80b736f56e72f55bf8c59745cc06ade
-docs: finalize research history and foundation records
-local origin/main ref: 검토 시점에 baseline과 동일했음 (remote를 지속 보장하는 문구가 아님)
+parent commit: 065c823e17fcc01206b07d93a07256046694d2ed
+docs: align agent instructions with research authority
 ```
 
-이 값은 문서 자체를 commit한 뒤의 `HEAD`를 예측하는 값이 아니라,
-**본 v1.0을 대조·검토한 parent baseline**이다.
+이 값은 본 v1.1 문서 변경을 commit한 뒤의 `HEAD`를 예측하는 값이 아니라,
+**Patch 4 Design Freeze 문서 변경을 대조하는 parent baseline**이다.
+
+Research document canonicalization의 이전 기준점은 commit `f97530c`이며,
+History/Foundation canonicalization 기준점 `474733c`는 해당 기록의 역사적 provenance로 유지한다.
 
 Foundation 구현 상태:
 
@@ -97,7 +98,7 @@ Prelude   algorithm / evaluation / capture hardening   완료
 Patch 1   capture recording provenance                 완료
 Patch 2   forward gate evidence                        완료
 Patch 3   analysis provenance                          완료
-Patch 4   canonical fixed frame schema + hip           설계 동결 전
+Patch 4   canonical fixed frame schema + hip           Design Freeze 완료 / 구현 전
 ```
 
 Patch 3 canonical record에는 commit `1cdc528` 계열에서 `146 tests PASS`가 기록되어 있고,
@@ -114,7 +115,7 @@ History/Foundation 6개 문서는 READ-ONLY 독립 검토와 canonicalization을
 
 ## 1.2 현재 단계 한 줄 요약
 
-> **기존 prototype과 기존 RF/WRF 비교 체계를 연구용으로 감사·보강한 뒤, 이제 개인별 사전 자세 calibration에 의존하지 않는 body-relative 2D/3D 특징을 설계하기 위한 Foundation을 완성하는 단계다.**
+> **기존 prototype과 RF/WRF 비교 체계의 연구용 Foundation을 보강했고, Patch 4 exact raw frame contract까지 Design Freeze를 완료하여 이제 해당 contract를 구현·검증할 단계다.**
 
 아직 F1/F2 핵심 수식을 구현하는 단계가 아니다.
 
@@ -372,15 +373,15 @@ left hip
 right hip
 ```
 
-추가 candidate raw observations:
+추가 research candidate raw observations:
 
 ```text
 left/right elbow
 left/right wrist
 ```
 
-단, 추가 candidate를 Patch 4 raw schema에 실제 include/reserve/exclude할지와
-F1 model feature로 사용할지는 별도 OPEN decision이다.
+`DATA-003`에 따라 `frames-schema/1.0.0`에서는 elbow/wrist를 `exclude-and-version-later`로 freeze했다.
+이는 F1/F2 model feature 채택 여부를 결정한 것이 아니며, 향후 연구상 필요성이 확인되면 explicit schema-version update로 추가한다.
 
 미확정:
 
@@ -484,9 +485,9 @@ classifier inclusion / feature selection
 예:
 
 ```text
-left_hip_x
-left_hip_y
-left_hip_depth
+left_hip_x_px
+left_hip_y_px
+left_hip_depth_m
      ↓
 shoulder-hip vector / trunk geometry
      ↓
@@ -547,15 +548,15 @@ raw observation 저장 여부와 model feature 사용 여부를 분리
 arm-up/down을 새 posture class로 자동 추가하지 않음
 ```
 
-Patch 4 raw schema에서 elbow/wrist를 `include / reserve / exclude-and-version-later` 중 어떻게 처리할지는 `OPEN-001`로 미확정이다.
-저장하더라도 F1/F2 또는 primary classifier에 반드시 사용한다는 뜻이 아니다.
+`DATA-003`에 따라 `frames-schema/1.0.0`에서는 elbow/wrist를 **exclude-and-version-later**로 freeze했다.
+빈 예약 열도 두지 않으며, 향후 필요성이 확인되면 explicit frame-schema version update로 추가한다.
+이 결정은 elbow/wrist가 formal 촬영에서 항상 RGB/depth coverage를 가진다는 보장이 아니며,
+formal framing/coverage 위험은 `OPEN-005` / `OPEN-006`의 protocol·hardware-validation 경로에서 별도로 다룬다.
+
+Elbow/wrist를 향후 저장하더라도 F1/F2 또는 primary classifier에 반드시 사용한다는 뜻은 아니다.
 
 desk/keyboard 높이와 elbow/forearm 관계는 필요 시 auxiliary contextual metric으로 검토할 수 있으나,
 현재 연구를 전체 workstation ergonomic assessment로 확대하지 않는다.
-
-교수 피드백의 정정된 취지상 elbow/wrist는 upper-body skeletal/context 분석에서 활용 가치가 있으므로
-Patch 4 Design Freeze에서 raw observation 확보 근거로 함께 검토한다.
-다만 이 근거가 `include / reserve / exclude-and-version-later` 중 하나를 지금 확정하는 것은 아니다.
 
 ---
 
@@ -989,43 +990,41 @@ Analysis Provenance
 
 ---
 
-## Patch 4 — NEXT
+## Patch 4 — IMPLEMENTATION NEXT
 
 ```text
 Canonical Fixed Frames Schema + Hip Raw Observations
 ```
 
-목표:
+`DATA-003`의 Design Freeze를 완료했으며 exact contract는 `RESEARCH_DATA_SCHEMA.md` §F가 SSOT다.
+
+```text
+frame schema        = frames-schema/1.0.0
+canonical header    = legacy 31 + metadata/state 17 + hip 12 = 60 fields
+legacy compatibility= 기존 31개 이름·순서·단위·계산 의미 보존
+hip                 = bilateral 12-field raw observation
+arm                 = exclude-and-version-later
+missing             = CSV empty / JSON null + explicit validity state
+boolean             = lowercase true/false, unknown=empty
+```
+
+구현 목표:
 
 ```text
 동적 row key 제거
-canonical fixed header
-기존 31개 의미 보존
+canonical fixed 60-field writer/reader
 frame identity/provenance 연결
-hip raw observations 추가
-missing semantics 명시
+shoulder in-frame/depth validity 상태 추가
+hip geometric in-frame validity + raw depth observation 구현
+source enum / missing / boolean contract 구현
+legacy 31 값·의미 regression 보존
 ```
 
-**아직 Design Freeze 전이다.**
+**Design Freeze 완료 / Python 구현 전**이다.
 
-`RESEARCH_DATA_SCHEMA.md`의 Step 1.5 future canonical writer 세부안은
-`GOV-005`에 따라 **pre-freeze proposal**이다. 이 status는 §F와 동일 내용을 참조·요약하는 §K/§L/§N에도 적용하며,
-아래 미확정 항목을 선결정한 것으로 해석하지 않는다.
-
-현재 미확정 예:
-
-```text
-schema/version label의 최종값
-정확한 canonical field list / count / order
-F.3 metadata·enum의 exact Patch 4 채택 범위
-hip depth field naming
-hip depth ROI / extraction contract
-raw validity / missing serialization의 exact contract
-elbow/wrist include / reserve / exclude-and-version-later
-boolean serialization/reader 세부 계약의 최종 표현
-```
-
-구현자가 임의로 결정하지 않는다.
+Patch 4에서 F1/F2 derived geometry·feature formula를 구현하지 않고,
+`capture_d455.py`에 새 shoulder/hip/arm coverage acceptance gate를 추가하지 않는다.
+formal framing/coverage와 D455 hardware stability는 `OPEN-005` / `OPEN-006`의 후속 범위다.
 
 ---
 
@@ -1317,6 +1316,8 @@ runtime/FPS를 새 핵심 연구축으로 승격
 21. Patch 8에는 D455-derived body geometry의 measurement-quality validation을 포함한다.
 
 22. face bbox와 contour/oval 표현 차이를 **secondary exploratory analysis candidate로 분류한다는 guardrail은 확정**하되, 실제 분석 채택·metric·F1/F2 포함·최종 논문 사용 여부는 `FEAT-008 (DEFERRED)`로 남긴다.
+
+23. `DATA-003`에 따라 Patch 4 exact canonical raw frame contract는 `frames-schema/1.0.0`으로 freeze되었다. 총 60 fields이며 legacy 31 ordered prefix + metadata/state 17 + bilateral hip 12 구조다. 이 freeze는 구현 완료나 F1/F2 feature 확정을 의미하지 않는다.
 ```
 
 ---
@@ -1342,15 +1343,6 @@ F2 depth-derived geometry
 F2 missing-depth policy
 
 >6 feature에서 rank_weights exact policy (M1/M2 shared weighting 경로)
-
-Patch 4 canonical schema/version label의 최종값
-Patch 4 canonical exact field list/count/order
-F.3 metadata·enum의 exact Patch 4 채택 범위
-hip depth ROI / extraction contract의 최종값
-hip depth field의 최종 naming
-raw validity / missing serialization의 exact contract
-elbow/wrist include / reserve / exclude-and-version-later
-boolean writer/reader final contract 표현
 
 MediaPipe exact lock hashes
 
@@ -1457,7 +1449,9 @@ v1.0 → v1.1
 ```text
 새 Decision Entry 추가
 +
-supersedes / superseded_by 연결
+새 entry에 `Supersedes:` / `Resolves:` 연결
++
+과거 entry에 `Superseded by:` back-pointer를 사후 추가하지 않음
 ```
 
 을 남긴다.
@@ -1507,33 +1501,34 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 현재 우선순위:
 
 ```text
-1. 본 Research Master + Decision Log + `RESEARCH_DATA_SCHEMA.md`의 status/authority 정합성 검토
-   → Step 1.5 future Patch 4 proposal status가 Schema 본문에서도 발견 가능해야 함
-   → Claude READ-ONLY 독립 검증
-   → canonicalize / commit
+1. Research Master / Decision Log / RESEARCH_DATA_SCHEMA canonicalization        DONE
 
-2. agent instruction 정합화
-   → AGENTS.md / CLAUDE.md가 canonical Research Master와 Decision Log를
-     Patch 4 연구 기준으로 참조하도록 확인·정리
+2. AGENTS.md / CLAUDE.md agent authority alignment                              DONE
 
-3. Patch 4 Design Freeze
-   - 아직 미확정인 canonical schema 결정을 명시적으로 확정
-   - RESEARCH_DATA_SCHEMA의 pre-freeze proposal을 자동 채택하지 않음
-   - exact field/version/missing/arm/hip extraction 계약을 `OPEN-001`과 함께 닫음
+3. Patch 4 Design Freeze                                                         DONE
+   → DATA-003이 OPEN-001 해소
+   → frames-schema/1.0.0 exact 60-field contract freeze
 
-4. Patch 4 구현
+4. Patch 4 구현                                                                  NEXT
+   → canonical fixed writer/reader
+   → shoulder validity + bilateral hip raw observations
+   → exact missing/boolean/source enum contract
+   → legacy 31 regression 보존
    → 테스트
    → 독립 review
    → commit
 
 5. Patch 4 Foundation Record 작성
+
+6. Patch 4.5 model artifact lock 등 formal data work 전 후속 Foundation 진행
 ```
+
 
 ---
 
 # 22. Source Basis
 
-본 v1.0은 다음을 통합한 **현재 기준 문서**다.
+본 v1.1은 다음을 통합한 **현재 기준 문서**다.
 
 ```text
 - 실제 현재 repository / Git history
@@ -1563,3 +1558,4 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 | Version | Date | Summary |
 |---|---|---|
 | `v1.0` | 2026-10-01 | 역사/Foundation 정리 이후 현재 연구 방향을 재기준화. M0/M1/M2 역할, F0/F_cal/F1/F2, calibration-free 원칙, data role, operational Patch 1~8, Research Stage 전환, unresolved research decisions를 통합 |
+| `v1.1` | 2026-10-01 | `DATA-003` Patch 4 Design Freeze 반영. `OPEN-001` 해소, `frames-schema/1.0.0` exact 60-field contract를 frozen-but-unimplemented로 전환, elbow/wrist `exclude-and-version-later`, 다음 단계는 Patch 4 implementation으로 갱신 |
