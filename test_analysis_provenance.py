@@ -725,14 +725,17 @@ class AnalysisProvenanceTests(unittest.TestCase):
         pipe.start.return_value = profile
         rs.pipeline.return_value = pipe
         rs.align.return_value.process.side_effect = lambda frames: frames
-        def frame(ts):
+        def frame(ts, color_number, depth_number):
             fr = Mock()
             fr.get_timestamp.return_value = ts
+            fr.get_color_frame.return_value.get_frame_number.return_value = color_number
+            fr.get_depth_frame.return_value.get_frame_number.return_value = depth_number
             fr.get_color_frame.return_value.get_data.return_value = np.zeros((20, 20, 3), dtype=np.uint8)
             fr.get_depth_frame.return_value.get_data.return_value = np.full((20, 20), 1000, dtype=np.uint16)
             return fr
         def execute(provenance):
-            pipe.try_wait_for_frames.side_effect = [(True, frame(2000.)), (True, frame(12000.)), (False, None)]
+            pipe.try_wait_for_frames.side_effect = [
+                (True, frame(2000., 101, 201)), (True, frame(12000., 102, 202)), (False, None)]
             real_import = builtins.__import__
             modules = {"mediapipe": ns(Image=option, ImageFormat=ns(SRGB="SRGB")),
                        "pyrealsense2": rs, "mediapipe.tasks": ns(python=mpt),
@@ -741,14 +744,24 @@ class AnalysisProvenanceTests(unittest.TestCase):
                 return modules[name] if name in modules else real_import(name, *args, **kwargs)
             with patch("builtins.__import__", side_effect=fake_import):
                 return analysis.process_recording(path, paths, 1, provenance=provenance)
-        without = execute(None)
+        with self.assertRaisesRegex(ValueError, "requires analysis provenance"):
+            execute(None)
         _, info = analysis.start_analysis_run(path, self.args, "batch")
         analysis.record_model_artifacts(info, paths)
-        with_provenance = execute(info)
-        self.assertEqual(without, with_provenance)
-        self.assertEqual(len(with_provenance), 2)
-        self.assertEqual(len(with_provenance[0]), 31)
-        row = with_provenance[0]
+        first = execute(info)
+        _, info2 = analysis.start_analysis_run(path, self.args, "batch")
+        analysis.record_model_artifacts(info2, paths)
+        second = execute(info2)
+        self.assertEqual(len(first), 2)
+        self.assertEqual(len(first[0]), 60)
+        for left, right in zip(first, second):
+            self.assertNotEqual(left["analysis_run_id"], right["analysis_run_id"])
+            left_without_run = dict(left); left_without_run.pop("analysis_run_id")
+            right_without_run = dict(right); right_without_run.pop("analysis_run_id")
+            self.assertEqual(left_without_run, right_without_run)
+        with open(Path(analysis.OUT_DIR) / (Path(path).stem + "_frames.csv"), encoding="utf-8-sig") as f:
+            self.assertEqual(tuple(csv.DictReader(f).fieldnames), analysis.FRAME_FIELDS)
+        row = first[0]
         for field, expected in {"face_x": 8, "face_y": 6, "face_area_px": 64, "face_score": .95,
                                 "z_face_m": 1., "face_size_cm2": 64., "oval_area_px": 100.,
                                 "oval_size_cm2": 100., "ipd_px": 4., "ipd_cm": 4., "box_to_oval": .64,
@@ -758,6 +771,11 @@ class AnalysisProvenanceTests(unittest.TestCase):
         self.assertAlmostEqual(row["theta2_deg"], math.degrees(math.atan2(7, 10)))
         self.assertAlmostEqual(row["theta3_deg"], math.degrees(math.atan2(3, 10)))
         self.assertAlmostEqual(row["theta1_deg"], row["theta2_deg"] + row["theta3_deg"])
+        self.assertEqual(row["frame_schema_version"], "frames-schema/1.0.0")
+        self.assertEqual(row["recording_id"], info["recording_id"])
+        self.assertEqual(row["analysis_run_id"], info["analysis_run_id"])
+        self.assertEqual((row["frame_index"], row["color_frame_number"], row["depth_frame_number"]), (1, 101, 201))
+        self.assertEqual(row["mediapipe_ts_ms"], 2000)
         self.assertIs(info["inference_performed"], True)
         self.assertTrue(all(m["used_in_this_run"] for m in info["models"]))
         self.assertEqual(info["playback_calibration"]["depth_scale_m"], .001)
