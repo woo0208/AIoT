@@ -28,25 +28,33 @@ Do not treat these as interchangeable.
 
 ## Research-Sensitive Changes
 
-Before modifying any of the following, read `RESEARCH_DATA_SCHEMA.md`:
+Before research-sensitive work, read:
 
-- `recording_id` or `analysis_run_id`
-- capture provenance
-- analysis provenance
-- canonical dataset schema
-- landmark extraction
-- depth extraction
-- participant inclusion rules
-- recording inclusion rules
-- F0 / F_cal / F1 / F2
-- RF / WRF / M0 / M1 / M2
-- calibration/reference behavior
-- evaluation split
-- evaluation metrics
-- experiment selection/manifest logic
+1. `docs/research/AIoT_RESEARCH_MASTER.md`
+2. `docs/research/RESEARCH_DECISION_LOG.md`
+3. `RESEARCH_DATA_SCHEMA.md`
+4. relevant canonical History/Foundation records when historical context is needed
 
-If the requested implementation conflicts with `RESEARCH_DATA_SCHEMA.md`,
-stop and report the conflict rather than silently choosing one interpretation.
+This read order is not a single precedence chain. Route conflicts by authority:
+
+- current implementation facts → Git / source / tests
+- current research direction, scope, terminology, and roadmap → `AIoT_RESEARCH_MASTER.md`
+- research decision status, rationale, OPEN/DEFERRED state, and supersession/resolution history → `RESEARCH_DECISION_LOG.md`
+- implemented data/schema contracts → `RESEARCH_DATA_SCHEMA.md`
+- future Patch 4 exact schema → `GOV-005` / `OPEN-001` in the Decision Log until Patch 4 Design Freeze
+- other unimplemented/future schema designs → confirm their status in `RESEARCH_DECISION_LOG.md` before treating them as implemented or frozen contracts
+
+The Step 1.5 Patch 4 field details in `RESEARCH_DATA_SCHEMA.md` are pre-freeze
+proposals where routed to `GOV-005` / `OPEN-001`; do not treat them as frozen
+merely because candidate fields or values appear in that document.
+
+This applies to research-sensitive areas including provenance, canonical schema,
+landmark/depth extraction, participant or recording inclusion, F0/F_cal/F1/F2,
+M0/M1/M2, calibration/reference behavior, evaluation splits/metrics, and
+experiment selection/manifest logic.
+
+If these authorities appear to conflict, stop and report the conflict rather
+than silently choosing one interpretation.
 
 ## Scientific Methodology Boundary
 
@@ -66,9 +74,18 @@ The following require explicit user approval before implementation:
 When such a decision is not already defined, report it as a research decision
 instead of inventing one.
 
+If an item is already recorded as OPEN or DEFERRED, do not resolve it merely
+because implementation requires a value. When the canonical documents require
+a Design Freeze before implementation, that Design Freeze must first be
+explicitly decided by the user and recorded in the Decision Log; do not perform
+or infer it implicitly.
+
 ## Current Experimental Structure
 
 The current research structure should be treated as follows.
+
+These are operational summaries only. If they conflict with the canonical
+Research Master or Decision Log, the canonical research documents govern.
 
 ### F0
 
@@ -86,7 +103,7 @@ It is NOT the required inference method for the final proposed approach.
 
 ### F1
 
-Future calibration-free body-relative 2D geometry feature set.
+Future calibration-free 2D body-relative / upper-body skeletal geometry candidate family.
 
 The exact feature formulas are NOT automatically defined by this label.
 
@@ -94,7 +111,8 @@ Do not invent or implement F1 formulas unless they have been explicitly approved
 
 ### F2
 
-Future feature set extending F1 with RGB-D / 3D body geometry.
+Future feature set extending F1 with RGB-D / metric 3D upper-body geometry
+and sagittal-plane geometry candidates.
 
 The exact feature formulas are NOT automatically defined by this label.
 
@@ -245,23 +263,21 @@ raw schema.
 
 ## Hip / Arm Policy
 
-Hip landmarks are planned as important raw observations for future body/trunk
-geometry.
-
-Potential fields include left/right:
-
-- x
-- y
-- depth
-- visibility
-- validity
+Hip landmarks are a confirmed core raw-observation direction for future
+body/trunk geometry (`FEAT-003`). Candidate Patch 4 fields may include left/right
+position, depth, visibility, and validity, but exact Patch 4 naming, depth
+extraction, and missing/validity serialization remain governed by `OPEN-001`.
 
 Do not define trunk-angle formulas merely by adding hip landmarks.
 
-Elbow and wrist landmarks may be preserved as optional raw observations for
-future error analysis or ablation.
+Elbow and wrist landmarks have strengthened rationale as candidate raw
+observations for upper-body skeletal/context analysis. Their exact Patch 4
+disposition — include, reserve, or exclude-and-version-later — remains
+`OPEN-001` and must not be inferred here.
 
-Do not automatically promote elbow/wrist data into F1 or F2.
+Raw observation storage does not imply F1/F2 model-feature use. Do not
+automatically promote elbow/wrist data into F1 or F2 or add arm-up/down as a
+new primary posture class.
 
 ## Missing Data Policy
 
@@ -318,17 +334,20 @@ Do not invent a fallback rule before empirical validation.
 
 Camera/device validation must remain separate from participant calibration.
 
-Potential validation may include:
+Patch 8 includes D455 measurement-quality validation (`CAP-004`). Validation
+categories include:
 
-- depth repeatability at relevant distances,
-- depth valid rate,
-- landmark acquisition rate,
-- edge/position stability,
-- behavior at the current RGB/depth resolution,
-- behavior at 15 FPS.
+- landmark acquisition stability,
+- head / shoulder / hip depth valid rate,
+- depth repeatability / jitter at relevant distances,
+- 3D geometry repeatability,
+- RGB-landmark + aligned-depth combination stability,
+- distance-dependent feature stability.
 
-These measurements characterize the camera/system and do not constitute
-participant-specific posture calibration.
+Exact distance grids, repetitions, metrics, thresholds, and validation protocol
+remain research decisions rather than defaults in this file. These measurements
+characterize the camera/system and do not constitute participant-specific
+posture calibration.
 
 ## Review Mode
 
@@ -489,25 +508,15 @@ Report the risk first unless the requested patch explicitly targets it.
 
 ## Current Development Strategy
 
-The expected progression is approximately:
+The operational research roadmap is defined by
+`docs/research/AIoT_RESEARCH_MASTER.md`. Do not maintain an independent numbered
+research roadmap in `CLAUDE.md`.
 
-1. capture provenance
-2. forward-gate evidence
-3. analysis/model provenance
-4. canonical fixed schema and hip raw observations
-5. recording/summary/RF lineage
-6. selection manifest / data governance
-7. integrity validation
-8. real D455 end-to-end smoke test
-9. F1 methodology definition
-10. F1 implementation and evaluation
-11. F2 methodology definition
-12. F2 implementation and evaluation
-13. controlled experiment
-14. external-condition evaluation
-15. final result interpretation and paper writing
+At the current canonical state:
 
-This sequence is guidance, not permission to implement future steps automatically.
+- agent-instruction alignment precedes Foundation Patch 4 work,
+- Foundation Patch 4 requires an explicit Design Freeze before implementation,
+- `OPEN-001` must not be implicitly resolved from Step 1.5 schema proposals.
 
 Only perform the currently requested scope.
 
