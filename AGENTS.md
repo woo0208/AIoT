@@ -10,7 +10,7 @@
 - Use Git/source/tests for current implementation facts; use canonical History/Foundation records when historical implementation context is needed.
 - Use `AIoT_RESEARCH_MASTER.md` for current research direction, scope, terminology, and roadmap.
 - Use `RESEARCH_DECISION_LOG.md` for decision status, rationale, and whether an item is OPEN or DEFERRED.
-- Use `RESEARCH_DATA_SCHEMA.md` for data/schema contracts. Patch 4 exact frame contract is frozen by `DATA-003` as `frames-schema/1.0.0` in Schema §F but remains unimplemented until Patch 4 code lands; do not reopen or alter that contract implicitly during implementation.
+- Use `RESEARCH_DATA_SCHEMA.md` for data/schema contracts. Patch 4 exact frame contract is frozen by `DATA-003` as `frames-schema/1.0.0` in Schema §F and implemented at commit `110cce6`; software verification/audit is complete with 171 tests passing, real D455 hardware validation remains pending, and Patch 4.5 is the next required Foundation implementation milestone. Do not reopen or alter that contract implicitly in later work.
 - For other unimplemented/future schema designs, confirm their status in `RESEARCH_DECISION_LOG.md` before treating them as implemented or frozen contracts.
 - Do not implicitly resolve an OPEN or DEFERRED research decision because implementation requires a value. Stop and report an apparent authority conflict instead of choosing one silently.
 - After canonicalization, do not rewrite historical Decision Log entries. Record changed decisions in new entries using `Supersedes:` and resolved OPEN items using `Resolves:` where applicable.

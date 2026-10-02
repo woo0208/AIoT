@@ -82,9 +82,44 @@ FACE_MIN_DETECTION_CONFIDENCE = 0.5
 FACE_NUM_FACES, POSE_NUM_POSES = 1, 1
 LANDMARK_RUNNING_MODE = "VIDEO"
 SHOULDER_L, SHOULDER_R = 11, 12
+HIP_L, HIP_R = 23, 24
 FACE_DEPTH_ROI_MIN, FACE_DEPTH_ROI_MAX = 0.25, 0.75
 OVAL_DEPTH_HALF_WIDTH_PX, SHOULDER_DEPTH_HALF_WIDTH_PX = 15, 6
 DEPTH_MIN_VALID_PIXELS = 10
+
+FRAME_SCHEMA_VERSION = "frames-schema/1.0.0"
+LEGACY_FRAME_FIELDS = (
+    "subject", "round", "step", "label", "t", "ts_ms",
+    "face_x", "face_y", "face_w_px", "face_h_px", "face_area_px", "face_score",
+    "z_face_m", "face_size_cm2", "oval_area_px", "oval_size_cm2", "ipd_px", "ipd_cm",
+    "box_to_oval", "lsh_x", "lsh_y", "rsh_x", "rsh_y", "lsh_vis", "rsh_vis",
+    "z_lsh_m", "z_rsh_m", "z_sh_m", "theta1_deg", "theta2_deg", "theta3_deg",
+)
+FRAME_STATE_FIELDS = (
+    "frame_schema_version", "recording_id", "analysis_run_id", "frame_index",
+    "color_frame_number", "depth_frame_number", "mediapipe_ts_ms", "face_depth_source",
+    "face_detected", "face_mesh_detected", "pose_detected", "face_depth_valid",
+    "lsh_valid", "rsh_valid", "lsh_depth_valid", "rsh_depth_valid", "shoulder_depth_source",
+)
+HIP_FRAME_FIELDS = (
+    "left_hip_x_px", "left_hip_y_px", "left_hip_depth_m", "left_hip_visibility",
+    "left_hip_valid", "left_hip_depth_valid", "right_hip_x_px", "right_hip_y_px",
+    "right_hip_depth_m", "right_hip_visibility", "right_hip_valid", "right_hip_depth_valid",
+)
+FRAME_FIELDS = LEGACY_FRAME_FIELDS + FRAME_STATE_FIELDS + HIP_FRAME_FIELDS
+FRAME_BOOL_FIELDS = frozenset((
+    "face_detected", "face_mesh_detected", "pose_detected", "face_depth_valid",
+    "lsh_valid", "rsh_valid", "lsh_depth_valid", "rsh_depth_valid",
+    "left_hip_valid", "left_hip_depth_valid", "right_hip_valid", "right_hip_depth_valid",
+))
+FRAME_TEXT_FIELDS = frozenset((
+    "subject", "round", "step", "label", "frame_schema_version", "recording_id",
+    "analysis_run_id", "face_depth_source", "shoulder_depth_source",
+))
+FRAME_ENUMS = {
+    "face_depth_source": frozenset(("bbox_roi", "oval_center_roi", "missing")),
+    "shoulder_depth_source": frozenset(("both", "left_only", "right_only", "missing")),
+}
 
 POSTURE_KO = {"upright": "정상", "forward_head": "거북목", "body_forward": "몸 전체 앞으로",
               "lean_back": "뒤로 기울임", "lean_left": "왼쪽 기울임", "lean_right": "오른쪽 기울임"}
@@ -225,6 +260,7 @@ def processing_settings(from_csv):
         settings.update(
             trim_start_s=TRIM_START, trim_end_s=TRIM_END, depth_alignment_target="color",
             face_oval_indices=FACE_OVAL, iris_indices=[IRIS_L, IRIS_R], shoulder_indices=[SHOULDER_L, SHOULDER_R],
+            hip_indices=[HIP_L, HIP_R],
             tasks={"face": {"min_detection_confidence": FACE_MIN_DETECTION_CONFIDENCE,
                             "running_mode": None, "running_mode_source": "SDK default; recorded at runtime"},
                    "mesh": {"num_faces": FACE_NUM_FACES, "running_mode": LANDMARK_RUNNING_MODE},
@@ -544,7 +580,34 @@ def angle_from_down(fx, fy, sx, sy):
     return math.degrees(math.atan2(abs(sx - fx), sy - fy))
 
 
+def landmark_in_frame(landmark):
+    if landmark is None:
+        return False
+    try:
+        x, y = landmark.x, landmark.y
+        return math.isfinite(x) and math.isfinite(y) and 0 <= x < 1 and 0 <= y < 1
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def hip_observation(landmark, width, height, depth, depth_scale):
+    visibility = getattr(landmark, "visibility", None) if landmark is not None else None
+    if not landmark_in_frame(landmark):
+        return None, None, None, visibility, False, False
+    x_px, y_px = landmark.x * width, landmark.y * height
+    z_m = median_depth(depth, x_px - SHOULDER_DEPTH_HALF_WIDTH_PX, y_px - SHOULDER_DEPTH_HALF_WIDTH_PX,
+                       x_px + SHOULDER_DEPTH_HALF_WIDTH_PX, y_px + SHOULDER_DEPTH_HALF_WIDTH_PX, depth_scale)
+    return x_px, y_px, z_m, visibility, True, z_m is not None
+
+
 def process_recording(rec_path, models, step, provenance=None, output_dir=None):
+    if not isinstance(provenance, dict):
+        raise ValueError("canonical frame extraction requires analysis provenance")
+    recording_id = provenance.get("recording_id")
+    analysis_run_id = provenance.get("analysis_run_id")
+    if not isinstance(recording_id, str) or not recording_id or not isinstance(analysis_run_id, str) or not analysis_run_id:
+        raise ValueError("canonical frame extraction requires recording_id and analysis_run_id")
+
     import mediapipe as mp
     import pyrealsense2 as rs
     from mediapipe.tasks import python as mpt
@@ -610,6 +673,9 @@ def process_recording(rec_path, models, step, provenance=None, output_dir=None):
             if n % step:
                 continue
 
+            source_color, source_depth = frames.get_color_frame(), frames.get_depth_frame()
+            color_frame_number = source_color.get_frame_number() if source_color else None
+            depth_frame_number = source_depth.get_frame_number() if source_depth else None
             af = align.process(frames)
             color, depth = af.get_color_frame(), af.get_depth_frame()
             if not color or not depth:
@@ -625,6 +691,7 @@ def process_recording(rec_path, models, step, provenance=None, output_dir=None):
 
             mark_model_used(provenance, "face")
             fres = face_det.detect(mimg)
+            face_detected = bool(fres.detections)
             if fres.detections:
                 d = max(fres.detections, key=lambda x: x.bounding_box.width * x.bounding_box.height)
                 bb = d.bounding_box
@@ -636,6 +703,7 @@ def process_recording(rec_path, models, step, provenance=None, output_dir=None):
                             "face_area_px": w * h, "face_score": d.categories[0].score if d.categories else None,
                             "z_face_m": zf,
                             "face_size_cm2": (w * h * zf ** 2 / fxfy * 1e4) if zf else None})
+            bbox_zf = row.get("z_face_m")
 
             ts_int = int(ts)
             if ts_int <= last_ts_ms:
@@ -643,6 +711,7 @@ def process_recording(rec_path, models, step, provenance=None, output_dir=None):
             last_ts_ms = ts_int
             mark_model_used(provenance, "mesh")
             mres = mesh_det.detect_for_video(mimg, ts_int)
+            face_mesh_detected = bool(mres.face_landmarks)
             if mres.face_landmarks:
                 fl = mres.face_landmarks[0]
                 oval = [(fl[i].x * W, fl[i].y * H) for i in FACE_OVAL]
@@ -667,6 +736,9 @@ def process_recording(rec_path, models, step, provenance=None, output_dir=None):
 
             mark_model_used(provenance, "pose")
             pres = pose_det.detect_for_video(mimg, ts_int)
+            pose_detected = bool(pres.pose_landmarks)
+            lm = None
+            ls = rsh = None
             if pres.pose_landmarks:
                 lm = pres.pose_landmarks[0]
                 ls, rsh = lm[SHOULDER_L], lm[SHOULDER_R]  # 사람 기준 왼쪽/오른쪽 어깨
@@ -684,6 +756,58 @@ def process_recording(rec_path, models, step, provenance=None, output_dir=None):
                     th3 = angle_from_down(fx, fy, lx, ly)   # 얼굴-왼쪽 어깨 (근사)
                     th2 = angle_from_down(fx, fy, rx, ry)   # 얼굴-오른쪽 어깨 (근사)
                     row.update({"theta1_deg": th2 + th3, "theta2_deg": th2, "theta3_deg": th3})
+
+            lsh_valid = landmark_in_frame(ls)
+            rsh_valid = landmark_in_frame(rsh)
+            lsh_depth_valid = lsh_valid and row.get("z_lsh_m") is not None
+            rsh_depth_valid = rsh_valid and row.get("z_rsh_m") is not None
+            if lsh_depth_valid and rsh_depth_valid:
+                shoulder_depth_source = "both"
+            elif lsh_depth_valid:
+                shoulder_depth_source = "left_only"
+            elif rsh_depth_valid:
+                shoulder_depth_source = "right_only"
+            else:
+                shoulder_depth_source = "missing"
+
+            left_hip = lm[HIP_L] if lm is not None and len(lm) > HIP_L else None
+            right_hip = lm[HIP_R] if lm is not None and len(lm) > HIP_R else None
+            left_hip_values = hip_observation(left_hip, W, H, dep, depth_scale)
+            right_hip_values = hip_observation(right_hip, W, H, dep, depth_scale)
+            final_zf = row.get("z_face_m")
+            face_depth_source = ("bbox_roi" if bbox_zf is not None else
+                                 "oval_center_roi" if final_zf is not None else "missing")
+            row.update({
+                "frame_schema_version": FRAME_SCHEMA_VERSION,
+                "recording_id": recording_id,
+                "analysis_run_id": analysis_run_id,
+                "frame_index": n,
+                "color_frame_number": color_frame_number,
+                "depth_frame_number": depth_frame_number,
+                "mediapipe_ts_ms": ts_int,
+                "face_depth_source": face_depth_source,
+                "face_detected": face_detected,
+                "face_mesh_detected": face_mesh_detected,
+                "pose_detected": pose_detected,
+                "face_depth_valid": final_zf is not None,
+                "lsh_valid": lsh_valid,
+                "rsh_valid": rsh_valid,
+                "lsh_depth_valid": lsh_depth_valid,
+                "rsh_depth_valid": rsh_depth_valid,
+                "shoulder_depth_source": shoulder_depth_source,
+                "left_hip_x_px": left_hip_values[0],
+                "left_hip_y_px": left_hip_values[1],
+                "left_hip_depth_m": left_hip_values[2],
+                "left_hip_visibility": left_hip_values[3],
+                "left_hip_valid": left_hip_values[4],
+                "left_hip_depth_valid": left_hip_values[5],
+                "right_hip_x_px": right_hip_values[0],
+                "right_hip_y_px": right_hip_values[1],
+                "right_hip_depth_m": right_hip_values[2],
+                "right_hip_visibility": right_hip_values[3],
+                "right_hip_valid": right_hip_values[4],
+                "right_hip_depth_valid": right_hip_values[5],
+            })
             rows.append(row)
             if len(rows) % 150 == 0:
                 print(f"   ... {len(rows)} 프레임 처리")
@@ -695,9 +819,65 @@ def process_recording(rec_path, models, step, provenance=None, output_dir=None):
 
     out = os.path.join(OUT_DIR if output_dir is None else output_dir,
                        os.path.splitext(os.path.basename(rec_path))[0] + "_frames.csv")
-    write_csv(out, rows)
+    write_frames_csv(out, rows)
     print(f"   -> {len(rows)} 프레임 저장: {out}")
     return rows
+
+
+def _validate_frame_row(row):
+    unknown = set(row) - set(FRAME_FIELDS)
+    if unknown:
+        raise ValueError(f"unexpected canonical frame fields: {sorted(unknown)}")
+    if row.get("frame_schema_version") != FRAME_SCHEMA_VERSION:
+        raise ValueError("invalid canonical frame schema version")
+    for field in ("recording_id", "analysis_run_id"):
+        if not isinstance(row.get(field), str) or not row[field]:
+            raise ValueError(f"missing canonical {field}")
+    for field, allowed in FRAME_ENUMS.items():
+        if row.get(field) not in allowed:
+            raise ValueError(f"invalid canonical {field}: {row.get(field)!r}")
+    for field in FRAME_BOOL_FIELDS:
+        value = row.get(field)
+        if value is not None and type(value) is not bool:
+            raise ValueError(f"invalid canonical boolean {field}: {value!r}")
+    for field, value in row.items():
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(f"non-finite canonical value {field}")
+
+
+def write_frames_csv(path, rows):
+    if not rows:
+        return
+    seen = set()
+    projected = []
+    file_identity = None
+    for row in rows:
+        _validate_frame_row(row)
+        frame_index = row.get("frame_index")
+        if type(frame_index) is not int or frame_index < 1:
+            raise ValueError(f"invalid canonical frame_index: {frame_index!r}")
+        identity = (row["recording_id"], row["analysis_run_id"])
+        if file_identity is None:
+            file_identity = identity
+        elif identity != file_identity:
+            raise ValueError("inconsistent canonical frame identity")
+        key = (row["analysis_run_id"], row["recording_id"], frame_index)
+        if key in seen:
+            raise ValueError(f"duplicate canonical frame key: {key}")
+        seen.add(key)
+        out = {}
+        for field in FRAME_FIELDS:
+            value = row.get(field)
+            if field in FRAME_BOOL_FIELDS and value is not None:
+                value = "true" if value else "false"
+            elif value is None:
+                value = ""
+            out[field] = value
+        projected.append(out)
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=FRAME_FIELDS, restval="", extrasaction="raise")
+        w.writeheader()
+        w.writerows(projected)
 
 
 def write_csv(path, rows):
@@ -968,18 +1148,64 @@ def load_frames_csv(subjects, paths=None):
                  for path in sorted(glob.glob(os.path.join(OUT_DIR, f"{sub}_r*_frames.csv")))]
     for path in paths:
         with open(path, encoding="utf-8-sig") as f:
-            for r in csv.DictReader(f):
+            reader = csv.DictReader(f)
+            canonical = "frame_schema_version" in (reader.fieldnames or [])
+            if canonical and tuple(reader.fieldnames or ()) != FRAME_FIELDS:
+                raise ValueError(f"canonical frame header mismatch: {path}")
+            canonical_identity = None
+            for r in reader:
+                if canonical:
+                    if r.get("frame_schema_version") != FRAME_SCHEMA_VERSION:
+                        raise ValueError("invalid canonical frame schema version")
+                    for field in ("recording_id", "analysis_run_id"):
+                        if not r.get(field):
+                            raise ValueError(f"missing canonical {field}")
+                    identity = (r["recording_id"], r["analysis_run_id"])
+                    if canonical_identity is None:
+                        canonical_identity = identity
+                    elif identity != canonical_identity:
+                        raise ValueError("inconsistent canonical frame identity")
+                    for field, allowed in FRAME_ENUMS.items():
+                        if r.get(field) not in allowed:
+                            raise ValueError(f"invalid canonical {field}: {r.get(field)!r}")
                 out = {}
                 for k, v in r.items():
-                    if k in ("subject", "round", "step", "label"):
+                    if canonical and k == "frame_index":
+                        if v in ("", None):
+                            raise ValueError("missing canonical frame_index")
+                        try:
+                            frame_index = float(v)
+                        except ValueError:
+                            raise ValueError(f"invalid canonical frame_index: {v!r}")
+                        if not math.isfinite(frame_index):
+                            raise ValueError("non-finite canonical value frame_index")
+                        if not frame_index.is_integer() or frame_index < 1:
+                            raise ValueError(f"invalid canonical frame_index: {v!r}")
+                        out[k] = int(frame_index)
+                    elif canonical and k in FRAME_BOOL_FIELDS:
+                        if v == "true":
+                            out[k] = True
+                        elif v == "false":
+                            out[k] = False
+                        elif v in ("", None):
+                            out[k] = None
+                        else:
+                            raise ValueError(f"invalid canonical boolean {k}: {v!r}")
+                    elif k in FRAME_TEXT_FIELDS:
                         out[k] = v
                     elif v in ("", None):
                         out[k] = None
                     else:
                         try:
-                            out[k] = float(v)
+                            number = float(v)
                         except ValueError:
+                            if canonical:
+                                raise ValueError(f"invalid canonical numeric {k}: {v!r}")
                             out[k] = v
+                        else:
+                            if canonical and not math.isfinite(number):
+                                raise ValueError(f"non-finite canonical value {k}")
+                            out[k] = number
                 rows.append(out)
         print(f"[읽기] {os.path.basename(path)}")
     return rows
@@ -1014,6 +1240,7 @@ def run_analysis(files, args):
                 if rows:
                     frame_path = os.path.join(directory, os.path.splitext(os.path.basename(path))[0] + "_frames.csv")
                     frame = archive_output(frame_path, directory, manifest, "frames", len(rows))
+                    frame["schema_version"] = FRAME_SCHEMA_VERSION
                     frame["compatibility_path"] = os.path.abspath(os.path.join(OUT_DIR, os.path.basename(frame_path)))
             manifest["input_frame_rows"] = len(rows)
             all_rows += rows
