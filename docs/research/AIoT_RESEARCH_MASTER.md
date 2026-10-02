@@ -20,7 +20,7 @@
 
 질문:
 
-> **“2026-10-01 현재 이 연구는 무엇을 연구하고 있으며, 무엇이 확정되어 있고, 무엇이 아직 미확정인가?”**
+> **“2026-10-02 현재 이 연구는 무엇을 연구하고 있으며, 무엇이 확정되어 있고, 무엇이 아직 미확정인가?”**
 
 에 답하는 문서다.
 
@@ -78,17 +78,19 @@ formal collection 승인, 실제 D455 validation 완료 또는 새 capture accep
 
 ## 1.1 Repository 기준
 
-본 v1.2 / Patch 4 documentation closure의 **implementation baseline**:
+본 v1.2 / Patch 4 closure의 **milestone baseline**:
 
 ```text
-branch: patch4/frame-schema-1.0.0
-implementation commit / HEAD: 110cce6170c307d8cbf9bac4a619454a36498980
+branch at closure: patch4/frame-schema-1.0.0
+Patch 4 implementation commit: 110cce6170c307d8cbf9bac4a619454a36498980
+Patch 4 documentation closure commit: 144a264582bcb9b303b7dc8284d7f3cde7c772c4
 implementation state: Patch 4 complete / 171 tests PASS / independent audits PASS
-documentation closure: initial audit FAIL / F-1·F-2 authority-status alignment in progress
+documentation closure: targeted re-audit PASS / committed and pushed
 ```
 
-이 값은 본 v1.2 documentation closure를 commit한 뒤의 `HEAD`를 예측하는 값이 아니라,
-**현재 closure audit/alignment가 대조하는 Patch 4 implementation baseline**이다.
+`110cce6`은 Patch 4 software implementation의 기준점이고,
+`144a264`는 Patch 4 documentation/authority closure의 기준점이다.
+이후 상태 동기화 commit으로 repository `HEAD`가 이동하더라도 두 milestone commit의 의미는 유지한다.
 
 Research document canonicalization의 이전 기준점은 commit `f97530c`이며,
 History/Foundation canonicalization 기준점 `474733c`는 해당 기록의 역사적 provenance로 유지한다.
@@ -120,7 +122,8 @@ History/Foundation 기존 6개 문서는 READ-ONLY 독립 검토와 canonicaliza
 
 ## 1.2 현재 단계 한 줄 요약
 
-> **Patch 4 `frames-schema/1.0.0` 구현·hardening·software audit를 commit `110cce6`에서 완료했으며, documentation closure 후 Patch 4.5 model artifact lock 등 formal data work 전 후속 Foundation으로 진행할 단계다.**
+Patch 4 `frames-schema/1.0.0` 구현·hardening·software audit와 documentation closure까지 완료했다.
+운영상 optional Early Hardware Preflight를 수행할 수 있으며, 다음 required Foundation milestone은 Patch 4.5 MediaPipe Model Artifact Lock이다.
 
 아직 F1/F2 핵심 수식을 구현하는 단계가 아니다.
 
@@ -1554,15 +1557,19 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
    → F-1 authority/status contradiction
    → F-2 Master provenance/current-state inconsistency
 
-7. F-1/F-2 authority-status alignment                                             IN PROGRESS
+7. F-1/F-2 authority/provenance alignment                                        DONE
 
-8. Targeted Patch 4 documentation READ-ONLY re-audit                             NEXT
+8. Targeted Patch 4 documentation READ-ONLY re-audit                             DONE — PASS
 
-9. Early Hardware Preflight                                                      OPTIONAL / NON-FORMAL
+9. Patch 4 documentation closure commit / push                                   DONE
+   → commit 144a264
+   → docs: close Patch 4 implementation milestone
+
+10. Early Hardware Preflight                                                      OPTIONAL / NON-FORMAL
    → engineering smoke only
    → Patch 8 / research evidence / formal collection 대체 아님
 
-10. Patch 4.5 model artifact lock 등 formal data work 전 후속 Foundation 진행
+11. Patch 4.5 MediaPipe Model Artifact Lock                                      NEXT REQUIRED FOUNDATION
 ```
 
 
@@ -1602,4 +1609,4 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 |---|---|---|
 | `v1.0` | 2026-10-01 | 역사/Foundation 정리 이후 현재 연구 방향을 재기준화. M0/M1/M2 역할, F0/F_cal/F1/F2, calibration-free 원칙, data role, operational Patch 1~8, Research Stage 전환, unresolved research decisions를 통합 |
 | `v1.1` | 2026-10-01 | `DATA-003` Patch 4 Design Freeze 반영. `OPEN-001` 해소, `frames-schema/1.0.0` exact 60-field contract를 frozen-but-unimplemented로 전환, elbow/wrist `exclude-and-version-later`, 다음 단계는 Patch 4 implementation으로 갱신 |
-| `v1.2` | 2026-10-02 | commit `110cce6`의 Patch 4 구현·hardening·171-test 검증·독립 software audit 완료를 반영. 실제 D455 validation과 OPEN-002~OPEN-006은 계속 pending이며 다음 단계는 documentation audit 후 Patch 4.5 등 후속 Foundation |
+| `v1.2` | 2026-10-02 | commit `110cce6`의 Patch 4 구현·hardening·171-test 검증·독립 software audit와 commit `144a264`의 documentation/authority closure 완료를 반영. 실제 D455 validation과 OPEN-002~OPEN-006은 계속 pending이다. Early Hardware Preflight는 optional/non-formal이며, 다음 required Foundation milestone은 Patch 4.5 MediaPipe Model Artifact Lock이다. |
