@@ -4,7 +4,8 @@
 - 최초 작성일: 2026-09-30
 - Canonicalization amendment: **2026-10-01 — GOV-005 / OPEN-001에 따른 Patch 4 pre-freeze authority/status overlay를 추가했다. 이 amendment는 field/data contract 또는 capture protocol 변경을 의미하지 않았다.**
 - Patch 4 Design Freeze amendment: **2026-10-01 — `DATA-003`이 `OPEN-001`을 해소하여 `frames-schema/1.0.0` exact canonical frame contract를 freeze한다. 이 amendment는 contract 확정이며 구현 완료 또는 capture protocol 변경을 의미하지 않는다.**
-- 상태: **Hybrid contract/design record. 현재 구현 사실은 Git/source/test와 canonical Foundation records가 우선한다. §F의 Patch 4 exact frame contract는 `DATA-003`에 따라 frozen-but-unimplemented이며, 그 밖의 future schema/path는 해당 Decision Log status가 우선한다.**
+- Patch 4 implementation closure amendment: **2026-10-02 — frozen `frames-schema/1.0.0` contract의 Python 구현·hardening·171-test 검증·독립 software audit가 commit `110cce6`에서 완료됐음을 기록한다. Field/data contract 또는 capture protocol 변경이 아니며 실제 D455 validation은 아직 pending이다.**
+- 상태: **Hybrid contract/design record. 현재 구현 사실은 Git/source/test와 canonical Foundation records가 우선한다. §F의 Patch 4 exact frame contract는 `DATA-003`에 따라 frozen되었고 commit `110cce6`에서 구현 완료됐으며, 그 밖의 future schema/path는 해당 Decision Log status가 우선한다.**
 - 적용 지침: [AGENTS.md](AGENTS.md). 연구 결과는 목표값이 아니라 증거로 취급한다.
 - 2026-09-30 Step 1.5 원작성 범위: 당시 산출물은 이 문서뿐이었으며, 소스·테스트·기존 데이터의 변경, 파일 이동, 모델 다운로드, 성능 실험은 수행하지 않았다.
 
@@ -25,11 +26,13 @@ future/unimplemented design
 Patch 4 exact canonical frame contract
 → DATA-003이 OPEN-001을 해소
 → frames-schema/1.0.0 contract는 frozen
-→ 단, Patch 4 구현 완료를 뜻하지 않음
+→ Python implementation/hardening/software audit는 commit 110cce6에서 완료
+→ actual D455 hardware validation은 pending / Patch 8
 ```
 
 2026-10-01 canonicalization 시점에는 §F.1/§F.3/§F.4와 이를 요약하는 §K/§L/§N의 exact Patch 4 내용이 `GOV-005 / OPEN-001`에 따라 **pre-freeze proposal**이었다.
-이후 같은 날 Patch 4 Design Freeze에서 `DATA-003`이 `OPEN-001`을 해소했으므로, 현재 §F의 version/header/field/serialization/hip/arm contract는 **frozen-but-unimplemented** 상태다.
+이후 같은 날 Patch 4 Design Freeze에서 `DATA-003`이 `OPEN-001`을 해소했고,
+2026-10-01 commit `110cce6`에서 §F의 version/header/field/serialization/hip/arm contract 구현·hardening·software audit를 완료했다.
 이 status 전이는 Patch 1~3에서 이미 구현·검증된 provenance/lineage 동작을 되돌리거나 F1/F2 research formula를 확정하지 않는다.
 
 절별 해석은 다음과 같다.
@@ -41,7 +44,8 @@ Patch 4 exact canonical frame contract
 
 §F
 → DATA-003에 따른 Patch 4 frames-schema/1.0.0 exact frozen contract.
-→ 아직 구현 완료가 아님.
+→ commit 110cce6에서 Python 구현 완료; 171 tests와 독립 software audit 완료.
+→ 실제 D455 hardware validation은 아직 완료되지 않음.
 
 §G~I
 → 후속 lineage/selection/file-layout target architecture. 현재 구현 완료를 뜻하지 않음.
@@ -334,7 +338,7 @@ ordered canonical header
 = total 60 fields
 ```
 
-기존 31개 field는 **이름·순서·단위·계산 의미를 그대로 유지**한다. 신규 field는 뒤에만 append한다. 현재 `row.keys()` 합집합 기반 dynamic header는 Patch 4 구현에서 canonical frames 전용 fixed writer로 대체 대상이다. 이 절의 contract freeze는 아직 Python 구현이 완료됐다는 뜻이 아니다.
+기존 31개 field는 **이름·순서·단위·계산 의미를 그대로 유지**한다. 신규 field는 뒤에만 append한다. `row.keys()` 합집합 기반 generic writer와 분리된 canonical frames 전용 fixed writer가 commit `110cce6`에서 구현됐다. 이 구현 완료는 §F contract 변경, F1/F2 feature 확정 또는 hardware validation 완료를 뜻하지 않는다.
 
 정확한 60-field 순서는 다음이다.
 
@@ -690,7 +694,7 @@ manifests/
 
 현재 구현 여부와 설계 방향을 구분한다. ID·role·provenance 등 이미 구현된 부분은 Git/source/test 및 canonical Foundation records로 확인한다.
 Step 1.5에서 확정 방향으로 유지하는 것은 feature 역할 분리, F1/F2의 zero-personal-calibration, raw/derived/model 계층 분리, head/shoulder/hip 관찰 필요성 같은 **연구/데이터 방향**이다.
-fixed raw writer의 exact version/header/field/missing/arm 계약은 `DATA-003`이 `OPEN-001`을 해소하면서 §F의 `frames-schema/1.0.0`으로 freeze되었다. 단, contract freeze는 Patch 4 Python 구현 완료를 의미하지 않는다.
+fixed raw writer의 exact version/header/field/missing/arm 계약은 `DATA-003`이 `OPEN-001`을 해소하면서 §F의 `frames-schema/1.0.0`으로 freeze되었고, 해당 Python 구현은 commit `110cce6`에서 완료됐다. 이 구현은 F1/F2 정의 또는 실제 D455 validation 완료를 의미하지 않는다.
 
 다음은 구현자가 임의 결정하지 않는다.
 
@@ -744,7 +748,7 @@ formal experiment 전에 별도 validation으로 다음을 확인한다.
 3. **Hip / arm status:** hip는 exact 12-field raw observation contract를 사용한다. elbow/wrist는 `exclude-and-version-later`이며 빈 예약 열도 두지 않는다. 향후 필요하면 explicit schema-version update가 필요하다.
 4. **Validity / missing / boolean:** hip는 geometric in-frame validity와 depth validity를 분리하고, shoulder에는 `lsh_valid/rsh_valid`를 신규 상태로 추가한다. missing measurement는 CSV empty/JSON null, canonical boolean은 lowercase `true/false`, unknown은 empty다. numeric sentinel이나 임의 보간으로 raw missing을 채우지 않는다.
 5. **P01/P02 compatibility:** 기존 pilot 원본·CSV·수치·legacy ID mapping을 유지한다. 새 field를 기존 scalar에서 추정 생성하지 않는다. legacy unknown은 `unknown_legacy` 또는 null로 남긴다. raw를 새 analysis run으로 재분석할 수 있으나 별도 provenance와 당시 실제 coverage가 전제다.
-6. **후속 코드 Patch 4 대상:** `analyze_d455.py`의 canonical frame writer/reader, exact 60-field header, source enums, boolean/missing parsing, shoulder validity, hip extraction/depth validity 및 전용 regression test를 구현한다. `capture_d455.py`에 새 shoulder/hip/arm coverage acceptance gate를 이번 contract에서 추가하지 않는다.
+6. **Patch 4 구현 상태:** commit `110cce6`에서 `analyze_d455.py`의 canonical frame writer/reader, exact 60-field header, source enums, boolean/missing parsing, shoulder validity, hip extraction/depth validity와 전용 regression test를 구현했다. Post-hardening 기준 171 tests와 독립 software audit를 통과했다. `capture_d455.py`에 새 shoulder/hip/arm coverage acceptance gate는 추가하지 않았다.
 7. **F1/F2 미확정 범위:** calibration-free 2D upper-body skeletal/body-relative geometry와 RGB-D·metric 3D/sagittal candidate family라는 방향만 유지한다. exact landmark graph·수식·feature 개수·trunk-axis/angle·projection·normalization·selection·threshold·성능은 `OPEN-002/OPEN-003`이며 Patch 4 raw contract에서 결정하지 않는다.
 8. **후속 연구자 결정 사항:** formal/external exact protocol과 framing/coverage 절차는 `OPEN-005`, D455 exact 거리 grid·반복·landmark/depth/3D-repeatability/RGB-depth coupling/distance-stability metric·허용 기준은 `OPEN-006`이다. `rank_weights` p>6 정책은 `OPEN-004`다. bbox-vs-contour/oval exact error metric과 최종 연구 채택 여부도 deferred 상태다.
 9. **Coverage 한계:** 현재 capture가 hip/elbow/wrist의 in-frame/depth coverage를 보증하지 않는다는 점은 Patch 4 schema가 해결하지 않는다. `frames-schema/1.0.0`은 관측/결측 상태를 표현하고, 실제 formal framing 및 hardware stability는 후속 protocol/validation에서 확인한다.

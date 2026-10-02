@@ -1,12 +1,12 @@
 # AIoT Research Master
 
-- 문서 버전: `v1.1`
-- 기준일: `2026-10-01`
+- 문서 버전: `v1.2`
+- 기준일: `2026-10-02`
 - 상태: **CURRENT / Living Document**
 - 권장 위치: `docs/research/AIoT_RESEARCH_MASTER.md`
 - 역할: **현재 연구 방향·범위·용어·로드맵의 Single Source of Truth**
 - 관련 문서:
-  - `RESEARCH_DATA_SCHEMA.md` — 데이터 계약. Patch 4 exact frame contract는 `DATA-003`에 따라 `frames-schema/1.0.0`으로 frozen-but-unimplemented이며, 그 밖의 future schema는 해당 Decision Log status를 확인
+  - `RESEARCH_DATA_SCHEMA.md` — 데이터 계약. Patch 4 exact frame contract는 `DATA-003`에 따라 `frames-schema/1.0.0`으로 frozen되었고 commit `110cce6`에서 구현 완료. 그 밖의 future schema는 해당 Decision Log status를 확인
   - `docs/research/RESEARCH_DECISION_LOG.md` — 의사결정 이력
   - `docs/history/*` — 과거 상태·소급 복원
   - `docs/foundation/*` — Foundation 변경 기록
@@ -30,7 +30,7 @@
 |---|---|
 | 실제 Git/source/test | 현재 구현 사실 |
 | `AIoT_RESEARCH_MASTER.md` | 현재 연구 목적·역할·운영 로드맵 |
-| `RESEARCH_DATA_SCHEMA.md` | 구현된 데이터/provenance 계약과 future 설계안을 함께 담은 schema 문서. 구현 사실은 Git/source/test가 우선하며, Patch 4 exact frame contract는 `DATA-003`에 따라 `frames-schema/1.0.0`으로 frozen-but-unimplemented |
+| `RESEARCH_DATA_SCHEMA.md` | 구현된 데이터/provenance 계약과 future 설계안을 함께 담은 schema 문서. 구현 사실은 Git/source/test가 우선하며, Patch 4 exact frame contract는 `DATA-003`에 따라 `frames-schema/1.0.0`으로 frozen되었고 commit `110cce6`에서 구현 완료 |
 | `RESEARCH_DECISION_LOG.md` | 왜 현재 결론에 도달했는지에 대한 의사결정 이력 |
 | History/Foundation records | 과거 상태와 각 변경의 근거 |
 | Experiment Protocol | formal/external 실험 실행 절차 |
@@ -55,7 +55,8 @@
 
 2026-10-01 Patch 4 Design Freeze에서 `DATA-003`이 `OPEN-001`을 해소했다.
 따라서 `RESEARCH_DATA_SCHEMA.md` §F의 `frames-schema/1.0.0` exact 60-field contract는
-**frozen-but-unimplemented** 상태다.
+**frozen-and-implemented** 상태다. Python 구현, hardening, 171-test 검증과 독립 software audit는
+commit `110cce6`에서 완료됐다.
 
 ```text
 legacy 31-field ordered prefix
@@ -64,8 +65,8 @@ legacy 31-field ordered prefix
 = total 60 fields
 ```
 
-이 contract freeze는 Patch 4 Python 구현 완료, F1/F2 feature formula 확정, formal collection 승인,
-새 capture acceptance gate 도입을 의미하지 않는다.
+Design Freeze 자체와 구현 완료는 별개 milestone이다. 구현 완료는 F1/F2 feature formula 확정,
+formal collection 승인, 실제 D455 validation 완료 또는 새 capture acceptance gate 도입을 의미하지 않는다.
 
 이미 구현·검증된 Patch 1~3 provenance/lineage 동작은 그대로 유지한다.
 그 밖의 future/unimplemented schema section은 현재 구현 완료를 뜻하지 않으며,
@@ -77,16 +78,17 @@ legacy 31-field ordered prefix
 
 ## 1.1 Repository 기준
 
-본 v1.1 / Patch 4 Design Freeze 정합화의 **review parent baseline**:
+본 v1.2 / Patch 4 documentation closure의 **implementation baseline**:
 
 ```text
-branch: main
-parent commit: 065c823e17fcc01206b07d93a07256046694d2ed
-docs: align agent instructions with research authority
+branch: patch4/frame-schema-1.0.0
+implementation commit / HEAD: 110cce6170c307d8cbf9bac4a619454a36498980
+implementation state: Patch 4 complete / 171 tests PASS / independent audits PASS
+documentation closure: initial audit FAIL / F-1·F-2 authority-status alignment in progress
 ```
 
-이 값은 본 v1.1 문서 변경을 commit한 뒤의 `HEAD`를 예측하는 값이 아니라,
-**Patch 4 Design Freeze 문서 변경을 대조하는 parent baseline**이다.
+이 값은 본 v1.2 documentation closure를 commit한 뒤의 `HEAD`를 예측하는 값이 아니라,
+**현재 closure audit/alignment가 대조하는 Patch 4 implementation baseline**이다.
 
 Research document canonicalization의 이전 기준점은 commit `f97530c`이며,
 History/Foundation canonicalization 기준점 `474733c`는 해당 기록의 역사적 provenance로 유지한다.
@@ -98,15 +100,18 @@ Prelude   algorithm / evaluation / capture hardening   완료
 Patch 1   capture recording provenance                 완료
 Patch 2   forward gate evidence                        완료
 Patch 3   analysis provenance                          완료
-Patch 4   canonical fixed frame schema + hip           Design Freeze 완료 / 구현 전
+Patch 4   canonical fixed frame schema + hip           구현·hardening·software audit 완료
 ```
 
 Patch 3 canonical record에는 commit `1cdc528` 계열에서 `146 tests PASS`가 기록되어 있고,
 그 이후 review baseline `474733c`까지 Python source 변경이 없음을 확인했다.
 본 canonicalization 검토에서는 read-only 원칙 때문에 tests를 재실행하지 않는 독립 audit도 수행했다.
+Patch 4는 commit `110cce6`에서 `frames-schema/1.0.0`을 구현했고,
+post-hardening 기준 `171 tests PASS`, 초기 독립 READ-ONLY audit PASS,
+targeted READ-ONLY re-audit PASS를 완료했다.
 실제 D455 hardware end-to-end validation은 아직 완료하지 않았으며 Patch 8 대상이다.
 
-History/Foundation 6개 문서는 READ-ONLY 독립 검토와 canonicalization을 완료했고,
+History/Foundation 기존 6개 문서는 READ-ONLY 독립 검토와 canonicalization을 완료했고,
 위 baseline commit에 canonical filename으로 반영되어 있다.
 해당 파일 내부에는 canonicalization 직전의 `최종 후보 v2 / Final Candidate v2` 및 pending-review 상태 문구가 역사적 snapshot으로 일부 남아 있으나,
 현재 canonical status의 근거는 baseline commit `474733c`와 그 canonical filename 반영이다.
@@ -115,7 +120,7 @@ History/Foundation 6개 문서는 READ-ONLY 독립 검토와 canonicalization을
 
 ## 1.2 현재 단계 한 줄 요약
 
-> **기존 prototype과 RF/WRF 비교 체계의 연구용 Foundation을 보강했고, Patch 4 exact raw frame contract까지 Design Freeze를 완료하여 이제 해당 contract를 구현·검증할 단계다.**
+> **Patch 4 `frames-schema/1.0.0` 구현·hardening·software audit를 commit `110cce6`에서 완료했으며, documentation closure 후 Patch 4.5 model artifact lock 등 formal data work 전 후속 Foundation으로 진행할 단계다.**
 
 아직 F1/F2 핵심 수식을 구현하는 단계가 아니다.
 
@@ -990,7 +995,7 @@ Analysis Provenance
 
 ---
 
-## Patch 4 — IMPLEMENTATION NEXT
+## Patch 4 — DONE
 
 ```text
 Canonical Fixed Frames Schema + Hip Raw Observations
@@ -1008,7 +1013,7 @@ missing             = CSV empty / JSON null + explicit validity state
 boolean             = lowercase true/false, unknown=empty
 ```
 
-구현 목표:
+구현 결과:
 
 ```text
 동적 row key 제거
@@ -1020,11 +1025,34 @@ source enum / missing / boolean contract 구현
 legacy 31 값·의미 regression 보존
 ```
 
-**Design Freeze 완료 / Python 구현 전**이다.
+```text
+implementation commit = 110cce6
+test progression       = 146 baseline → 163 initial implementation → 171 post-hardening
+software audit         = initial READ-ONLY PASS + targeted re-audit PASS
+hardware validation    = pending / Patch 8
+```
+
+**Design Freeze / Python 구현 / hardening / software audit 완료** 상태다.
 
 Patch 4에서 F1/F2 derived geometry·feature formula를 구현하지 않고,
 `capture_d455.py`에 새 shoulder/hip/arm coverage acceptance gate를 추가하지 않는다.
 formal framing/coverage와 D455 hardware stability는 `OPEN-005` / `OPEN-006`의 후속 범위다.
+
+---
+
+## Early Hardware Preflight — OPTIONAL / NON-FORMAL
+
+Patch 4 software closure 이후 실제 장치 연결과 기본 extraction path를 조기에 점검하기 위한
+제한된 engineering smoke/preflight는 수행할 수 있다.
+
+```text
+Patch 8 대체 아님
+research evidence 아님
+formal participant collection 아님
+threshold / protocol decision 도출 근거 아님
+```
+
+이 preflight는 Patch 4.5~8의 canonical 순서를 재배치하거나 OPEN-006을 해소하지 않는다.
 
 ---
 
@@ -1317,7 +1345,7 @@ runtime/FPS를 새 핵심 연구축으로 승격
 
 22. face bbox와 contour/oval 표현 차이를 **secondary exploratory analysis candidate로 분류한다는 guardrail은 확정**하되, 실제 분석 채택·metric·F1/F2 포함·최종 논문 사용 여부는 `FEAT-008 (DEFERRED)`로 남긴다.
 
-23. `DATA-003`에 따라 Patch 4 exact canonical raw frame contract는 `frames-schema/1.0.0`으로 freeze되었다. 총 60 fields이며 legacy 31 ordered prefix + metadata/state 17 + bilateral hip 12 구조다. 이 freeze는 구현 완료나 F1/F2 feature 확정을 의미하지 않는다.
+23. `DATA-003`에 따라 Patch 4 exact canonical raw frame contract는 `frames-schema/1.0.0`으로 freeze되었다. 총 60 fields이며 legacy 31 ordered prefix + metadata/state 17 + bilateral hip 12 구조다. 해당 contract의 Python 구현은 commit `110cce6`에서 완료됐지만 F1/F2 feature 확정을 의미하지 않는다.
 ```
 
 ---
@@ -1509,18 +1537,32 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
    → DATA-003이 OPEN-001 해소
    → frames-schema/1.0.0 exact 60-field contract freeze
 
-4. Patch 4 구현                                                                  NEXT
+4. Patch 4 구현·hardening·software audit                                          DONE
    → canonical fixed writer/reader
    → shoulder validity + bilateral hip raw observations
    → exact missing/boolean/source enum contract
    → legacy 31 regression 보존
-   → 테스트
-   → 독립 review
-   → commit
+   → 171 tests PASS
+   → initial independent READ-ONLY audit PASS
+   → targeted post-hardening READ-ONLY re-audit PASS
+   → implementation commit 110cce6
 
-5. Patch 4 Foundation Record 작성
+5. Patch 4 Foundation Record 작성                                                 DONE
+   → docs/foundation/PATCH_04_canonical_frame_schema.md
 
-6. Patch 4.5 model artifact lock 등 formal data work 전 후속 Foundation 진행
+6. Patch 4 documentation closure initial READ-ONLY audit                         DONE — FAIL
+   → F-1 authority/status contradiction
+   → F-2 Master provenance/current-state inconsistency
+
+7. F-1/F-2 authority-status alignment                                             IN PROGRESS
+
+8. Targeted Patch 4 documentation READ-ONLY re-audit                             NEXT
+
+9. Early Hardware Preflight                                                      OPTIONAL / NON-FORMAL
+   → engineering smoke only
+   → Patch 8 / research evidence / formal collection 대체 아님
+
+10. Patch 4.5 model artifact lock 등 formal data work 전 후속 Foundation 진행
 ```
 
 
@@ -1528,7 +1570,7 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 
 # 22. Source Basis
 
-본 v1.1은 다음을 통합한 **현재 기준 문서**다.
+본 v1.2는 다음을 통합한 **현재 기준 문서**다.
 
 ```text
 - 실제 현재 repository / Git history
@@ -1538,6 +1580,7 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 - BASELINE_00 / RETROSPECTIVE_01
 - FOUNDATION_PRELUDE_00
 - canonical `PATCH_01_capture_provenance.md` ~ `PATCH_03_analysis_provenance.md`
+- `docs/foundation/PATCH_04_canonical_frame_schema.md`
 - 바른자세 알고리즘개량 연구마스터 v6.1
 - 현재까지 진행상황 인계요약
 - 이후 교수 피드백 반영 및 대화에서 확정된
@@ -1559,3 +1602,4 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 |---|---|---|
 | `v1.0` | 2026-10-01 | 역사/Foundation 정리 이후 현재 연구 방향을 재기준화. M0/M1/M2 역할, F0/F_cal/F1/F2, calibration-free 원칙, data role, operational Patch 1~8, Research Stage 전환, unresolved research decisions를 통합 |
 | `v1.1` | 2026-10-01 | `DATA-003` Patch 4 Design Freeze 반영. `OPEN-001` 해소, `frames-schema/1.0.0` exact 60-field contract를 frozen-but-unimplemented로 전환, elbow/wrist `exclude-and-version-later`, 다음 단계는 Patch 4 implementation으로 갱신 |
+| `v1.2` | 2026-10-02 | commit `110cce6`의 Patch 4 구현·hardening·171-test 검증·독립 software audit 완료를 반영. 실제 D455 validation과 OPEN-002~OPEN-006은 계속 pending이며 다음 단계는 documentation audit 후 Patch 4.5 등 후속 Foundation |

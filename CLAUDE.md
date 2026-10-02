@@ -41,7 +41,7 @@ This read order is not a single precedence chain. Route conflicts by authority:
 - current research direction, scope, terminology, and roadmap → `AIoT_RESEARCH_MASTER.md`
 - research decision status, rationale, OPEN/DEFERRED state, and supersession/resolution history → `RESEARCH_DECISION_LOG.md`
 - data/schema contracts → `RESEARCH_DATA_SCHEMA.md`
-- Patch 4 exact frame contract → `DATA-003` + `RESEARCH_DATA_SCHEMA.md` §F (`frames-schema/1.0.0`), frozen-but-unimplemented
+- Patch 4 exact frame contract → `DATA-003` + `RESEARCH_DATA_SCHEMA.md` §F (`frames-schema/1.0.0`), frozen-and-implemented at commit `110cce6`; software verification/audit complete, real D455 hardware validation pending
 - other unimplemented/future schema designs → confirm their status in `RESEARCH_DECISION_LOG.md` before treating them as implemented or frozen contracts
 
 The Step 1.5 Patch 4 field details were pre-freeze proposals. After `DATA-003`
@@ -518,8 +518,10 @@ At the current canonical state:
 
 - agent-instruction alignment is complete,
 - Foundation Patch 4 Design Freeze is complete via `DATA-003`,
-- Patch 4 implementation is next and must follow Schema §F `frames-schema/1.0.0`,
-- do not reopen `OPEN-001` or alter the frozen contract implicitly during implementation.
+- Patch 4 `frames-schema/1.0.0` implementation is complete at commit `110cce6`, with 171 tests PASS, independent implementation audit PASS, and post-hardening targeted re-audit PASS,
+- real D455 hardware validation remains pending, `OPEN-002` through `OPEN-006` remain unresolved, and formal collection has not started,
+- Patch 4.5 model artifact lock is the next required Foundation implementation milestone,
+- do not reopen `OPEN-001` or alter the frozen contract implicitly in later work.
 
 Only perform the currently requested scope.
 
