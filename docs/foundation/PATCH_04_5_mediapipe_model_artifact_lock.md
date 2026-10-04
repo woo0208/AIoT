@@ -1,6 +1,6 @@
 # PATCH_04_5 — MediaPipe Model Artifact Lock
 
-> 상태: **IMPLEMENTED / SOFTWARE-VERIFIED / INDEPENDENTLY AUDITED / HARDWARE RUN NOT REQUIRED FOR CLOSURE**
+> 상태: **IMPLEMENTED / SOFTWARE-VERIFIED / INDEPENDENTLY AUDITED / DOCUMENTATION-CLOSED / HARDWARE RUN NOT REQUIRED FOR CLOSURE**
 >
 > 운영상 Patch 번호: **Foundation Patch 4.5**
 >
@@ -1002,7 +1002,7 @@ IMPORTANT 0
 ```text
 [후속 / 별도 scope]
 
-Patch 4.5 Foundation documentation closure commit
+Patch 4.5 status-sync / push / branch final review / main merge
 Patch 5+ Foundation work
 Patch 8 actual D455 formal validation
 OPEN-002 ~ OPEN-006 research decisions
@@ -1018,7 +1018,8 @@ Patch 4.5 software verification     = DONE
 Patch 4.5 independent audit         = DONE
 Patch 4.5 blocking findings         = NONE
 Patch 4.5 Foundation Record         = CREATED
-Patch 4.5 documentation closure     = NEXT
+Patch 4.5 documentation closure     = DONE — 26daf50
+Patch 4.5 branch finalization       = NEXT
 Patch 8 hardware validation         = PENDING
 formal research collection          = NOT STARTED
 ```
@@ -1039,16 +1040,17 @@ docs: freeze Patch 4.5 model artifact lock design
 Patch 4.5 implementation
 aef7f34
 feat: implement Patch 4.5 model artifact lock
+
+Patch 4.5 documentation closure
+26daf50
+docs: close Patch 4.5 model artifact lock milestone
 ```
 
-documentation closure commit은 본 Foundation Record와 Research Master closure alignment를
-repository에 반영한 뒤 생성한다.
+commit `26daf50`은 본 Foundation Record와 `AIoT_RESEARCH_MASTER.md` v1.4 closure alignment를
+repository에 반영한 documentation closure 기준점이다.
 
-본 문서는 자기 자신이 포함될 미래 Git commit hash를 사전에 확정할 수 없으므로
-존재하지 않는 hash를 추정하거나 placeholder를 canonical provenance로 기록하지 않는다.
-
-정확한 documentation closure commit hash는 commit 생성 후
-`AIoT_RESEARCH_MASTER.md`의 현재-state / version history에 기록한다.
+본 status-sync 수정은 이미 생성된 `26daf50`의 closure 사실을 문서 상태에 반영한다.
+아직 존재하지 않는 status-sync 또는 future main-merge commit hash는 사전에 추정하지 않는다.
 
 ---
 
@@ -1062,7 +1064,7 @@ independent audit              COMPLETE — PASS WITH MINOR FINDINGS
 BLOCKER / IMPORTANT            NONE
 accepted MINOR notes           4
 Foundation Record              CREATED
-documentation closure          PENDING — NEXT
+documentation closure          COMPLETE — 26daf50
 new D455 run for Patch 4.5     NOT REQUIRED
 formal D455 validation         DEFERRED — Patch 8
 formal collection              NOT STARTED
@@ -1125,12 +1127,12 @@ blocking findings
 NONE
 
 recommended next action
-Foundation documentation closure
-→ Research Master status alignment
-→ docs-only closure commit
+Patch 4.5 closure status sync
+→ docs-only status-sync commit
 → push
 → final branch review
 → main merge
+→ Patch 5 End-to-End Lineage Hardening
 ```
 
-Patch 4.5는 software/reproducibility Foundation 관점에서 closure 가능한 상태다.
+Patch 4.5의 software/reproducibility 구현과 documentation closure는 완료되었다. 현재 남은 작업은 branch finalization(status-sync/push/final review/main merge)이며, 그 이후 Patch 5로 진행한다.
