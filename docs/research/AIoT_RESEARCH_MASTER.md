@@ -73,7 +73,9 @@ commit `aef7f34`에서 구현을 완료했다. 기존 171 tests와 신규 Patch 
 총 `204 tests PASS`를 확인했으며, 독립 Claude Opus READ-ONLY audit 결과는
 `PASS WITH MINOR FINDINGS / ACCEPT WITH MINOR NOTES`였다. BLOCKER/IMPORTANT finding은 없고,
 Foundation Record `docs/foundation/PATCH_04_5_mediapipe_model_artifact_lock.md`를 작성했다.
-Patch 4.5 documentation closure는 commit `26daf50`에서 완료됐다. 현재 남은 Patch 4.5 작업은 status-sync commit, push, branch final review와 main merge다.
+Patch 4.5 documentation closure는 commit `26daf50`에서 완료됐고,
+closure status-sync는 commit `9e657ac`, main merge는 commit `15128ff`에서 완료됐다.
+Patch 4.5는 현재 main에 반영된 완료 상태이며, 다음 required Foundation 작업은 Patch 5 End-to-End Lineage Hardening이다.
 
 이미 구현·검증된 Patch 1~3 provenance/lineage 동작은 그대로 유지한다.
 그 밖의 future/unimplemented schema section은 현재 구현 완료를 뜻하지 않으며,
@@ -88,8 +90,8 @@ Patch 4.5 documentation closure는 commit `26daf50`에서 완료됐다. 현재 �
 본 v1.4 / Patch 4.5 closure alignment의 **implementation baseline**:
 
 ```text
-current working branch: patch4.5/model-artifact-lock
-branch base / main baseline: d923b23
+current working branch: main
+Patch 4.5 main integration baseline: 15128ff
 Patch 4 main merge: d923b23 = merge: complete Patch 4 frame schema foundation
 Patch 4 status sync: 872dfe6
 Patch 4 documentation closure: 144a264
@@ -103,6 +105,9 @@ Patch 4.5 independent audit: PASS WITH MINOR FINDINGS / ACCEPT WITH MINOR NOTES
 Patch 4.5 BLOCKER / IMPORTANT: none
 Patch 4.5 Foundation Record: created
 Patch 4.5 documentation closure: DONE — 26daf50
+Patch 4.5 closure status sync: DONE — 9e657ac
+Patch 4.5 main merge: DONE — 15128ff = merge: complete Patch 4.5 model artifact lock foundation
+Patch 4.5 state: COMPLETE / main integrated / 204 tests PASS
 ```
 
 `110cce6`은 Patch 4 software implementation의 기준점이고,
@@ -111,8 +116,9 @@ Patch 4.5 documentation closure: DONE — 26daf50
 
 Patch 4.5는 `d923b23`에서 시작한 feature branch에서 `PROV-004`를 Design Freeze했고,
 commit `6b69255`에 Design Freeze 문서를 고정한 뒤 commit `aef7f34`에서 구현했다.
-현재 v1.4가 대조하는 Patch 4.5 implementation baseline은 `aef7f34`이며,
-본 Master와 Foundation Record의 documentation closure 기준점은 commit `26daf50`이다.
+documentation closure는 commit `26daf50`, closure status-sync는 commit `9e657ac`에서 완료했고,
+commit `15128ff`에서 `main`에 최종 병합했다.
+현재 Patch 4.5의 canonical main integration 기준점은 `15128ff`이다.
 
 Research document canonicalization의 이전 기준점은 commit `f97530c`이며,
 History/Foundation canonicalization 기준점 `474733c`는 해당 기록의 역사적 provenance로 유지한다.
@@ -125,7 +131,7 @@ Patch 1   capture recording provenance                 완료
 Patch 2   forward gate evidence                        완료
 Patch 3   analysis provenance                          완료
 Patch 4   canonical fixed frame schema + hip           구현·hardening·software audit·main merge 완료
-Patch 4.5 MediaPipe model artifact lock                구현·204-test 검증·독립 audit·Foundation Record·documentation closure 완료
+Patch 4.5 MediaPipe model artifact lock                구현·204-test 검증·독립 audit·Foundation Record·documentation closure·main merge 완료
 ```
 
 Patch 3 canonical record에는 commit `1cdc528` 계열에서 `146 tests PASS`가 기록되어 있고,
@@ -166,9 +172,11 @@ commit `aef7f34`에서 구현했다. 기존 171 tests + 신규 33 tests = `204 t
 BLOCKER/IMPORTANT 0건이다.
 
 `docs/foundation/PATCH_04_5_mediapipe_model_artifact_lock.md` Foundation Record를 작성했고,
-documentation closure commit `26daf50`까지 완료했다.
-현재 다음 작업은 Patch 4.5 status-sync commit → push → branch final review → main merge다.
-main merge 완료 후 다음 required Foundation milestone은 Patch 5 End-to-End Lineage Hardening이다.
+documentation closure commit `26daf50`, closure status-sync commit `9e657ac`,
+branch push와 final review, main merge commit `15128ff`까지 완료했다.
+main merge 후 전체 `204 tests PASS`를 다시 확인했고 `origin/main` push도 완료했다.
+
+현재 다음 required Foundation milestone은 Patch 5 End-to-End Lineage Hardening이다.
 
 아직 F1/F2 핵심 수식을 구현하는 단계가 아니다.
 
@@ -1133,7 +1141,7 @@ threshold / protocol decision 도출 근거
 
 ---
 
-## Patch 4.5 — DONE / SOFTWARE-VERIFIED / INDEPENDENTLY AUDITED / DOCUMENTATION-CLOSED
+## Patch 4.5 — DONE / SOFTWARE-VERIFIED / INDEPENDENTLY AUDITED / DOCUMENTATION-CLOSED / MAIN-MERGED
 
 ```text
 MediaPipe Model Artifact Lock
@@ -1163,6 +1171,14 @@ feat: implement Patch 4.5 model artifact lock
 documentation closure
 26daf50
 docs: close Patch 4.5 model artifact lock milestone
+
+closure status sync
+9e657ac
+docs: sync Patch 4.5 closure status
+
+main merge
+15128ff
+merge: complete Patch 4.5 model artifact lock foundation
 ```
 
 canonical tracked manifest:
@@ -1256,7 +1272,9 @@ Tests               DONE — 204 PASS
 Independent audit   DONE — PASS WITH MINOR FINDINGS
 Foundation Record   CREATED
 Documentation close DONE — 26daf50
-Branch finalization NEXT
+Closure status sync DONE — 9e657ac
+Main merge           DONE — 15128ff
+Patch 4.5 status     COMPLETE
 ```
 
 새 D455 raw run은 Patch 4.5 closure criterion이 아니다.
@@ -1264,7 +1282,7 @@ formal D455 hardware validation은 계속 Patch 8 범위다.
 
 ---
 
-## Patch 5
+## Patch 5 — NEXT REQUIRED FOUNDATION
 
 ```text
 End-to-End Lineage Hardening
@@ -1775,16 +1793,20 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
    → docs: close Patch 4.5 model artifact lock milestone
    → Foundation Record + AIoT_RESEARCH_MASTER v1.4 closure alignment
 
-16. Patch 4.5 status-sync / push / branch final review                           NEXT
-   → 26daf50 closure 사실을 Master/Foundation Record 상태에 반영
-   → docs-only status-sync commit
-   → push 후 branch final review
+16. Patch 4.5 status-sync / push / branch final review                           DONE
+   → closure status-sync commit 9e657ac
+   → origin/patch4.5/model-artifact-lock push 완료
+   → branch final review PASS
+   → 204 tests PASS
 
-17. Patch 4.5 main merge                                                         FOLLOWING
-   → branch final review 통과 후 main에 merge
+17. Patch 4.5 main merge                                                         DONE
+   → merge commit 15128ff
+   → merge: complete Patch 4.5 model artifact lock foundation
+   → post-merge 204 tests PASS
+   → origin/main push 완료
 
-18. Patch 5 End-to-End Lineage Hardening                                         FOLLOWING REQUIRED FOUNDATION
-   → Patch 4.5 main merge 완료 후 시작
+18. Patch 5 End-to-End Lineage Hardening                                         NEXT REQUIRED FOUNDATION
+   → Patch 5 Design Freeze부터 시작
 ```
 
 ---
@@ -1806,6 +1828,8 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 - Patch 4.5 Design Freeze commit `6b69255`
 - Patch 4.5 implementation commit `aef7f34`
 - Patch 4.5 documentation closure commit `26daf50`
+- Patch 4.5 closure status-sync commit `9e657ac`
+- Patch 4.5 main merge commit `15128ff`
 - repository root `mediapipe_model_lock.json`
 - Patch 4.5 software verification: 204 tests PASS
 - independent Claude Opus READ-ONLY audit: PASS WITH MINOR FINDINGS / ACCEPT WITH MINOR NOTES
@@ -1834,4 +1858,4 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 | `v1.1` | 2026-10-01 | `DATA-003` Patch 4 Design Freeze 반영. `OPEN-001` 해소, `frames-schema/1.0.0` exact 60-field contract를 frozen-but-unimplemented로 전환, elbow/wrist `exclude-and-version-later`, 다음 단계는 Patch 4 implementation으로 갱신 |
 | `v1.2` | 2026-10-02 | commit `110cce6`의 Patch 4 구현·hardening·171-test 검증·독립 software audit와 commit `144a264`의 documentation/authority closure 완료를 반영. 실제 D455 validation과 OPEN-002~OPEN-006은 계속 pending이다. Early Hardware Preflight는 optional/non-formal이며, 다음 required Foundation milestone은 Patch 4.5 MediaPipe Model Artifact Lock이다. |
 | `v1.3` | 2026-10-04 | Patch 4 main merge `d923b23` 및 현재 Patch 4.5 branch baseline을 동기화. 2026-10-02 실제 D455 Early Hardware Preflight 수행 결과를 non-formal engineering evidence로 기록하고, `PROV-004`에 따른 Patch 4.5 MediaPipe Model Artifact Lock Design Freeze 완료를 반영. 다음 required Foundation 작업은 Patch 4.5 implementation이다. |
-| `v1.4` | 2026-10-04 | Patch 4.5 implementation commit `aef7f34`, `mediapipe-model-lock/1.0.0`, 기존 171 + 신규 33 = 204 tests PASS, 독립 Claude Opus READ-ONLY audit `PASS WITH MINOR FINDINGS / ACCEPT WITH MINOR NOTES` 및 BLOCKER/IMPORTANT 0건을 반영. `docs/foundation/PATCH_04_5_mediapipe_model_artifact_lock.md` Foundation Record와 documentation closure commit `26daf50`을 current state에 연결하고 model-lock exact values를 미확정 목록에서 제거했다. 현재 다음 작업은 Patch 4.5 status-sync/push/branch final review/main merge이며, main merge 이후 다음 required Foundation milestone은 Patch 5 End-to-End Lineage Hardening이다. |
+| `v1.4` | 2026-10-04 | Patch 4.5 implementation commit `aef7f34`, `mediapipe-model-lock/1.0.0`, 기존 171 + 신규 33 = 204 tests PASS, 독립 Claude Opus READ-ONLY audit `PASS WITH MINOR FINDINGS / ACCEPT WITH MINOR NOTES` 및 BLOCKER/IMPORTANT 0건을 반영. `docs/foundation/PATCH_04_5_mediapipe_model_artifact_lock.md` Foundation Record와 documentation closure commit `26daf50`을 current state에 연결하고 model-lock exact values를 미확정 목록에서 제거했다. Patch 4.5 closure status-sync commit `9e657ac`과 main merge commit `15128ff`까지 current state에 반영했다. Patch 4.5는 main integration까지 완료됐으며, 현재 다음 required Foundation milestone은 Patch 5 End-to-End Lineage Hardening이다. |

@@ -1002,7 +1002,6 @@ IMPORTANT 0
 ```text
 [후속 / 별도 scope]
 
-Patch 4.5 status-sync / push / branch final review / main merge
 Patch 5+ Foundation work
 Patch 8 actual D455 formal validation
 OPEN-002 ~ OPEN-006 research decisions
@@ -1012,16 +1011,18 @@ formal participant collection
 따라서 운영상:
 
 ```text
-Patch 4.5 Design Freeze             = DONE
-Patch 4.5 implementation            = DONE
-Patch 4.5 software verification     = DONE
-Patch 4.5 independent audit         = DONE
-Patch 4.5 blocking findings         = NONE
-Patch 4.5 Foundation Record         = CREATED
-Patch 4.5 documentation closure     = DONE — 26daf50
-Patch 4.5 branch finalization       = NEXT
-Patch 8 hardware validation         = PENDING
-formal research collection          = NOT STARTED
+Patch 4.5 Design Freeze          = COMPLETE
+Patch 4.5 implementation         = COMPLETE
+Patch 4.5 software verification  = COMPLETE — 204 PASS
+Patch 4.5 independent audit      = COMPLETE
+Patch 4.5 blocking findings      = NONE
+Patch 4.5 Foundation Record      = CREATED
+Patch 4.5 documentation closure  = COMPLETE — 26daf50
+Patch 4.5 closure status sync    = COMPLETE — 9e657ac
+Patch 4.5 main merge             = COMPLETE — 15128ff
+Patch 5                          = NEXT REQUIRED FOUNDATION
+Patch 8 hardware validation      = PENDING
+formal research collection       = NOT STARTED
 ```
 
 ---
@@ -1049,8 +1050,8 @@ docs: close Patch 4.5 model artifact lock milestone
 commit `26daf50`은 본 Foundation Record와 `AIoT_RESEARCH_MASTER.md` v1.4 closure alignment를
 repository에 반영한 documentation closure 기준점이다.
 
-본 status-sync 수정은 이미 생성된 `26daf50`의 closure 사실을 문서 상태에 반영한다.
-아직 존재하지 않는 status-sync 또는 future main-merge commit hash는 사전에 추정하지 않는다.
+본 status-sync 수정은 이미 생성된 `26daf50`의 closure 사실을 문서 상태에 반영했고,
+이후 closure status-sync commit `9e657ac`과 main merge commit `15128ff`까지 완료된 현재 상태를 기록한다.
 
 ---
 
@@ -1127,12 +1128,8 @@ blocking findings
 NONE
 
 recommended next action
-Patch 4.5 closure status sync
-→ docs-only status-sync commit
-→ push
-→ final branch review
-→ main merge
-→ Patch 5 End-to-End Lineage Hardening
+Patch 5 End-to-End Lineage Hardening
+→ Patch 5 Design Freeze부터 시작
 ```
 
-Patch 4.5의 software/reproducibility 구현과 documentation closure는 완료되었다. 현재 남은 작업은 branch finalization(status-sync/push/final review/main merge)이며, 그 이후 Patch 5로 진행한다.
+Patch 4.5의 software/reproducibility 구현, documentation closure, closure status sync와 main merge까지 완료되었다. 현재 다음 required Foundation 작업은 Patch 5 End-to-End Lineage Hardening이다.
