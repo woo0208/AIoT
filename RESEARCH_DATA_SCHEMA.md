@@ -1,13 +1,14 @@
 # Research Data Schema — recording / provenance / analysis
 
-- 명세 버전: `research-data-schema/1.2.0`
+- 명세 버전: `research-data-schema/1.3.0`
 - 최초 작성일: 2026-09-30
 - Canonicalization amendment: **2026-10-01 — GOV-005 / OPEN-001에 따른 Patch 4 pre-freeze authority/status overlay를 추가했다. 이 amendment는 field/data contract 또는 capture protocol 변경을 의미하지 않았다.**
 - Patch 4 Design Freeze amendment: **2026-10-01 — `DATA-003`이 `OPEN-001`을 해소하여 `frames-schema/1.0.0` exact canonical frame contract를 freeze한다. 이 amendment는 contract 확정이며 구현 완료 또는 capture protocol 변경을 의미하지 않는다.**
 - Patch 4 implementation closure amendment: **2026-10-02 — frozen `frames-schema/1.0.0` contract의 Python 구현·hardening·171-test 검증·독립 software audit가 commit `110cce6`에서 완료됐음을 기록한다. Field/data contract 또는 capture protocol 변경이 아니며 실제 D455 validation은 아직 pending이다.**
 - Patch 5 implementation closure amendment: **2026-10-04 — `PROV-005`로 freeze한 end-to-end lineage contract가 Design Freeze commit `d4dc23f` 이후 implementation commit `dd0464e`에서 구현됐다. `summary-schema/1.0.0`, `rf-sample-lineage/1.0.0`, `rf-experiment-provenance/1.0.0`, raw SHA identity collision rejection, immutable RF input resolution을 포함하며 204 baseline + 신규 48 = 252 tests PASS 및 독립 READ-ONLY audit BLOCKER 0 / IMPORTANT 0을 기록한다. 이는 Patch 6 selection policy 또는 Patch 8 hardware validation 완료를 의미하지 않는다.**
 - Patch 5 main-integration sync amendment: **2026-10-04 — Patch 5는 merge commit `ae86d58` (`ae86d5875c8fe3200b3b2c1dd26c48256e01105f`)에서 `main`에 통합됐고, merge 직후 `python -X utf8 -m unittest -q` 전체 regression `252 tests PASS`를 재확인했다. 따라서 §G lineage contract는 implementation/audit/documentation closure/main integration까지 완료 상태이며, 다음 required Foundation scope는 Patch 6 Selection Manifest / Recapture Inclusion이다.**
-- 상태: **Hybrid contract/design record. 현재 구현 사실은 Git/source/test와 canonical Foundation records가 우선한다. §F의 Patch 4 exact frame contract는 `DATA-003`에 따라 frozen-and-implemented, §G의 Patch 5 summary/RF lineage contract는 `PROV-005`에 따라 frozen-and-implemented-and-main-integrated (`ae86d58`) 상태다. §H selection policy와 §I의 아직 미구현된 manifest/data-layout 부분은 future design이며 해당 Decision Log status가 우선한다.**
+- Patch 6 Design Freeze amendment: **2026-10-04 — `PROV-006` Design Freeze 후보에 맞춰 §H/§I의 selection architecture를 `selection_events.jsonl + immutable datasets/<dataset_manifest_id>.json` 2-layer authority로 정리한다. `round`는 planned measurement slot이며 재촬영은 same round + new `recording_id`를 사용한다. Technical evidence와 scientific inclusion decision을 분리하고, formal selection은 별도 `selection_policy_version` 확정 전 임의 수행하지 않는다. `frames-schema/1.0.0` exact 60 fields는 변경하지 않으며 Patch 6 implementation은 아직 시작하지 않았다.**
+- 상태: **Hybrid contract/design record. 현재 구현 사실은 Git/source/test와 canonical Foundation records가 우선한다. §F의 Patch 4 exact frame contract는 `DATA-003`에 따라 frozen-and-implemented, §G의 Patch 5 summary/RF lineage contract는 `PROV-005`에 따라 frozen-and-implemented-and-main-integrated (`ae86d58`) 상태다. §H의 Patch 6 selection mechanism과 §I의 selection-manifest layout은 `PROV-006` Design Freeze에 맞춰 frozen / implementation-not-started 상태이며, formal scientific selection policy 자체는 여전히 별도 decision이 필요하다.**
 - 적용 지침: [AGENTS.md](AGENTS.md). 연구 결과는 목표값이 아니라 증거로 취급한다.
 - 2026-09-30 Step 1.5 원작성 범위: 당시 산출물은 이 문서뿐이었으며, 소스·테스트·기존 데이터의 변경, 파일 이동, 모델 다운로드, 성능 실험은 수행하지 않았다.
 
@@ -55,14 +56,18 @@ Patch 4 exact canonical frame contract
 → 252 tests PASS 및 independent READ-ONLY audit BLOCKER 0 / IMPORTANT 0.
 
 §H
-→ Patch 6 Selection Manifest / Recapture Inclusion의 future design.
-→ Patch 5는 dataset-manifest reference slot만 유지하고 selection ledger/policy는 구현하지 않음.
+→ `PROV-006` Patch 6 Design Freeze에 따른 selection mechanism contract.
+→ `round`는 planned measurement slot이며 recapture는 explicit relation으로만 기록.
+→ technical evidence와 scientific inclusion decision은 분리.
+→ formal scientific selection policy는 별도 `selection_policy_version` decision 전까지 미확정.
+→ implementation은 아직 시작하지 않음.
 
 §I
 → mixed-status target layout.
 → `analysis/<recording_id>/<analysis_run_id>/` 계열은 기존 provenance Foundation에서 사용 중.
 → `results/<experiment_run_id>/` subtree는 Patch 5에서 구현 완료.
-→ `manifests/recordings.jsonl`, `selection_events.jsonl`, `datasets/<dataset_manifest_id>.json` 등 selection registry는 Patch 6 future scope.
+→ Patch 6 canonical selection target은 `manifests/selection_events.jsonl` + `manifests/datasets/<dataset_manifest_id>.json`의 2-layer 구조.
+→ 별도 `manifests/recordings.jsonl` authority는 만들지 않음.
 
 §J
 → backward-compatibility 원칙/설계 기록. 실제 adapter 동작은 source/test로 확인.
@@ -601,36 +606,340 @@ Patch 5 implementation 이후 canonical `summary_steps.csv`는 `summary-schema/1
 
 ## H. 재촬영 선택 정책
 
-### H.1 확정 구조: versioned manifest + append-only 선택 이력
+### H.1 Patch 6 selection authority
 
-manifest 파일을 권위 있는 입력으로 채택한다. CLI의 recording 지정은 탐색·pilot용으로 허용할 수 있으나 formal 분석은 확정 manifest 경로/hash를 요구한다. 별도 inclusion table은 manifest의 표현 형식으로 둘 수 있지만 독립적인 두 선택 원장을 운영하지 않는다.
+Patch 6의 logical measurement slot은:
 
-미래의 파일 구성:
+```text
+(dataset_role, subject, round)
+```
 
-- `recordings.jsonl`: 모든 시도와 artifact 위치/hash를 등록. 실패한 recording도 남김.
-- `selection_events.jsonl`: 추가 전용 선택 이력. 과거 행을 수정·삭제하지 않음.
-- `datasets/<dataset_manifest_id>.json`: 승인된 선택 snapshot. 한 번 확정하면 불변.
+이다.
 
-각 선택 entry는 subject/round, recording_id, 사용할 analysis_run_id, 역할, include 여부, 이전 선택 ID, 이유 코드·설명, 담당자, 결정 시각, 사전 등록된 selection policy version을 가진다. policy와 evidence/quality 파일 hash도 연결한다.
+`round`는 촬영 시도 횟수가 아니라 participant별 사전에 계획된 measurement slot이다.
+serialized value는 capture contract와 동일한 **positive-integer decimal string**이다.
 
-### H.2 A/B 재촬영의 규칙
+예:
 
-- A/B 모두 저장한다. 파일 정렬, 최신 timestamp, 가장 높은 얼굴 검출률, 가장 좋은 RF 결과로 코드가 자동 선택하지 않는다.
-- 정식 선택은 **사전에 정한 촬영 순서와 기술적 eligibility 규칙을 충족한 최초 시도**를 기본 정책으로 manifest에 명시한다. 자동 선택 대신 담당자가 원장에 결정을 기록한다.
-- eligibility는 현재 protocol/quality gate와 별도의 파일 무결성 확인 결과를 사용한다. 얼굴/어깨 관계, 분류 정확도, 원하는 root split 비율로 판정하지 않는다.
-- 실패 후 재촬영은 허용되지만 실패 이유·시도 순서·대체 관계를 남긴다. A가 이미 eligible이면 B의 성능/품질 수치가 더 좋아도 바꾸지 않는다.
-- 촬영 당시 알 수 없던 파일 손상 등 기술적 사유로 선택을 바꾸려면 사건과 근거를 추가 기록하고 새 dataset manifest를 발급한다. 이미 발표/계산한 결과의 입력 manifest를 덮어쓰지 않는다.
-- 같은 `(subject, round, 수집 protocol, 연구 방문/condition)`에서 둘 이상의 recording을 정식으로 사용할 계획이면 먼저 연구 단위와 반복측정 정책을 정한다. 현재처럼 모호한 round만으로 결합하지 않는다.
-- `ok_with_warnings` 처리, 재촬영 상한, 예외 승인자는 수집 시작 전에 연구 policy로 확정해야 한다. 미확정 상태에서 formal selection을 임의 수행하지 않는다. 관측된 높은 성능으로 이 정책을 사후 결정하지 않는다.
+```text
+P01 / round 1 / recording A
+P01 / round 1 / recording B
+```
+
+가 동일 planned measurement의 original/recapture라면 둘 다 `round="1"`을 유지하고,
+각 capture attempt는 서로 다른 `recording_id`로 구분한다.
+
+Patch 6의 canonical selection artifact는 다음 2계층이다.
+
+```text
+manifests/selection_events.jsonl
+manifests/datasets/<dataset_manifest_id>.json
+```
+
+- `selection_events.jsonl`: append-only recapture/selection decision history.
+- `datasets/<dataset_manifest_id>.json`: immutable included-source snapshot.
+- 별도 `manifests/recordings.jsonl`은 만들지 않는다. Recording identity/provenance authority는 기존 capture/analysis artifacts가 담당한다.
+
+각 dataset manifest 안에서는 동일:
+
+```text
+(dataset_role, subject, round)
+```
+
+slot에 최대 하나의 included recording만 허용한다.
+
+향후 한 round 안에서 여러 independent formal measurement를 동시에 포함해야 한다면
+현재 round 의미를 임의 확장하지 않고 별도 research decision으로 measurement unit을 확장한다.
+
+### H.2 Explicit recapture relationship
+
+recapture relationship은 명시적으로만 기록한다.
+
+```text
+child recording
+→ recapture_of
+→ parent recording
+```
+
+다음으로 관계를 추론하지 않는다.
+
+```text
+timestamp
+filename/path/glob order
+latest recording
+quality score
+same subject/round alone
+RF performance
+```
+
+recapture relation은 selection decision과 별개다.
+
+```text
+recapture_of
+!= automatic replacement
+!= automatic exclusion
+```
+
+한 child는 최대 하나의 direct parent를 가지며 self-link/cycle은 허용하지 않는다.
+
+child/parent의 capture provenance artifact를 각각 path/hash로 pin한다.
+
+### H.3 Technical evidence와 scientific decision 분리
+
+다음은 selection **evidence**다.
+
+```text
+capture provenance
+quality verdict / forward-gate evidence
+file/hash integrity
+analysis provenance
+canonical frames provenance
+```
+
+다음은 별도 **selection decision**이다.
+
+```text
+include
+exclude
+```
+
+따라서:
+
+```text
+quality == ok
+→ automatic include 아님
+
+quality == retake
+→ Patch 6 schema 자체가 scientific exclude를 자동 결정하는 규칙 아님
+```
+
+현재 미확정:
+
+```text
+ok_with_warnings formal 허용 여부
+retake 최대 횟수
+technical exception 승인 규칙
+formal participant 수
+formal round 수
+scientific outlier/exclusion 기준
+```
+
+formal selection event와 formal dataset manifest는
+사전에 확정된 non-empty `selection_policy_version`을 요구한다.
+
+formal policy가 미정인 상태에서는 Patch 6 infrastructure를 이유로
+formal include/exclude를 임의 생성하지 않는다.
+
+기존 Step 1.5의 “기술적 eligibility를 만족한 최초 시도” 문구는
+현재 Patch 6 scientific policy로 freeze하지 않는다.
+
+### H.4 Included source exact binding
+
+include된 source는 최소:
+
+```text
+recording_id
+analysis_run_id
+frames_schema_version
+frames_path
+frames_sha256
+analysis_manifest_path
+analysis_manifest_sha256
+```
+
+까지 pin한다.
+
+`frames-schema/1.0.0`은 Patch 4 contract의 **exact 60 fields**를 유지한다.
+
+중요:
+
+```text
+dataset_role
+protocol_version
+```
+
+은 canonical frame columns가 아니다.
+
+따라서 Patch 6 role/protocol validation은:
+
+```text
+capture provenance.dataset_role
+== selected analysis_manifest.dataset_role
+== dataset manifest.dataset_role
+
+capture provenance.protocol_version
+== selected analysis_manifest.protocol_version
+```
+
+으로 수행한다.
+
+canonical frames에서는 기존:
+
+```text
+subject
+round
+recording_id
+analysis_run_id
+frame_schema_version
+exact 60-field header
+```
+
+를 검증한다.
+
+Patch 6 때문에 frame schema를 확장하지 않는다.
+
+### H.5 Evidence minimum
+
+모든 `selection_decision`은 자기 recording에 대한 capture provenance evidence를 정확히 하나 요구한다.
+
+pilot include minimum:
+
+```text
+capture_provenance
+analysis_manifest
+canonical_frames
+```
+
+formal include minimum:
+
+```text
+capture_provenance
+quality
+analysis_manifest
+canonical_frames
+selection_policy_version != null/empty
+```
+
+exclude:
+
+```text
+capture_provenance
+```
+
+만으로 허용하며 completed analysis를 요구하지 않는다.
+
+recapture relation은 child/parent 각각의 capture provenance를 요구한다.
+
+selection artifact가 보존하는 artifact path는 repository-root-relative normalized path를 사용하며,
+absolute path와 `..` traversal을 허용하지 않는다.
+
+RF 실행에서는 이를 resolve한 뒤 Patch 5 canonical input validation으로 연결한다.
+Patch 5 experiment provenance의 resolved absolute-path 기록 contract는 유지한다.
+
+### H.6 Append-only history / immutable dataset snapshot
+
+`selection_events.jsonl`은 append-only다.
+
+decision 변경은 기존 event 수정이 아니라:
+
+```text
+new selection_decision
++ supersedes_selection_event_id
+```
+
+로 기록한다.
+
+dataset manifest는 생성 후 immutable하다.
+
+선택을 변경하려면:
+
+```text
+old manifest 유지
+new event append
+new dataset_manifest_id
+new manifest
+```
+
+를 사용한다.
+
+새 manifest를 만들 때는 build 시점에 이미 superseded된 selection decision을 새 snapshot에 사용할 수 없다.
+
+반면 이미 생성된 old manifest는 자신이 pin한:
+
+```text
+selection_event_id
+selection_event_sha256
+source artifact hashes
+```
+
+로 재현된다.
+
+나중에 superseding event가 append되었다는 이유만으로
+과거 immutable manifest를 invalid 처리하지 않는다.
+
+### H.7 Dataset role boundary
+
+self-recorded manifest role은:
+
+```text
+pilot
+formal
+```
+
+이다.
+
+source capture provenance / selection event / selected analysis manifest / dataset manifest의
+`dataset_role`은 exact match해야 한다.
+
+따라서 pilot source를 formal manifest에 silent promotion하지 않는다.
+
+Early Hardware Preflight나 legacy pilot은 결과가 좋아 보인다는 이유로 formal manifest에 포함하지 않는다.
+
+`external` data는 Patch 5 external-table lineage 경로를 유지하며
+self-recorded Patch 6 manifest에 섞지 않는다.
+
+### H.8 RF binding
+
+manifest-driven RF mode의 canonical interface:
+
+```text
+--dataset-manifest PATH
+```
+
+다음 selection modes는 mutually exclusive다.
+
+```text
+--ours
+--ours-frames
+--dataset-manifest
+```
+
+manifest mode:
+
+```text
+dataset manifest
+→ exact selected event/source validation
+→ exact analysis/run/frames resolution
+→ existing Patch 5 canonical input validation
+→ RF
+```
+
+Patch 5의:
+
+```text
+experiment_manifest.dataset_manifest.dataset_manifest_id
+experiment_manifest.dataset_manifest.path
+experiment_manifest.dataset_manifest.sha256
+```
+
+slot을 실제 값으로 채운다.
+
+동시에 `experiment_manifest.inputs.ours`에는 resolved exact input을 계속 기록하고,
+result의 `dataset_manifest_sha256`에도 exact manifest hash를 기록한다.
+
+manual `--ours` / `--ours-frames` 동작과 기존 RF numeric semantics는 유지한다.
+
+---
 
 ## I. 권장 파일/폴더 구조
 
-아래는 target 구조다. 상태는 subtree별로 다르다.
+아래는 current target structure다. subtree별 구현 상태는 다르다.
 
-- `analysis/<recording_id>/<analysis_run_id>/`: 기존 analysis provenance에서 구현·사용 중.
-- `results/<experiment_run_id>/`: Patch 5 commit `dd0464e`에서 구현 완료.
-- `manifests/recordings.jsonl`, `selection_events.jsonl`, `datasets/<dataset_manifest_id>.json`: Patch 6 future scope.
-- `data/pilot|formal|external/<recording_id>/` 전체 재배치/registry 운영: 현재 문서의 target architecture이며 Patch 5가 강제 이동하지 않는다.
+- `analysis/<recording_id>/<analysis_run_id>/`: 기존 provenance Foundation에서 구현·사용 중.
+- `results/<experiment_run_id>/`: Patch 5에서 구현 완료.
+- `manifests/selection_events.jsonl`, `manifests/datasets/<dataset_manifest_id>.json`: Patch 6 Design Freeze target, implementation not started.
+- `data/pilot|formal|external/<recording_id>/` 전체 재배치: target architecture이며 Patch 6가 강제 이동하지 않는다.
+- 별도 `manifests/recordings.jsonl` authority는 사용하지 않는다.
 
 ```text
 data/
@@ -642,6 +951,7 @@ data/
     <recording_id>_samples.csv
     <recording_id>_quality.json
   external/<recording_id>/
+
 analysis/
   <recording_id>/<analysis_run_id>/
     analysis_manifest.json
@@ -649,6 +959,7 @@ analysis/
     summary_steps.csv
     summary_report.txt
     figures/
+
 results/
   <experiment_run_id>/
     experiment_manifest.json
@@ -656,17 +967,20 @@ results/
     rf_results.csv
     rf_results.txt
     fig5_rf_compare.png
+
 manifests/
-  recordings.jsonl
   selection_events.jsonl
-  model_lock.json
-  datasets/<dataset_manifest_id>.json
+  datasets/
+    <dataset_manifest_id>.json
 ```
 
-- 기존 평면 경로는 그대로 읽을 수 있게 유지한다. 새 formal 실행만 명시적 registry/manifest 경로를 사용한다.
-- run별 디렉터리 안에서는 기존 결과 basename을 유지할 수 있다. 실행 간 덮어쓰기는 금지한다.
-- batch-level 보고서가 필요하면 별도 batch/experiment run 아래 저장하고 대상 child run ID를 기록한다. 서로 다른 run의 rows를 식별자 없이 합치지 않는다.
-- raw는 불변 보관한다. 재시도나 새 분석을 위해 rename/delete하지 않는다. metadata 수정도 변경 이력과 artifact hash 연결을 남긴다.
+- 기존 평면 경로는 backward compatibility 범위에서 계속 읽을 수 있게 유지한다.
+- Patch 6 selection artifact 내부 path는 repository-root-relative normalized path를 사용한다.
+- Patch 5 experiment provenance의 resolved absolute path 기록은 기존 contract를 유지한다.
+- run별 directory에서 기존 결과 basename을 유지할 수 있으나 실행 간 overwrite는 금지한다.
+- raw recording은 immutable하게 보존하며 retake/새 분석을 위해 rename/delete하지 않는다.
+- selection event는 append-only, dataset manifest는 immutable이다.
+- generated `selection_events.jsonl` 및 dataset manifest JSON은 exact-byte SHA-256 authority가 되므로 canonical LF serialization을 사용한다. Patch 6 implementation에서 Windows Git EOL conversion을 막는 repository-level protection을 추가한다.
 
 ## J. backward compatibility
 
@@ -722,7 +1036,7 @@ fixed raw writer의 exact version/header/field/missing/arm 계약은 `DATA-003`�
 다음은 구현자가 임의 결정하지 않는다.
 
 1. **F1/F2의 구체적 수식·입력 차원·missing 처리·derived geometry 계약**. F0의 기존 baseline과 F_cal의 relative 비교 역할은 보존한다. 현재 all/invariant/relative를 이름만 바꿔 F1/F2로 간주하지 않는다. 6개 초과 weight 정책도 별도 연구 결정이다.
-2. formal/external의 모집·조건·반복측정 단위와 허용 촬영 회수, `ok_with_warnings`의 eligibility, 기술적 예외 승인자. 수집 전에 H의 selection policy를 완성한다.
+2. formal/external의 모집·조건·반복측정 단위와 허용 촬영 회수, `ok_with_warnings`의 eligibility, 기술적 예외 승인자. §H의 Patch 6 selection mechanism과 별개로, formal 수집 전에 scientific `selection_policy_version`을 별도 Research Decision으로 확정한다.
 3. 실제 고정할 MediaPipe 모델 artifact/hash 및 환경 조합. 현재 로컬에 없거나 확인하지 않은 파일의 버전을 추정하지 않는다.
 4. face/head·shoulder·hip를 F1/F2에 필요한 핵심 observation 방향으로 유지한다. Patch 4에서는 hip 12-field exact contract를 §F.4처럼 사용하고, elbow/wrist는 `exclude-and-version-later`로 freeze되었다. 그 밖의 전체 landmark·3D·IR 저장 필요성은 자동 확장하지 않는다. elbow/wrist formal coverage 보증은 이 exclusion에서 도출하지 않으며 OPEN-005/OPEN-006의 후속 protocol/validation 경계를 따른다.
 5. F1/F2의 개인 사전 calibration 불필요 원칙은 확정 방향이다. 현재 capture/summary의 직전 upright와 기존 RF의 첫 upright 정책은 비교 경로에서 보존하며 통일하지 않는다. 연구자는 최종 feature 경로에 reference 의존성이 없는지 검증할 계획을 정한다.
