@@ -301,6 +301,25 @@ def legacy_recording_id(path, artifact, from_csv):
     return candidate
 
 
+def validate_raw_identity(raw_sha256, recording_id):
+    """DF-1: all recorded raw identity evidence, including failed/running runs."""
+    index = {}
+    for path in glob.glob(os.path.join(OUT_DIR, "*", "ar_*", "analysis_manifest.json")):
+        manifest = read_json(path)
+        digest = (manifest.get("inputs", {}).get("recording") or {}).get("sha256")
+        identity = manifest.get("recording_id")
+        if (manifest.get("analysis_mode") == "extract_raw" and
+                isinstance(identity, str) and identity.strip() and
+                isinstance(digest, str) and re.fullmatch(r"[a-fA-F0-9]{64}", digest)):
+            index.setdefault(digest.lower(), set()).add(identity)
+    if any(len(ids) > 1 for ids in index.values()):
+        raise ValueError("repository raw identity conflict: same raw SHA-256 has multiple recording IDs")
+    if raw_sha256 is None:
+        raise ValueError("raw identity requires a full input SHA-256")
+    if index.get(raw_sha256.lower(), {recording_id}) != {recording_id}:
+        raise ValueError("raw identity conflict: same raw SHA-256 has another recording_id")
+
+
 def start_analysis_run(path, args, batch_id):
     reasons = {}
     legacy_pilot = bool(getattr(args, "legacy_pilot", False))
@@ -396,6 +415,8 @@ def start_analysis_run(path, args, batch_id):
             raise ValueError("formal input requires full recording/markers hashes")
     if legacy_pilot and role in ("formal", "external"):
         raise ValueError("--legacy-pilot conflicts with formal/external dataset_role")
+    if not args.from_csv:
+        validate_raw_identity(artifact["sha256"], recording_id)
     directory = os.path.join(OUT_DIR, recording_id)
     os.makedirs(directory, exist_ok=True)
     if not args.from_csv and artifact["sha256"] is not None:
@@ -989,6 +1010,15 @@ def write_csv(path, rows):
 # ---------------------------------------------------------------- 요약
 FEATS = ["face_area_px", "face_w_px", "face_x", "face_y", "theta1_deg", "theta2_deg", "theta3_deg",
          "z_face_m", "z_sh_m", "face_size_cm2", "oval_area_px", "oval_size_cm2", "ipd_cm", "box_to_oval"]
+SUMMARY_SCHEMA_VERSION = "summary-schema/1.0.0"
+SUMMARY_FIELDS = (
+    "subject", "round", "step", "label", "n_frames", "face_detect_ratio", "pose_detect_ratio",
+) + tuple(field for feature in FEATS for field in (feature, feature + "_sd")) + (
+    "ref_step", "A_ratio", "A_ratio_oval", "dZ_face_cm", "dZ_sh_cm", "D_head_cm",
+    "sh_face_ratio", "area_err_est_pct", "area_cv_pct", "summary_schema_version",
+    "recording_id", "analysis_run_id", "source_frames_analysis_run_id", "dataset_role",
+    "protocol_version", "reference_recording_id", "reference_analysis_run_id",
+)
 
 
 def med(vals):
@@ -1001,27 +1031,52 @@ def sd(vals):
     return statistics.pstdev(v) if len(v) >= 2 else None
 
 
-def summarize(all_rows):
+def summarize(all_rows, run_context=None):
     groups = {}
+    sources = {}
     for r in all_rows:
-        groups.setdefault((r["subject"], r["round"], int(r["step"])), []).append(r)
+        rid, source = r.get("recording_id"), r.get("analysis_run_id")
+        if not rid:
+            raise ValueError("summary requires recording_id provenance")
+        if rid in sources and sources[rid] != source:
+            raise ValueError("multiple source frame runs for one recording in summary")
+        sources[rid] = source
+        groups.setdefault((rid, source, int(r["step"])), []).append(r)
     summary = []
-    for (sub, rnd, stp), g in sorted(groups.items()):
+    for (rid, source, stp), g in sorted(groups.items()):
+        for field in ("subject", "round", "label", "recording_id", "analysis_run_id",
+                      "dataset_role", "protocol_version"):
+            if any(r.get(field) != g[0].get(field) for r in g):
+                raise ValueError(f"conflicting summary identity metadata: {field}")
+        sub, rnd = g[0]["subject"], g[0]["round"]
+        context = (run_context or {}).get(rid, {})
+        for field in ("dataset_role", "protocol_version"):
+            if field in g[0] and field in context and g[0][field] != context[field]:
+                raise ValueError(f"summary context {field} mismatch")
         s = {"subject": sub, "round": rnd, "step": stp, "label": g[0]["label"], "n_frames": len(g),
              "face_detect_ratio": sum(1 for r in g if r.get("face_area_px")) / len(g),
              "pose_detect_ratio": sum(1 for r in g if r.get("z_sh_m") is not None) / len(g)}
         for k in FEATS:
             s[k] = med([r.get(k) for r in g])
             s[k + "_sd"] = sd([r.get(k) for r in g])
+        s.update(summary_schema_version=SUMMARY_SCHEMA_VERSION, recording_id=rid,
+                 analysis_run_id=context.get("analysis_run_id", source),
+                 source_frames_analysis_run_id=source,
+                 dataset_role=context.get("dataset_role", g[0].get("dataset_role")),
+                 protocol_version=context.get("protocol_version", g[0].get("protocol_version")))
         summary.append(s)
     # 바로 앞 정상 자세 대비 변화량
     for s in summary:
         prev = [u for u in summary if u["subject"] == s["subject"] and u["round"] == s["round"]
+                and u["recording_id"] == s["recording_id"]
+                and u["source_frames_analysis_run_id"] == s["source_frames_analysis_run_id"]
                 and u["label"] == "upright" and u["step"] < s["step"]]
         ref = prev[-1] if prev else (s if s["label"] == "upright" else None)
         if s["label"] == "upright" and not prev:
             ref = s
         s["ref_step"] = ref["step"] if ref else None
+        s["reference_recording_id"] = ref["recording_id"] if ref else None
+        s["reference_analysis_run_id"] = ref["source_frames_analysis_run_id"] if ref else None
 
         def diff(k):
             return (ref[k] - s[k]) if (ref and ref.get(k) is not None and s.get(k) is not None) else None
@@ -1036,7 +1091,10 @@ def summarize(all_rows):
         if s.get("face_w_px"):
             s["area_err_est_pct"] = 2 * BOUNDARY_DELTA_PX / s["face_w_px"] * 100
         s["area_cv_pct"] = (s["face_area_px_sd"] / s["face_area_px"] * 100) if (s.get("face_area_px_sd") and s.get("face_area_px")) else None
-    write_csv(os.path.join(OUT_DIR, "summary_steps.csv"), summary)
+    with open(os.path.join(OUT_DIR, "summary_steps.csv"), "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=SUMMARY_FIELDS)
+        writer.writeheader()
+        writer.writerows(summary)
     return summary
 
 
@@ -1319,6 +1377,8 @@ def run_analysis(files, args):
         for path in files:
             directory, manifest = start_analysis_run(path, args, batch_id)
             runs.append((path, directory, manifest))
+        if len({m["recording_id"] for _, _, m in runs}) != len(runs):
+            raise ValueError("multiple analysis runs for one recording in summary operation")
         lock = None if args.from_csv else load_model_lock()
         models = None if args.from_csv else ensure_models(lock)
         for path, directory, manifest in runs:
@@ -1336,6 +1396,24 @@ def run_analysis(files, args):
                     frame["schema_version"] = FRAME_SCHEMA_VERSION
                     frame["compatibility_path"] = os.path.abspath(os.path.join(OUT_DIR, os.path.basename(frame_path)))
             manifest["input_frame_rows"] = len(rows)
+            # In-memory context only; never rewrite archived historical frame identity.
+            rows = [dict(r) for r in rows]
+            for r in rows:
+                if r.get("recording_id") and r["recording_id"] != manifest["recording_id"]:
+                    raise ValueError("frame/manifest recording_id mismatch")
+                expected_source = (manifest["parent_analysis_run_id"] if args.from_csv
+                                   else manifest["analysis_run_id"])
+                if r.get("analysis_run_id") and r["analysis_run_id"] != expected_source:
+                    raise ValueError("frame/manifest source analysis_run_id mismatch")
+                if not r.get("recording_id"):
+                    r["recording_id"] = manifest["recording_id"]
+                if not r.get("analysis_run_id"):
+                    r["analysis_run_id"] = (manifest["parent_analysis_run_id"] if args.from_csv
+                                            else manifest["analysis_run_id"])
+                for field in ("dataset_role", "protocol_version"):
+                    if field in r and r[field] != manifest[field]:
+                        raise ValueError(f"frame/manifest {field} mismatch")
+                    r[field] = manifest[field]
             all_rows += rows
         if not all_rows:
             raise RuntimeError("분석된 프레임이 없습니다.")
@@ -1345,7 +1423,7 @@ def run_analysis(files, args):
         compatibility_dir = OUT_DIR
         try:
             OUT_DIR = batch_dir
-            summary = summarize(all_rows)
+            summary = summarize(all_rows, {m["recording_id"]: m for _, _, m in runs})
             report(summary)
             plot_all(all_rows, summary)
         finally:
@@ -1358,7 +1436,7 @@ def run_analysis(files, args):
             if not os.path.isfile(path):
                 continue
             item = artifact_info(path, reasons)
-            item.update(kind="batch_output", schema_version=None,
+            item.update(kind="batch_output", schema_version=SUMMARY_SCHEMA_VERSION if filename == "summary_steps.csv" else None,
                         row_count=len(summary) if filename == "summary_steps.csv" else None,
                         analysis_run_ids=contributors)
             shared.append(item)

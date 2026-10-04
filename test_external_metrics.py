@@ -9,6 +9,7 @@ from unittest.mock import patch
 import numpy as np
 
 import rf_experiment as rf
+from patch5_test_fixtures import make_frames
 
 
 Y = np.array([0, 1, 0, 2, 3, 4, -1, -1])
@@ -54,10 +55,9 @@ def load_fixture(module=rf):
     logs = []
     with tempfile.TemporaryDirectory() as directory, patch.object(module, "OUT_DIR", directory):
         for name, rows in files.items():
-            with Path(directory, name).open("w", newline="", encoding="utf-8-sig") as stream:
-                writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
-                writer.writeheader()
-                writer.writerows(rows)
+            subject = name.split("_")[0]
+            make_frames(directory, name.removesuffix("_frames.csv"),
+                        rows=[dict(row, subject=subject) for row in rows])
         # Older loaders have no logging argument; this also supports baseline comparison.
         import inspect
         kwargs = {"log": logs.append} if "log" in inspect.signature(module.load_ours).parameters else {}

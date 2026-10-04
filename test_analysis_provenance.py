@@ -428,6 +428,7 @@ class AnalysisProvenanceTests(unittest.TestCase):
 
     def test_shared_outputs_list_all_contributing_runs(self):
         paths = [self.recording(), self.recording("P03_r2_20261001_143026_123456_" + "b" * 32)]
+        Path(paths[1]).write_bytes(b"distinct synthetic second recording")
         with patch.object(analysis, "ensure_models", return_value=self.model_paths()), \
                 patch.object(analysis, "process_recording", side_effect=self.fake_process), \
                 patch.object(analysis, "plot_all", side_effect=self.fake_plot):
@@ -452,7 +453,7 @@ class AnalysisProvenanceTests(unittest.TestCase):
         read = analysis.load_frames_csv(["P03"])
         self.assertEqual(read, rows)
         before = frame.read_bytes()
-        summary = analysis.summarize(read)
+        summary = analysis.summarize([dict(r, recording_id="legacy_test", analysis_run_id=None) for r in read])
         self.assertEqual(summary[0]["A_ratio"], 1.0)
         self.assertEqual(summary[1]["ref_step"], 1)
         self.assertEqual(summary[1]["A_ratio"], 1.25)
