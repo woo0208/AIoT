@@ -42,7 +42,8 @@ This read order is not a single precedence chain. Route conflicts by authority:
 - research decision status, rationale, OPEN/DEFERRED state, and supersession/resolution history → `RESEARCH_DECISION_LOG.md`
 - data/schema contracts → `RESEARCH_DATA_SCHEMA.md`
 - Patch 4 exact frame contract → `DATA-003` + `RESEARCH_DATA_SCHEMA.md` §F (`frames-schema/1.0.0`), frozen-and-implemented at commit `110cce6`; software verification/audit complete, real D455 hardware validation pending
-- other unimplemented/future schema designs → confirm their status in `RESEARCH_DECISION_LOG.md` before treating them as implemented or frozen contracts
+- Patch 5 lineage contracts → `PROV-005` + `docs/foundation/PATCH_05_end_to_end_lineage_hardening.md`; implemented at commit `dd0464e` as `summary-schema/1.0.0`, `rf-sample-lineage/1.0.0`, and `rf-experiment-provenance/1.0.0`, with 252 tests PASS and independent audit BLOCKER 0 / IMPORTANT 0
+- other unimplemented/future schema designs, including Patch 6 selection policy → confirm their status in `RESEARCH_DECISION_LOG.md` before treating them as implemented or frozen contracts
 
 The Step 1.5 Patch 4 field details were pre-freeze proposals. After `DATA-003`
 resolved `OPEN-001`, Schema §F is the exact frozen Patch 4 frame contract. Do not
@@ -517,11 +518,13 @@ research roadmap in `CLAUDE.md`.
 At the current canonical state:
 
 - agent-instruction alignment is complete,
-- Foundation Patch 4 Design Freeze is complete via `DATA-003`,
-- Patch 4 `frames-schema/1.0.0` implementation is complete at commit `110cce6`, with 171 tests PASS, independent implementation audit PASS, and post-hardening targeted re-audit PASS,
-- real D455 hardware validation remains pending, `OPEN-002` through `OPEN-006` remain unresolved, and formal collection has not started,
-- Patch 4.5 model artifact lock is the next required Foundation implementation milestone,
-- do not reopen `OPEN-001` or alter the frozen contract implicitly in later work.
+- Foundation Patch 4 `frames-schema/1.0.0` is complete at commit `110cce6`,
+- Foundation Patch 4.5 `mediapipe-model-lock/1.0.0` is complete and main-integrated,
+- Foundation Patch 5 Design Freeze is `d4dc23f`, implementation is `dd0464e`, and the lineage contracts `summary-schema/1.0.0`, `rf-sample-lineage/1.0.0`, and `rf-experiment-provenance/1.0.0` are implemented,
+- Patch 5 verification is 204 baseline + 48 targeted = 252 tests PASS; independent READ-ONLY audit is PASS WITH MINOR FINDINGS with BLOCKER 0 / IMPORTANT 0,
+- real D455 formal hardware validation remains pending, `OPEN-002` through `OPEN-006` remain unresolved, and formal collection has not started,
+- after Patch 5 documentation closure and main integration, Patch 6 Selection Manifest / Recapture Inclusion is the next required Foundation scope,
+- do not reopen `OPEN-001`, `DATA-003`, `PROV-004`, or `PROV-005`, and do not alter frozen contracts implicitly in later work.
 
 Only perform the currently requested scope.
 

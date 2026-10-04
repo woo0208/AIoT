@@ -1,6 +1,6 @@
 # PATCH_05 — End-to-End Lineage Hardening
 
-> 상태: **DESIGN-FROZEN / IMPLEMENTATION NOT STARTED**
+> 상태: **IMPLEMENTED / SOFTWARE-VERIFIED / INDEPENDENTLY AUDITED / DOCUMENTATION-CLOSED / HARDWARE RUN NOT REQUIRED FOR CLOSURE**
 >
 > 운영상 Patch 번호: **Foundation Patch 5**
 >
@@ -25,10 +25,46 @@
 > 204 tests PASS
 > ```
 >
-> 본 문서는 **docs-only Design Freeze contract**다.
-> 이 문서가 freeze된 뒤에만 Patch 5 구현을 시작한다.
+> Design Freeze commit:
 >
-> Patch 5 구현 완료, test 완료, audit 완료 또는 Foundation closure를 의미하지 않는다.
+> ```text
+> d4dc23f
+> docs: freeze Patch 5 end-to-end lineage hardening design
+> ```
+>
+> implementation commit:
+>
+> ```text
+> dd0464e
+> feat: implement Patch 5 end-to-end lineage hardening
+> ```
+>
+> software verification:
+>
+> ```text
+> baseline             204 PASS
+> Patch 5 targeted      48 PASS
+> final suite          252 PASS
+> ```
+>
+> independent READ-ONLY audit:
+>
+> ```text
+> verdict    PASS WITH MINOR FINDINGS
+> BLOCKER    0
+> IMPORTANT  0
+> MINOR      6
+> commit recommendation: YES
+> ```
+>
+> documentation closure milestone:
+>
+> ```text
+> 2026-10-04
+> ```
+>
+> 본 문서는 `PROV-005` Design Freeze contract와 Patch 5의 구현·검증·독립 audit·closure evidence를 함께 기록하는 canonical Foundation Record다.
+> Patch 5 closure는 formal research data 승인, Patch 6 selection policy 완료, Patch 7 integrity checker 완료 또는 Patch 8 actual D455 formal validation 완료를 의미하지 않는다.
 
 ---
 
@@ -2246,7 +2282,7 @@ MINOR는 Foundation closure를 막는 실제 contract violation인지 별도 판
 
 # 22. Definition of Done
 
-Patch 5는 다음이 모두 만족되어야 DONE이다.
+Patch 5 Foundation closure 기준은 다음과 같이 충족됐다.
 
 ```text
 [x] READ-ONLY repository investigation
@@ -2259,26 +2295,36 @@ Patch 5는 다음이 모두 만족되어야 DONE이다.
 
 [x] PROV-005 Decision Log contract prepared
 
-[ ] docs-only Design Freeze commit created
+[x] docs-only Design Freeze commit created
+    → d4dc23f
 
-[ ] implementation started only after Design Freeze commit
+[x] implementation started only after Design Freeze commit
 
-[ ] implementation completed
+[x] implementation completed
+    → dd0464e
 
-[ ] full tests PASS
+[x] full tests PASS
+    → 252 PASS
 
-[ ] new Patch 5 targeted tests PASS
+[x] new Patch 5 targeted tests PASS
+    → 48 PASS
 
-[ ] independent READ-ONLY audit completed
+[x] independent READ-ONLY audit completed
+    → PASS WITH MINOR FINDINGS
 
-[ ] BLOCKER = 0
+[x] BLOCKER = 0
 
-[ ] IMPORTANT = 0
+[x] IMPORTANT = 0
 
-[ ] implementation commit created
+[x] implementation commit created
+    → dd0464e
 
-[ ] Foundation Record / documentation closure completed
+[x] Foundation Record / documentation closure completed
+    → this documentation-closure change
 ```
+
+`MINOR = 6`은 아래 closure disposition에 따라 Patch 5 contract blocker가 아닌 것으로 수용한다.
+Patch 5 main integration은 Foundation documentation closure 이후 별도 Git 단계이며, 위 software closure 조건과 구분한다.
 
 ---
 
@@ -2290,23 +2336,283 @@ Patch 5는 다음이 모두 만족되어야 DONE이다.
 
 ---
 
-# 24. Next Action After This Freeze
+# 24. Implementation and Verification Closure
 
-코드 구현 전 다음 docs-only commit을 만든다.
-
-권장 commit message:
+## 24.1 Implementation commit
 
 ```text
-docs: freeze Patch 5 end-to-end lineage hardening design
+dd0464e
+feat: implement Patch 5 end-to-end lineage hardening
 ```
 
-이 commit에는 최소:
+구현 대상:
 
 ```text
-docs/foundation/PATCH_05_end_to_end_lineage_hardening.md
-docs/research/RESEARCH_DECISION_LOG.md   # PROV-005 append
+analyze_d455.py
+rf_experiment.py
+test_analysis_provenance.py
+test_external_metrics.py
+test_relative_eval.py
+test_root_logging.py
+patch5_test_fixtures.py
+test_patch5_lineage.py
 ```
 
-를 포함한다.
+Design Freeze 문서와 Patch 4 / 4.5 frozen contracts는 implementation commit에서 변경하지 않았다.
 
-이 docs-only Design Freeze commit이 생성된 뒤에만 Codex 구현 단계로 이동한다.
+---
+
+## 24.2 Implemented contract mapping
+
+### DF-1 — Raw SHA Identity Authority
+
+구현 완료:
+
+```text
+analysis/*/ar_*/analysis_manifest.json
+→ extract_raw identity evidence
+→ raw SHA-256 ↔ recording_id conflict detection
+→ conflicting identity는 새 analysis run 생성 전에 fail closed
+```
+
+`running / completed / failed` manifest의 valid identity evidence를 모두 포함한다.
+
+### Summary lineage
+
+구현 완료:
+
+```text
+summary-schema/1.0.0
+exact 52 fields
+```
+
+기존 44-field ordered prefix를 유지하고 frozen 8 lineage fields를 append한다.
+
+summary aggregation과 reference는:
+
+```text
+same recording_id
+same source frames analysis run
+```
+
+경계를 넘지 않는다.
+
+`--from-csv`에서는 current re-summary run과 source frame run을 구분한다.
+
+### DF-2 — Immutable RF Input Resolution
+
+구현 완료:
+
+```text
+--ours-frames
+verified --ours compatibility resolver
+owner manifest validation
+frames / manifest SHA-256 verification
+multi-run / retake ambiguity rejection
+```
+
+mutable flat path 자체는 provenance authority로 사용하지 않는다.
+
+### DF-3 — RF Sample Lineage
+
+구현 완료:
+
+```text
+rf-sample-lineage/1.0.0
+results/<experiment_run_id>/sample_lineage.jsonl
+```
+
+canonical frames sample은 recording/run/frames hash로 추적하고,
+external table sample은 source dataset/file hash/physical row identity로 추적한다.
+
+### DF-4 — Immutable RF Experiment Run
+
+구현 완료:
+
+```text
+rf-experiment-provenance/1.0.0
+results/<experiment_run_id>/experiment_manifest.json
+```
+
+각 experiment는 고유 `er_*` directory를 사용하고,
+running/completed/failed lifecycle, exact input provenance, sample lineage hash,
+result artifact hash 및 compatibility publish order를 기록한다.
+
+### DF-5 — Patch 6 boundary
+
+구현 완료:
+
+```text
+dataset_manifest.dataset_manifest_id = null
+dataset_manifest.path                = null
+dataset_manifest.sha256              = null
+```
+
+Patch 5는 selection ledger, retake selection 또는 formal inclusion/exclusion policy를 구현하지 않았다.
+
+---
+
+# 25. Software Verification
+
+Windows validation command:
+
+```powershell
+python -X utf8 -m unittest -q
+```
+
+Windows default `cp949`에서는 일부 UTF-8 repository text를 읽을 때 `UnicodeDecodeError`가 발생하므로,
+Patch 5 baseline/final verification은 Python UTF-8 mode를 사용했다.
+이를 해결하기 위한 source/test 수정은 하지 않았다.
+
+검증 결과:
+
+```text
+pre-implementation baseline
+204 PASS
+
+Patch 5 targeted
+python -X utf8 -m unittest -q test_patch5_lineage
+48 PASS
+
+final full suite
+252 PASS
+
+git diff --check
+PASS
+```
+
+implementation commit 이후 재검증:
+
+```text
+Ran 252 tests
+OK
+working tree clean
+```
+
+synthetic fixtures/probes는 lineage/schema software verification용이며,
+실제 연구 성능 또는 actual D455 formal validation 근거가 아니다.
+
+---
+
+# 26. Independent READ-ONLY Audit
+
+독립 Claude Opus READ-ONLY audit:
+
+```text
+VERDICT: PASS WITH MINOR FINDINGS
+
+BLOCKER:   0
+IMPORTANT: 0
+MINOR:     6
+
+IMPLEMENTATION COMMIT RECOMMENDATION: YES
+```
+
+audit에서 별도로 확인한 핵심 사항:
+
+```text
+baseline d4dc23f: 204 PASS
+working implementation: 252 PASS
+Patch 5 targeted: 48 PASS
+
+기존 수정 test 4개:
+assertion weakening 없음
+fixture/provenance setup 변경만 확인
+
+Patch 4 / Patch 4.5 protected code:
+scientific / frozen semantics 유지
+
+RF end-to-end output:
+baseline scientific numeric semantics 유지
+
+sample lineage:
+source bytes까지 positional trace 검증
+cross-recording / cross-run silent path 없음
+```
+
+---
+
+# 27. Accepted MINOR Findings
+
+Patch 5 workflow는 `BLOCKER` / `IMPORTANT`를 closure 전 필수 수정 대상으로 삼는다.
+독립 audit의 6개 MINOR는 frozen Patch 5 contract 위반이 아니며 다음과 같이 disposition한다.
+
+| ID | Finding | Closure disposition |
+|---|---|---|
+| M-1 | `fig1` 및 text report의 subject/round-level presentation grouping은 복수 take를 시각적으로 함께 묶을 수 있음 | **ACCEPTED MINOR RESIDUAL.** canonical `summary_steps.csv`와 RF lineage에는 cross-recording 경로가 없으며 research figure/report presentation cleanup 후보로 남긴다. |
+| M-2 | RF owner-manifest archive path 검증이 absolute path에 민감하여 repo relocation/reclone 후 historical run 사용성이 낮음 | **ACCEPTED CURRENT-CONTRACT LIMITATION.** PROV-005가 resolved absolute paths를 freeze한 현재 contract와 일치한다. portable provenance는 future schema revision 후보다. |
+| M-3 | `rf_experiment.py`가 `analyze_d455.FRAME_FIELDS` import를 통해 `cv2` dependency를 transitively 요구 | **ACCEPTED MINOR DEPENDENCY.** lineage correctness 영향 없음. constants 분리 또는 OpenCV environment provenance 확장은 future cleanup 후보다. |
+| M-4 | 일부 fail-closed negative branch가 dedicated unit test에는 없지만 independent probe에서는 정상 reject 확인 | **ACCEPTED TEST COVERAGE GAP.** current behavior는 audit probe로 검증됐으며 Patch 5 closure blocker가 아니다. |
+| M-5 | `--skip-paper-loso`에서도 `paper_loso` lineage rows가 `ours_external` training source evidence로 남아 track 명칭 의미가 넓음 | **DOCUMENTED SEMANTIC NOTE.** lineage evidence 보존 자체는 정확하며 current schema revision에서 code change를 요구하지 않는다. |
+| M-6 | `KeyboardInterrupt`의 `str(error)`가 빈 문자열이라 failed-manifest diagnostic에 exception type이 남지 않음 | **ACCEPTED MINOR DIAGNOSTIC LIMITATION.** artifact lineage/integrity 또는 scientific result에 영향 없음. |
+
+M-1~M-6은 Patch 6 selection policy로 자동 흡수하지 않는다.
+필요한 cleanup은 별도 범위로 결정한다.
+
+---
+
+# 28. Closure Boundaries
+
+Patch 5 closure가 의미하는 것:
+
+```text
+same raw bytes의 independent recording identity fork 차단
+
+canonical summary:
+recording/source-run isolation
+
+RF input:
+immutable owner run + SHA pinning
+
+RF sample:
+persistent source lineage
+
+RF result:
+immutable experiment run provenance
+
+result
+→ sample_lineage
+→ exact frames
+→ exact analysis run
+→ raw SHA / recording identity
+역추적 가능
+```
+
+Patch 5 closure가 의미하지 않는 것:
+
+```text
+F1/F2 formula 확정
+formal participant/round 수 확정
+formal inclusion/exclusion 확정
+retake selection policy 구현
+Patch 6 selection manifest 구현
+Patch 7 repository-wide integrity checker 구현
+Patch 8 actual D455 formal hardware validation 완료
+formal collection 승인
+연구 성능 향상 증명
+```
+
+---
+
+# 29. Next Action After Documentation Closure
+
+현재 Patch 5 branch에서 다음 순서로 진행한다.
+
+```text
+1. docs-only documentation closure commit
+2. full 252-test regression
+3. branch final review / push
+4. Patch 5를 main에 merge
+5. post-merge 252-test regression
+6. origin/main push
+7. 필요 시 main-merge status sync
+8. 그 이후 Patch 6 — Selection Manifest / Recapture Inclusion
+```
+
+권장 documentation closure commit message:
+
+```text
+docs: close Patch 5 end-to-end lineage hardening milestone
+```
+
+Patch 6 구현은 Patch 5 main integration 전 조용히 시작하지 않는다.
