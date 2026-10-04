@@ -13,6 +13,7 @@ from unittest.mock import patch
 import numpy as np
 
 import rf_experiment as rf
+from patch5_test_fixtures import mocked_model_inputs
 
 
 class RootStatisticsTests(unittest.TestCase):
@@ -111,16 +112,14 @@ class RootProvenanceIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             stack.enter_context(patch.object(rf, "OUT_DIR", directory))
-            stack.enter_context(patch.object(rf, "load_paper", return_value=(X, y, groups)))
-            stack.enter_context(patch.object(rf, "load_ours", return_value=(X[:5], y[:5], meta)))
-            stack.enter_context(patch.object(rf, "load_multiposture", return_value=(X, y, groups)))
             stack.enter_context(patch.object(rf, "plot"))
             stack.enter_context(patch("sys.argv", ["rf_experiment.py", "--features", "all", "invariant", "relative",
                                                    "--ours", "P01", "--multiposture", "synthetic.csv",
                                                    "--trees", "3", "--seeds", "2", "--lams", "0.5", "1"]))
             if not observe:
                 stack.enter_context(patch.object(rf, "log_root_statistics"))
-            rf.main()
+            with mocked_model_inputs(rf, directory, (X, y, groups), (X[:5], y[:5], meta), (X, y, groups)):
+                rf.main()
             with Path(directory, "rf_results.csv").open(encoding="utf-8-sig", newline="") as stream:
                 rows = list(csv.DictReader(stream))
             return rows, Path(directory, "rf_results.txt").read_text()
@@ -151,7 +150,9 @@ class RootProvenanceIntegrationTests(unittest.TestCase):
 
     def test_logging_preserves_every_existing_metric(self):
         before, old_logs = self.run_main(observe=False)
-        after = [{key: value for key, value in row.items() if key != "root_provenance"} for row in self.rows]
+        before = [{k: v for k, v in row.items() if k not in rf.RESULT_LINEAGE_FIELDS} for row in before]
+        after = [{key: value for key, value in row.items()
+                  if key != "root_provenance" and key not in rf.RESULT_LINEAGE_FIELDS} for row in self.rows]
         self.assertEqual(before, after)
         lines = iter(self.logs.splitlines())
         self.assertTrue(all(any(line == expected for line in lines) for expected in old_logs.splitlines()))

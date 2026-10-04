@@ -10,6 +10,7 @@ from unittest.mock import patch
 import numpy as np
 
 import rf_experiment as rf
+from patch5_test_fixtures import mocked_model_inputs
 
 
 def run_experiment(mode, module=rf):
@@ -33,8 +34,6 @@ def run_experiment(mode, module=rf):
 
     with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()), \
             patch.object(module, "OUT_DIR", directory), \
-            patch.object(module, "load_paper", return_value=(Xp, yp, gp)), \
-            patch.object(module, "load_ours", return_value=(Xo, yo, meta)), \
             patch.object(module, "fit_models", side_effect=fit), \
             patch.object(module, "plot") as plot, \
             patch.object(module, "loso", wraps=module.loso) as loso, \
@@ -42,7 +41,8 @@ def run_experiment(mode, module=rf):
             patch.object(module, "macro_f1", wraps=module.macro_f1) as f1, \
             patch("sys.argv", ["rf_experiment.py", "--features", mode, "--ours", "P01",
                                "--seeds", "1", "--trees", "2", "--lams", "0"]):
-        module.main()
+        with mocked_model_inputs(module, directory, (Xp, yp, gp), (Xo, yo, meta)):
+            module.main()
         rows = plot.call_args.args[0]
         log = Path(directory, "rf_results.txt").read_text()
         with Path(directory, "rf_results.csv").open(encoding="utf-8-sig", newline="") as stream:
@@ -125,7 +125,8 @@ class RelativeEvaluationTests(unittest.TestCase):
                     if i < 3:
                         expected.update(f1=0.5, f1_sd=0.0, min_subject_acc=0.6)
                     # Step 4 adds external diagnostics; preserve every original field.
-                    legacy = {k: v for k, v in row.items() if not k.startswith("external_")}
+                    legacy = {k: v for k, v in row.items()
+                              if not k.startswith("external_") and k not in rf.RESULT_LINEAGE_FIELDS}
                     full = {k: v for k, v in legacy.items() if not k.startswith("relative_nonref_")}
                     self.assertEqual(full, expected)
                     if mode != "relative":

@@ -30,24 +30,316 @@
 """
 import argparse
 import csv
+from datetime import datetime, timezone
 import glob
+import hashlib
+import importlib.metadata
 import json
 import math
 import os
+from pathlib import Path
+import platform
+import shutil
 import statistics
+import subprocess
 import sys
 import time
+import uuid
 import warnings
 
 import numpy as np
 
 warnings.filterwarnings("ignore", message=".*Glyph.*")
 OUT_DIR = "analysis"
+RESULTS_DIR = "results"
 FEAT_NAMES = ["A", "x_c", "y_c", "thetaL", "thetaR", "theta1"]
 PAPER_RANK_W = [0.30, 0.20, 0.15, 0.15, 0.15, 0.05]
 LAB5 = ["upright", "forward_head", "lean_back", "lean_left", "lean_right"]
 LAB_KO = {"upright": "정상", "forward_head": "거북목", "lean_back": "뒤로", "lean_left": "왼쪽",
           "lean_right": "오른쪽", "body_forward": "몸 전체 앞으로", "trunk_forward": "몸통 앞으로(TLF)"}
+
+LINEAGE_SCHEMA = "rf-sample-lineage/1.0.0"
+LINEAGE_FIELDS = (
+    "schema_version", "experiment_run_id", "dataset_track", "feature_mode", "sample_index",
+    "source_kind", "subject", "round", "step", "label", "recording_id", "analysis_run_id",
+    "frames_path", "frames_sha256", "source_dataset_id", "source_file_path", "source_file_sha256",
+    "source_row_number", "calibration_reference_step", "relative_reference_step",
+    "reference_recording_id", "reference_analysis_run_id",
+)
+RESULT_LINEAGE_FIELDS = ("experiment_run_id", "dataset_manifest_sha256",
+                         "lineage_manifest_path", "lineage_manifest_sha256")
+
+
+def file_identity(path):
+    """Hash exact bytes, rejecting mutation/replacement during the streaming read."""
+    path = Path(path).resolve(strict=True)
+    before = path.stat()
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        opened = os.fstat(stream.fileno())
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+        closed = os.fstat(stream.fileno())
+    # Windows path-stat and fstat expose different ctime semantics; compare content
+    # mutation/replacement evidence shared by both APIs.
+    signature = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns)
+    if len({signature(s) for s in (before, opened, closed, path.stat())}) != 1:
+        raise ValueError(f"file changed while hashing: {path}")
+    return dict(path=str(path), size_bytes=before.st_size, sha256=digest.hexdigest())
+
+
+def verify_file(path, sha256):
+    if file_identity(path)["sha256"] != sha256:
+        raise ValueError(f"SHA-256 mismatch: {path}")
+
+
+def read_pinned_json(path):
+    artifact = file_identity(path)
+    with open(artifact["path"], encoding="utf-8") as stream:
+        value = json.load(stream)
+    verify_file(artifact["path"], artifact["sha256"])
+    return value, artifact
+
+
+def canonical_input(path, analysis_dir):
+    from analyze_d455 import FRAME_FIELDS, FRAME_SCHEMA_VERSION
+    path, root = Path(path).resolve(strict=True), Path(analysis_dir).resolve()
+    if (path.parent.parent.parent != root or not path.parent.name.startswith("ar_") or
+            not path.name.endswith("_frames.csv")):
+        raise ValueError("--ours-frames requires immutable analysis/<recording_id>/<ar_*>/*_frames.csv")
+    artifact = file_identity(path)
+    owner_path = path.parent / "analysis_manifest.json"
+    owner, owner_artifact = read_pinned_json(owner_path)
+    if owner.get("status") != "completed":
+        raise ValueError("frames owner analysis manifest must be completed")
+    identity, labels = None, {}
+    with path.open(encoding="utf-8-sig", newline="") as stream:
+        reader = csv.DictReader(stream)
+        if tuple(reader.fieldnames or ()) != FRAME_FIELDS:
+            raise ValueError("canonical frames requires exact 60-field header")
+        for row in reader:
+            if None in row or any(v is None for v in row.values()):
+                raise ValueError("malformed canonical frame row")
+            current = tuple(row[k] for k in ("recording_id", "analysis_run_id", "subject", "round"))
+            if not all(current) or row["frame_schema_version"] != FRAME_SCHEMA_VERSION:
+                raise ValueError("missing canonical identity or wrong frames schema version")
+            if identity is not None and current != identity:
+                raise ValueError("conflicting canonical frame identity metadata")
+            identity = current
+            step = int(row["step"])
+            if not row["label"] or (step in labels and labels[step] != row["label"]):
+                raise ValueError("conflicting canonical step label")
+            labels[step] = row["label"]
+    if identity is None:
+        raise ValueError("canonical frames has no identity rows")
+    rid, run, subject, rnd = identity
+    if (rid != path.parent.parent.name or run != path.parent.name or
+            rid != owner.get("recording_id") or run != owner.get("analysis_run_id")):
+        raise ValueError("frames/owner/path identity mismatch")
+    outputs = [o for o in owner.get("outputs", []) if o.get("kind") == "frames" and
+               Path(o.get("path", "")).resolve() == path]
+    if len(outputs) != 1 or outputs[0].get("sha256") != artifact["sha256"]:
+        raise ValueError("frames not uniquely referenced by owner output SHA-256")
+    verify_file(path, artifact["sha256"])
+    verify_file(owner_path, owner_artifact["sha256"])
+    return dict(recording_id=rid, analysis_run_id=run, subject=subject, round=rnd,
+                frames_schema_version=FRAME_SCHEMA_VERSION, frames_path=str(path),
+                frames_sha256=artifact["sha256"], analysis_manifest_path=str(owner_path),
+                analysis_manifest_sha256=owner_artifact["sha256"])
+
+
+def reject_input_ambiguity(entries):
+    recordings, positions, paths = {}, {}, set()
+    for entry in entries:
+        rid, run = entry["recording_id"], entry["analysis_run_id"]
+        position = (entry["subject"], entry["round"])
+        if (rid in recordings and recordings[rid] != run or
+                position in positions and positions[position] != rid):
+            raise ValueError("ambiguous recording/run input; use exact --ours-frames without conflicts")
+        if entry["frames_path"] in paths:
+            raise ValueError("duplicate canonical frames input")
+        recordings[rid], positions[position] = run, rid
+        paths.add(entry["frames_path"])
+
+
+def resolve_ours_inputs(subjects=None, paths=None, analysis_dir=None):
+    root = Path(OUT_DIR if analysis_dir is None else analysis_dir).resolve()
+    if paths is not None:
+        entries = [canonical_input(path, root) for path in paths]
+    else:
+        entries = []
+        for subject in subjects or []:
+            for flat in sorted(root.glob(f"{subject}_r*_frames.csv")):
+                flat_artifact = file_identity(flat)
+                link, _ = read_pinned_json(str(flat) + ".provenance.json")
+                if flat_artifact["sha256"] != link["frames_sha256"]:
+                    raise ValueError("flat frames/sidecar SHA-256 mismatch")
+                owner_path = (flat.parent / link["analysis_manifest"]).resolve(strict=True)
+                owner, owner_artifact = read_pinned_json(owner_path)
+                if owner_artifact["sha256"] != link["analysis_manifest_sha256"]:
+                    raise ValueError("sidecar/analysis manifest SHA-256 mismatch")
+                outputs = [o for o in owner.get("outputs", []) if o.get("kind") == "frames" and
+                           o.get("sha256") == flat_artifact["sha256"]]
+                if len(outputs) != 1:
+                    raise ValueError("flat frames must resolve to one immutable owner output")
+                entry = canonical_input(outputs[0]["path"], root)
+                if (entry["analysis_manifest_path"] != str(owner_path) or
+                        entry["analysis_manifest_sha256"] != owner_artifact["sha256"] or
+                        any(entry[k] != link[k] for k in ("recording_id", "analysis_run_id")) or
+                        entry["subject"] != subject):
+                    raise ValueError("flat sidecar/owner/canonical identity mismatch")
+                entries.append(entry)
+        # All completed frames-producing runs count, even if flat publication points to only one.
+        for entry in entries:
+            candidates = set()
+            for path in root.glob("*/ar_*/analysis_manifest.json"):
+                manifest, _ = read_pinned_json(path)
+                if (manifest.get("recording_id") == entry["recording_id"] and
+                        manifest.get("status") == "completed" and
+                        any(o.get("kind") == "frames" for o in manifest.get("outputs", []))):
+                    candidates.add(manifest.get("analysis_run_id"))
+            if len(candidates) > 1:
+                raise ValueError("multiple completed frames runs; use exact --ours-frames")
+    reject_input_ambiguity(entries)
+    return entries
+
+
+def external_source(artifact, row_number, subject, label):
+    return dict(source_kind="external_table", source_dataset_id=artifact["source_dataset_id"],
+                source_file_path=artifact["path"], source_file_sha256=artifact["sha256"],
+                source_row_number=row_number, subject=subject, label=label)
+
+
+def lineage_rows(sources, experiment_id, track, mode, reference_steps=None):
+    rows = []
+    for index, source in enumerate(sources):
+        row = dict.fromkeys(LINEAGE_FIELDS)
+        row.update(source)
+        row.update(schema_version=LINEAGE_SCHEMA, experiment_run_id=experiment_id,
+                   dataset_track=track, feature_mode=mode, sample_index=index)
+        if row["source_kind"] == "canonical_frames":
+            key = (row["recording_id"], row["analysis_run_id"])
+            for field, expected in zip(("reference_recording_id", "reference_analysis_run_id"), key):
+                if row[field] is not None and row[field] != expected:
+                    raise ValueError("cross-recording/run RF reference")
+            if mode == "relative":
+                row["relative_reference_step"] = (reference_steps or {}).get(key)
+            if row["calibration_reference_step"] is not None or row["relative_reference_step"] is not None:
+                row["reference_recording_id"], row["reference_analysis_run_id"] = key
+        rows.append(row)
+    return rows
+
+
+def write_sample_lineage(directory, rows):
+    keys = set()
+    path = Path(directory) / "sample_lineage.jsonl"
+    with path.open("x", encoding="utf-8", newline="\n") as stream:
+        for row in rows:
+            if set(row) != set(LINEAGE_FIELDS):
+                raise ValueError("invalid sample lineage fields")
+            if (row["schema_version"] != LINEAGE_SCHEMA or
+                    row["dataset_track"] not in ("paper_loso", "ours_external", "multiposture_loso") or
+                    row["feature_mode"] not in FEATURE_SETS or
+                    (row["dataset_track"] == "multiposture_loso" and row["feature_mode"] != "all")):
+                raise ValueError("invalid sample lineage schema/track/mode")
+            canonical = ("recording_id", "analysis_run_id", "frames_path", "frames_sha256")
+            external = ("source_dataset_id", "source_file_path", "source_file_sha256", "source_row_number")
+            if row["source_kind"] == "canonical_frames":
+                required, absent = canonical + ("subject", "round", "step", "label"), external
+                for ref, src in (("reference_recording_id", "recording_id"),
+                                 ("reference_analysis_run_id", "analysis_run_id")):
+                    if row[ref] is not None and row[ref] != row[src]:
+                        raise ValueError("cross-recording/run RF reference")
+            elif row["source_kind"] == "external_table":
+                required, absent = external, canonical + ("reference_recording_id", "reference_analysis_run_id")
+                if row["source_dataset_id"] not in ("paper_dataset", "multiposture_dataset"):
+                    raise ValueError("invalid external dataset ID")
+                if not isinstance(row["source_row_number"], int) or row["source_row_number"] < 2:
+                    raise ValueError("invalid physical source row number")
+            else:
+                raise ValueError("invalid lineage source kind")
+            if any(row[k] is None for k in required) or any(row[k] is not None for k in absent):
+                raise ValueError("invalid sample source lineage")
+            key = tuple(row[k] for k in ("experiment_run_id", "dataset_track", "feature_mode", "sample_index"))
+            if key in keys:
+                raise ValueError("duplicate sample lineage key")
+            keys.add(key)
+            stream.write(json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
+    return dict(schema_version=LINEAGE_SCHEMA, path=path.name,
+                sha256=file_identity(path)["sha256"], row_count=len(rows))
+
+
+def write_experiment_manifest(directory, manifest):
+    path = Path(directory) / "experiment_manifest.json"
+    if path.exists():
+        with path.open(encoding="utf-8") as stream:
+            if json.load(stream)["status"] != "running":
+                raise ValueError("cannot overwrite a terminal experiment manifest")
+    temporary = Path(directory) / ".experiment_manifest.tmp"
+    try:
+        with temporary.open("x", encoding="utf-8", newline="\n") as stream:
+            json.dump(manifest, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def new_experiment_id():
+    return f"er_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}_{uuid.uuid4().hex}"
+
+
+def start_experiment(options):
+    run_id = new_experiment_id()
+    directory = Path(RESULTS_DIR).resolve() / run_id
+    directory.mkdir(parents=True, exist_ok=False)
+    manifest = dict(schema_version="rf-experiment-provenance/1.0.0", experiment_run_id=run_id,
+                    started_at=datetime.now(timezone.utc).isoformat(), ended_at=None, status="running",
+                    dataset_manifest=dict(dataset_manifest_id=None, path=None, sha256=None),
+                    inputs=dict(paper=None, multiposture=None, ours=[]),
+                    code=dict(git_commit=None, git_dirty=None, rf_script_sha256=None,
+                              path=str(Path(__file__).resolve())),
+                    environment=dict.fromkeys(("python", "os", "architecture", "numpy", "matplotlib", "openpyxl")),
+                    options=dict(argv=sys.argv[1:], **vars(options)),
+                    sample_lineage=dict(schema_version=LINEAGE_SCHEMA, path="sample_lineage.jsonl",
+                                        sha256=None, row_count=0),
+                    outputs=[], errors=[], provenance_unknown_reasons={})
+    write_experiment_manifest(directory, manifest)
+    return directory, manifest
+
+
+def record_runtime(manifest):
+    script = Path(__file__).resolve()
+    manifest["code"] = dict(git_commit=None, git_dirty=None,
+                            rf_script_sha256=file_identity(script)["sha256"], path=str(script))
+    reasons = manifest["provenance_unknown_reasons"]
+    for key, args in (("git_commit", ["rev-parse", "HEAD"]),
+                      ("git_dirty", ["status", "--porcelain", "--untracked-files=normal"])):
+        try:
+            value = subprocess.run(["git", *args], cwd=script.parent, capture_output=True,
+                                   text=True, encoding="utf-8", check=True, timeout=3).stdout.strip()
+            manifest["code"][key] = bool(value) if key == "git_dirty" else value
+        except (OSError, subprocess.SubprocessError) as error:
+            reasons["code." + key] = str(error)
+    manifest["environment"] = dict(python=platform.python_version(), os=platform.platform(),
+                                   architecture=platform.machine())
+    for name in ("numpy", "matplotlib", "openpyxl"):
+        try:
+            manifest["environment"][name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError as error:
+            manifest["environment"][name] = None
+            reasons["environment." + name] = str(error)
+
+
+def verify_inputs(inputs):
+    for key in ("paper", "multiposture"):
+        if inputs[key] is not None:
+            verify_file(inputs[key]["path"], inputs[key]["sha256"])
+    for entry in inputs["ours"]:
+        verify_file(entry["frames_path"], entry["frames_sha256"])
+        verify_file(entry["analysis_manifest_path"], entry["analysis_manifest_sha256"])
 
 
 # ================================================================ 랜덤 포레스트 (직접 구현)
@@ -266,11 +558,14 @@ def num(v):
         return None
 
 
-def load_paper(path):
+def load_paper(path, lineage=None, artifact=None):
     import openpyxl
-    ws = openpyxl.load_workbook(path, data_only=True).active
+    artifact = artifact or dict(source_dataset_id="paper_dataset", **file_identity(path))
+    verify_file(path, artifact["sha256"])
+    workbook = openpyxl.load_workbook(path, data_only=True)
+    ws = workbook.active
     X, y, g = [], [], []
-    for r in ws.iter_rows(min_row=2, values_only=True):
+    for row_number, r in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
         if not r[0]:
             continue
         fx, fy = num(r[5]), num(r[6])
@@ -279,12 +574,31 @@ def load_paper(path):
         X.append([num(r[22]), fx, fy, tl, tr, t1])
         y.append(int(r[1]) - 1)
         g.append(str(r[0]).split("_")[1])
+        if lineage is not None:
+            lineage.append(external_source(artifact, row_number, g[-1], int(y[-1])))
+    workbook.close()
+    verify_file(path, artifact["sha256"])
     return np.array(X, float), np.array(y), np.array(g)
 
 
-def load_multiposture(path, stride):
+def load_multiposture(path, stride, lineage=None, artifact=None):
+    artifact = artifact or dict(source_dataset_id="multiposture_dataset", **file_identity(path))
+    verify_file(path, artifact["sha256"])
     with open(path, encoding="utf-8-sig") as f:
-        rows = list(csv.DictReader(f))
+        reader = csv.reader(f)
+        fields = next(reader)
+        rows = []
+        while True:
+            physical_row = reader.line_num + 1
+            values = next(reader, None)
+            if values is None:
+                break
+            if not values:
+                continue  # DictReader also skips blank physical lines.
+            row = dict(zip(fields, values))
+            row.update({key: None for key in fields[len(values):]})
+            row["_source_row_number"] = physical_row
+            rows.append(row)
     lab = {"TUP": 0, "TLB": 2, "TLL": 3, "TLR": 4, "TLF": 1}  # TLF(몸통 앞으로)는 5번째 클래스 자리로
     per_sub = {}
     for i, r in enumerate(rows):
@@ -312,10 +626,13 @@ def load_multiposture(path, stride):
             X.append([(ear(r) / e0) ** 2, fx, fy, tl, tr, t1])
             y.append(lab[r["upperbody_label"]])
             g.append(sub)
+            if lineage is not None:
+                lineage.append(external_source(artifact, r["_source_row_number"], sub, int(y[-1])))
+    verify_file(path, artifact["sha256"])
     return np.array(X, float), np.array(y), np.array(g)
 
 
-def load_ours(subjects, log=print):
+def load_ours(subjects=None, log=print, inputs=None, lineage=None):
     """analysis/*_frames.csv → 회차·단계별 중앙값 1개 샘플 (원 논문처럼 사람·자세당 대표값)."""
     X, y, meta = [], [], []
     lab_idx = {l: i for i, l in enumerate(LAB5)}
@@ -330,10 +647,16 @@ def load_ours(subjects, log=print):
         log(f"[DROP] {sub} r{rs[0].get('round', '?')} step{s} {rs[0]['label']}: "
             f"{'; '.join(reasons)}; missing features: {', '.join(missing) or 'none'}")
 
-    for sub in subjects:
-        for path in sorted(glob.glob(os.path.join(OUT_DIR, f"{sub}_r*_frames.csv"))):
+    inputs = resolve_ours_inputs(subjects) if inputs is None else inputs
+    reject_input_ambiguity(inputs)
+    for entry in inputs:
+        sub = entry["subject"]
+        for path in [entry["frames_path"]]:
+            verify_file(path, entry["frames_sha256"])
+            verify_file(entry["analysis_manifest_path"], entry["analysis_manifest_sha256"])
             with open(path, encoding="utf-8-sig") as f:
                 fr = list(csv.DictReader(f))
+            verify_file(path, entry["frames_sha256"])
             steps = {}
             for r in fr:
                 steps.setdefault(int(r["step"]), []).append(r)
@@ -368,6 +691,11 @@ def load_ours(subjects, log=print):
                 X.append([oa / a0, cx(fx), cy(fy), tl, tr, t1])
                 y.append(lab_idx.get(lab, -1))
                 meta.append((sub, rs[0]["round"], s, lab))
+                if lineage is not None:
+                    lineage.append(dict(source_kind="canonical_frames", subject=sub, round=rs[0]["round"],
+                                        step=s, label=lab, calibration_reference_step=ups[0],
+                                        **{k: entry[k] for k in ("recording_id", "analysis_run_id",
+                                                                 "frames_path", "frames_sha256")}))
     log(f"[OURS] loaded samples: {len(X)}; dropped samples: {dropped}")
     for reason, count in sorted(drop_counts.items()):
         log(f"   drop reason: {reason}: {count}")
@@ -599,10 +927,13 @@ def plot(rows):
 
 
 def main():
+    global OUT_DIR
     ap = argparse.ArgumentParser()
     ap.add_argument("--paper", default="Dataset.xlsx")
     ap.add_argument("--multiposture", default=None)
-    ap.add_argument("--ours", nargs="*", default=None)
+    ours = ap.add_mutually_exclusive_group()
+    ours.add_argument("--ours", nargs="*", default=None)
+    ours.add_argument("--ours-frames", nargs="+", default=None)
     ap.add_argument("--trees", type=int, default=500)
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--stride", type=int, default=5)
@@ -611,7 +942,50 @@ def main():
     ap.add_argument("--features", nargs="*", default=["all"], choices=list(FEATURE_SETS),
                     help="특징 구성 (여러 개 지정 시 차례로 비교): all invariant relative")
     a = ap.parse_args()
-    os.makedirs(OUT_DIR, exist_ok=True)
+    compatibility_dir = OUT_DIR
+    directory, manifest = start_experiment(a)
+    try:
+        record_runtime(manifest)
+        manifest["inputs"]["paper"] = dict(source_dataset_id="paper_dataset", **file_identity(a.paper))
+        if a.multiposture:
+            manifest["inputs"]["multiposture"] = dict(source_dataset_id="multiposture_dataset",
+                                                      **file_identity(a.multiposture))
+        manifest["inputs"]["ours"] = resolve_ours_inputs(a.ours, a.ours_frames, compatibility_dir)
+        write_experiment_manifest(directory, manifest)
+        OUT_DIR = str(directory)
+        execute_experiment(a, directory, manifest)
+        verify_inputs(manifest["inputs"])
+        verify_file(directory / "sample_lineage.jsonl", manifest["sample_lineage"]["sha256"])
+        for name in ("rf_results.csv", "rf_results.txt", "fig5_rf_compare.png"):
+            path = directory / name
+            if name != "fig5_rf_compare.png" or path.exists():
+                item = dict(kind=name, **file_identity(path))
+                previous = next((o for o in manifest["outputs"] if o["kind"] == name), None)
+                if previous is not None:
+                    if previous != item:
+                        raise ValueError(f"output changed before completion: {name}")
+                else:
+                    manifest["outputs"].append(item)
+        manifest.update(status="completed", ended_at=datetime.now(timezone.utc).isoformat())
+        write_experiment_manifest(directory, manifest)
+    except BaseException as error:
+        manifest.update(status="failed", ended_at=datetime.now(timezone.utc).isoformat())
+        manifest["errors"].append(str(error))
+        write_experiment_manifest(directory, manifest)
+        raise
+    finally:
+        OUT_DIR = compatibility_dir
+    # Publication happens only after canonical completion. Never rewrite the run on copy failure.
+    os.makedirs(compatibility_dir, exist_ok=True)
+    for output in manifest["outputs"]:
+        try:
+            shutil.copyfile(output["path"], os.path.join(compatibility_dir, Path(output["path"]).name))
+        except OSError as error:
+            print(f"[compatibility copy failed] {error}", file=sys.stderr)
+    return directory
+
+
+def execute_experiment(a, directory, manifest):
     lines = []
 
     def log(s=""):
@@ -622,20 +996,43 @@ def main():
     log(" 분류기 비교: M0(일반 RF) / M1(원 논문 입력 가중) / M2(분할 점수 가중, 본 팀 제안)")
     log("=" * 78)
     rows = []
-    Xp0, yp, gp = load_paper(a.paper)
+    paper_sources, ours_sources, multi_sources, lineage = [], [], [], []
+    Xp0, yp, gp = load_paper(a.paper, lineage=paper_sources, artifact=manifest["inputs"]["paper"])
+    if len(paper_sources) != len(yp):
+        raise ValueError("paper sample lineage does not match model sample order")
     ref_p = yp == 0  # 원 논문: 사람마다 정상 자세 1장이 기준
     Xo0 = yo = meta = None
-    if a.ours:
-        Xo0, yo, meta = load_ours(a.ours, log=log)
-        go = np.array([f"{m[0]}_r{m[1]}" for m in meta]) if len(meta) else np.array([])
+    if a.ours or a.ours_frames:
+        Xo0, yo, meta = load_ours(a.ours, log=log, inputs=manifest["inputs"]["ours"], lineage=ours_sources)
+        if len(ours_sources) != len(yo):
+            raise ValueError("canonical sample lineage does not match model sample order")
+        go = np.array([json.dumps([s["recording_id"], s["analysis_run_id"]]) for s in ours_sources])
         # 우리 데이터: 각 회차 첫 정상 자세(20초 구간)가 기준
         first_up = {}
         for i, m in enumerate(meta):
-            k = f"{m[0]}_r{m[1]}"
+            k = go[i]
             if m[3] == "upright" and (k not in first_up or m[2] < meta[first_up[k]][2]):
                 first_up[k] = i
         ref_o = np.zeros(len(meta), bool)
         ref_o[list(first_up.values())] = True
+        reference_steps = {(ours_sources[i]["recording_id"], ours_sources[i]["analysis_run_id"]): meta[i][2]
+                           for i in first_up.values()}
+    if a.multiposture:
+        Xm, ym, gm = load_multiposture(a.multiposture, a.stride, lineage=multi_sources,
+                                      artifact=manifest["inputs"]["multiposture"])
+        if len(multi_sources) != len(ym):
+            raise ValueError("MultiPosture sample lineage does not match model sample order")
+    for fs in a.features:
+        lineage += lineage_rows(paper_sources, manifest["experiment_run_id"], "paper_loso", fs)
+        if a.ours or a.ours_frames:
+            lineage += lineage_rows(ours_sources, manifest["experiment_run_id"], "ours_external", fs,
+                                    reference_steps)
+    if a.multiposture:
+        lineage += lineage_rows(multi_sources, manifest["experiment_run_id"], "multiposture_loso", "all")
+    verify_inputs(manifest["inputs"])
+    # Persist before fitting: even a failed numerical execution retains every model input sample.
+    manifest["sample_lineage"] = write_sample_lineage(directory, lineage)
+    write_experiment_manifest(directory, manifest)
     for fs in a.features:
         log(f"\n######## 특징 구성: {fs} — {FEATURE_SETS[fs]}")
         Xp = transform(Xp0, gp, ref_p, fs)
@@ -643,7 +1040,7 @@ def main():
             rows += [dict(r, features=fs) for r in
                      loso(Xp, yp, gp, 5, a.trees, a.seeds, a.lams, f"[A] 원 논문 Dataset.xlsx ({fs})", log,
                           ref_mask=ref_p if fs == "relative" else None, feature_set=fs)]
-        if a.ours:
+        if a.ours or a.ours_frames:
             if len(yo):
                 Xo = transform(Xo0, go, ref_o, fs)
                 rows += [dict(r, features=fs, dataset=f"C_ours_external ({fs})") for r in
@@ -653,24 +1050,32 @@ def main():
                 log("\n[C] analysis 폴더에서 우리 데이터를 찾지 못했습니다 (analyze_d455.py 먼저 실행).")
     Xp = transform(Xp0, gp, ref_p, "all")
     if a.multiposture:
-        Xm, ym, gm = load_multiposture(a.multiposture, a.stride)
         rows += loso(Xm, ym, gm, 5, min(a.trees, 200), a.seeds, a.lams,
                      f"[B] MultiPosture (별도 트랙, {a.stride}프레임 간격)", log)
         log("   * MultiPosture의 '앞으로(TLF)'는 몸통 기울임이라 원 논문 거북목과 다른 자세 (클래스 번호만 같은 자리)")
     log("\n* 모든 모델은 같은 직접 구현 RF(트리 수·max_features=2·시드 동일)로 비교 (v4 §3.2)")
     log("* M2의 λ는 탐색적으로 여러 값을 모두 보고함. 최종 결론은 학습 fold 안에서 λ를 고른 결과로 내야 함")
-    with open(os.path.join(OUT_DIR, "rf_results.txt"), "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
-    keys = sorted({k for r in rows for k in r})
-    with open(os.path.join(OUT_DIR, "rf_results.csv"), "w", newline="", encoding="utf-8-sig") as f:
+    keys = sorted({k for r in rows for k in r}) + list(RESULT_LINEAGE_FIELDS)
+    for row in rows:
+        row.update(experiment_run_id=manifest["experiment_run_id"], dataset_manifest_sha256=None,
+                   lineage_manifest_path="sample_lineage.jsonl",
+                   lineage_manifest_sha256=manifest["sample_lineage"]["sha256"])
+    with open(os.path.join(OUT_DIR, "rf_results.csv"), "x", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=keys)
         w.writeheader()
         w.writerows(rows)
+    manifest["outputs"].append(dict(kind="rf_results.csv", **file_identity(directory / "rf_results.csv")))
+    with open(os.path.join(OUT_DIR, "rf_results.txt"), "x", encoding="utf-8") as f:
+        f.write("\n".join(lines))
     try:
         plot(rows)
         print(f"[그래프 저장] {OUT_DIR}/fig5_rf_compare.png")
     except Exception as e:
         print(f"[그래프 생략] {e}")
+        manifest["errors"].append(f"optional plot failure: {e}")
+        partial = Path(OUT_DIR) / "fig5_rf_compare.png"
+        if partial.exists():
+            partial.unlink()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Research Decision Log
 
-- 문서 버전: `v1.2`
+- 문서 버전: `v1.3`
 - 기준일: `2026-10-04`
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
@@ -1394,6 +1394,7 @@ final-test 결과를 본 parameter 변경
 | `v1.0` | 2026-10-01 | 현재 Research Master를 만들면서 기존 대화·schema·history·Foundation 기록에서 이미 확정된 연구/데이터/실험/거버넌스 결정을 최초 통합. 미확정 항목은 OPEN entry로 분리 |
 | `v1.1` | 2026-10-01 | `DATA-003`을 append하여 Patch 4 `frames-schema/1.0.0` exact canonical frame contract를 freeze하고 `OPEN-001`을 해소 |
 | `v1.2` | 2026-10-04 | `PROV-004`를 append하여 Patch 4.5 MediaPipe Model Artifact Lock의 exact artifact set, source/version identity, SHA-256, fail-closed verification, verified provisioning, Patch 3 provenance linkage 및 scope를 Design Freeze |
+| `v1.3` | 2026-10-04 | `PROV-005`를 append하여 Patch 5 End-to-End Lineage Hardening의 raw SHA identity collision, `summary-schema/1.0.0`, immutable RF input resolution, `rf-sample-lineage/1.0.0`, `rf-experiment-provenance/1.0.0`, Patch 6 selection boundary를 Design Freeze |
 
 ---
 
@@ -2351,6 +2352,376 @@ Patch 7 general integrity checker
 - UI / performance refactor / multi-person tracking / sagittal-view generation을 추가하지 않는다.
 - 본 entry 확정 후 Patch 4.5 implementation을 시작할 수 있다.
 - 본 entry 자체는 Patch 4.5 implementation, test, audit 또는 Foundation closure 완료를 의미하지 않는다.
+
+Supersedes:
+Resolves:
+
+---
+
+## PROV-005 — Patch 5 End-to-End Lineage Hardening Design Freeze
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-04
+**Decision timing:** Patch 5 READ-ONLY repository investigation 후, implementation 이전 Design Freeze
+
+### Decision
+
+Patch 5의 executable lineage contract를 다음과 같이 freeze한다.
+
+#### 1. Raw content identity
+
+raw SHA-256 ↔ recording identity conflict 판단의 현재 repository authority는:
+
+```text
+analysis/*/ar_*/analysis_manifest.json
+```
+
+의 `analysis_mode=extract_raw` manifests다.
+
+유효 raw SHA가 이미 다른 `recording_id`에 연결되어 있으면 새 analysis run directory를 만들기 전에 hard error로 중단한다.
+
+```text
+same raw SHA + same recording_id
+→ allow
+
+same raw SHA + different recording_id
+→ reject
+```
+
+Patch 5는 automatic legacy alias merge/crosswalk 또는 global raw catalog를 만들지 않는다.
+
+#### 2. Summary contract
+
+Patch 5 canonical summary schema:
+
+```text
+summary-schema/1.0.0
+```
+
+exact field count:
+
+```text
+52
+```
+
+기존 44-field ordered prefix를 유지하고 다음 8 fields를 append한다.
+
+```text
+summary_schema_version
+recording_id
+analysis_run_id
+source_frames_analysis_run_id
+dataset_role
+protocol_version
+reference_recording_id
+reference_analysis_run_id
+```
+
+frame grouping key:
+
+```text
+(recording_id, frame.analysis_run_id, step)
+```
+
+summary reference는 same recording + same source frame run 안으로 제한한다.
+
+raw extraction에서는:
+
+```text
+analysis_run_id == source_frames_analysis_run_id
+```
+
+`--from-csv`에서는:
+
+```text
+analysis_run_id
+= current re-summary run
+
+source_frames_analysis_run_id
+= parent canonical frame run
+```
+
+이다.
+
+동일 recording의 서로 다른 source frame runs가 한 summary operation에 동시에 존재하면 reject한다.
+
+#### 3. RF input declaration
+
+Patch 5는 Patch 6 selection ledger를 미리 만들지 않는다.
+
+actual RF input declaration은:
+
+```text
+results/<experiment_run_id>/experiment_manifest.json
+```
+
+의 `inputs` block에 기록한다.
+
+lineage-safe explicit CLI:
+
+```text
+--ours-frames PATH [PATH ...]
+```
+
+를 도입한다.
+
+`--ours-frames`는 canonical immutable run archive frames만 허용한다.
+
+```text
+analysis/<recording_id>/<analysis_run_id>/<recording>_frames.csv
+```
+
+frames schema/identity, owner completed analysis manifest, manifest output hash와 actual frames hash를 모두 검증한다.
+
+기존 `--ours SUBJECT...`는 compatibility/pilot mode로 유지하되 flat sidecar를 통해 immutable owner run으로 resolve해야 한다.
+
+다음 ambiguity는 자동 선택하지 않고 reject한다.
+
+```text
+same recording_id + multiple completed analysis runs
+
+same subject + same round + different recording_id
+```
+
+#### 4. RF sample lineage
+
+canonical artifact:
+
+```text
+results/<experiment_run_id>/sample_lineage.jsonl
+```
+
+schema:
+
+```text
+rf-sample-lineage/1.0.0
+```
+
+logical key:
+
+```text
+(experiment_run_id, dataset_track, feature_mode, sample_index)
+```
+
+`sample_index`는 0-based model-sample order다.
+
+source kind:
+
+```text
+canonical_frames
+external_table
+```
+
+canonical frames sample은 recording/run/frames hash를 보존한다.
+
+external table sample은 fake recording ID를 만들지 않고:
+
+```text
+source_dataset_id
+source file SHA-256
+1-based physical source row number
+```
+
+를 보존한다.
+
+우리 canonical frames의 calibration/relative reference는 같은 recording/run 안에 있어야 하며 reference step을 기록한다.
+
+JSONL serialization:
+
+```text
+UTF-8
+no BOM
+LF
+json.dumps(... ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+one newline per object
+```
+
+전체 exact bytes를 SHA-256 한다.
+
+#### 5. RF experiment run
+
+experiment ID:
+
+```text
+er_<UTC YYYYMMDDTHHMMSSffffffZ>_<uuid4_hex32>
+```
+
+canonical directory:
+
+```text
+results/<experiment_run_id>/
+```
+
+manifest:
+
+```text
+rf-experiment-provenance/1.0.0
+```
+
+canonical run artifacts:
+
+```text
+experiment_manifest.json
+sample_lineage.jsonl
+rf_results.csv
+rf_results.txt
+fig5_rf_compare.png
+```
+
+앞의 네 artifact는 completed run에 필수다. `fig5_rf_compare.png`는 기존 optional plot-failure semantics를 유지하며, plot 실패 사실을 manifest에 기록한다.
+
+manifest top-level:
+
+```text
+schema_version
+experiment_run_id
+started_at
+ended_at
+status
+dataset_manifest
+inputs
+code
+environment
+options
+sample_lineage
+outputs
+errors
+provenance_unknown_reasons
+```
+
+completed run은 immutable하다.
+
+기존 flat `analysis/rf_results.*`는 compatibility copy로 유지할 수 있으나 provenance authority가 아니다.
+
+#### 6. Result CSV lineage
+
+기존 result fields를 유지하고 다음을 추가한다.
+
+```text
+experiment_run_id
+dataset_manifest_sha256
+lineage_manifest_path
+lineage_manifest_sha256
+```
+
+Patch 5 current/pilot에서는 `dataset_manifest_sha256`이 empty다.
+
+`lineage_manifest_path`:
+
+```text
+sample_lineage.jsonl
+```
+
+`lineage_manifest_sha256`은 exact JSONL bytes hash다.
+
+기존 `root_provenance`는 유지한다.
+
+#### 7. Patch 6 boundary
+
+Patch 5는 다음을 생성하지 않는다.
+
+```text
+manifests/recordings.jsonl
+manifests/selection_events.jsonl
+manifests/datasets/<dataset_manifest_id>.json
+```
+
+Patch 5 experiment manifest에는 future interface로:
+
+```text
+dataset_manifest_id
+path
+sha256
+```
+
+slot만 두며 현재 Patch 5 실행에서는 null이다.
+
+향후 Patch 6 formal dataset manifest는 selection authority가 되지만, RF experiment manifest는 선택된 source를 실제 resolved frames path/run/hash로 다시 기록한다.
+
+Patch 5는 **what exact bytes were used**를 보장하고,
+Patch 6는 **which recording/run should be selected and why**를 결정한다.
+
+### Invariants
+
+```text
+1. same raw bytes may not silently fork into independent recording identities
+
+2. summary aggregation/reference may not cross recording or source-analysis-run boundaries
+
+3. ambiguous recording/run selection fails closed
+
+4. RF inputs are pinned by exact artifact hash, not mutable path alone
+
+5. every RF sample retains persistent source lineage
+
+6. every RF result belongs to one immutable experiment run
+
+7. recording_id does not replace subject as LOSO participant grouping
+```
+
+### Compatibility
+
+다음은 유지한다.
+
+```text
+analysis-provenance/1.0.0
+frames-schema/1.0.0 exact 60 fields
+frame_index 1-based
+mediapipe-model-lock/1.0.0
+historical --from-csv parent provenance
+existing Tree/Forest/M0/M1/M2 semantics
+current first-upright RF reference rule
+subject-level LOSO grouping
+```
+
+### Non-goals
+
+본 결정은 다음을 정하지 않는다.
+
+```text
+F1/F2 formula
+F1/F2 normalization/missing policy
+p > 6 rank_weights policy
+retake scientific selection
+formal participant/round policy
+formal seed list
+λ selection policy
+formal metrics
+Patch 8 hardware acceptance criteria
+```
+
+### Evidence
+
+- current `analyze_d455.py`
+- current `rf_experiment.py`
+- current Patch 3/4/4.5 Foundation records
+- `RESEARCH_DATA_SCHEMA.md` G/H/I의 future lineage/selection separation
+- `AIoT_RESEARCH_MASTER.md`의 Patch 5 / Patch 6 boundary
+- pre-implementation baseline `204 tests PASS`
+- READ-ONLY synthetic probes:
+  - same raw bytes modern/legacy double identity reproducible
+  - different recordings can merge into one summary aggregate
+  - RF subject/round reference can cross recording boundary
+
+### Impact
+
+- Patch 5 implementation은 본 contract 이후에만 시작한다.
+- summary writer/loader와 RF input/output 경계에 lineage validation이 추가된다.
+- ambiguous legacy behavior가 error로 바뀌는 것은 intentional hardening이다.
+- Patch 4 canonical 60-field frames schema는 변경하지 않는다.
+- Patch 6 selection policy를 선행 구현하지 않는다.
+- Patch 7 general integrity checker를 선행 구현하지 않는다.
+- Patch 8 formal D455 validation을 선행하지 않는다.
+
+상세 exact header/schema/field/serialization/test contract는:
+
+```text
+docs/foundation/PATCH_05_end_to_end_lineage_hardening.md
+```
+
+를 따른다.
+
+본 `PROV-005` entry는 Patch 5 implementation/test/audit/closure 완료를 의미하지 않는다.
 
 Supersedes:
 Resolves:
