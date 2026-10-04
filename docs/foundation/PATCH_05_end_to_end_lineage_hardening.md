@@ -1,6 +1,6 @@
 # PATCH_05 — End-to-End Lineage Hardening
 
-> 상태: **IMPLEMENTED / SOFTWARE-VERIFIED / INDEPENDENTLY AUDITED / DOCUMENTATION-CLOSED / HARDWARE RUN NOT REQUIRED FOR CLOSURE**
+> 상태: **DONE / MAIN-INTEGRATED / IMPLEMENTED / SOFTWARE-VERIFIED / INDEPENDENTLY AUDITED / DOCUMENTATION-CLOSED / HARDWARE RUN NOT REQUIRED FOR CLOSURE**
 >
 > 운영상 Patch 번호: **Foundation Patch 5**
 >
@@ -63,6 +63,15 @@
 > 2026-10-04
 > ```
 >
+>
+> main integration:
+>
+> ```text
+> ae86d5875c8fe3200b3b2c1dd26c48256e01105f
+> merge: complete Patch 5 end-to-end lineage hardening foundation
+> post-merge full regression: 252 PASS
+> origin/main synchronized
+> ```
 > 본 문서는 `PROV-005` Design Freeze contract와 Patch 5의 구현·검증·독립 audit·closure evidence를 함께 기록하는 canonical Foundation Record다.
 > Patch 5 closure는 formal research data 승인, Patch 6 selection policy 완료, Patch 7 integrity checker 완료 또는 Patch 8 actual D455 formal validation 완료를 의미하지 않는다.
 
@@ -2324,7 +2333,7 @@ Patch 5 Foundation closure 기준은 다음과 같이 충족됐다.
 ```
 
 `MINOR = 6`은 아래 closure disposition에 따라 Patch 5 contract blocker가 아닌 것으로 수용한다.
-Patch 5 main integration은 Foundation documentation closure 이후 별도 Git 단계이며, 위 software closure 조건과 구분한다.
+Patch 5 main integration은 merge commit `ae86d58`에서 완료됐으며, merge 직후 전체 `252 tests PASS`와 `origin/main` 동기화를 확인했다.
 
 ---
 
@@ -2594,25 +2603,47 @@ formal collection 승인
 
 ---
 
-# 29. Next Action After Documentation Closure
+# 29. Post-Merge Integration Closure
 
-현재 Patch 5 branch에서 다음 순서로 진행한다.
-
-```text
-1. docs-only documentation closure commit
-2. full 252-test regression
-3. branch final review / push
-4. Patch 5를 main에 merge
-5. post-merge 252-test regression
-6. origin/main push
-7. 필요 시 main-merge status sync
-8. 그 이후 Patch 6 — Selection Manifest / Recapture Inclusion
-```
-
-권장 documentation closure commit message:
+Patch 5는 documentation closure 이후 다음 Git 통합 절차까지 완료했다.
 
 ```text
-docs: close Patch 5 end-to-end lineage hardening milestone
+documentation closure
+→ 0ed2954
+  docs: close Patch 5 end-to-end lineage hardening milestone
+
+main merge
+→ ae86d58
+  merge: complete Patch 5 end-to-end lineage hardening foundation
+
+post-merge regression
+→ python -X utf8 -m unittest -q
+→ 252 PASS
+
+origin/main
+→ ae86d5875c8fe3200b3b2c1dd26c48256e01105f
+→ synchronized
 ```
 
-Patch 6 구현은 Patch 5 main integration 전 조용히 시작하지 않는다.
+따라서 Patch 5의 현재 canonical 상태는:
+
+```text
+Design Freeze          DONE
+Implementation         DONE
+Software verification  DONE — 252 PASS
+Independent audit      DONE — PASS WITH MINOR FINDINGS
+BLOCKER / IMPORTANT    0 / 0
+Documentation closure  DONE
+Main integration       DONE — ae86d58
+Post-merge regression  DONE — 252 PASS
+Patch 5                COMPLETE
+```
+
+다음 required Foundation scope:
+
+```text
+Patch 6 — Selection Manifest / Recapture Inclusion
+```
+
+Patch 6은 별도 READ-ONLY 조사와 exact contract 결정, Design Freeze 이후에만 구현한다.
+Patch 5의 frozen lineage contracts를 Patch 6 selection policy를 이유로 암묵적으로 변경하지 않는다.

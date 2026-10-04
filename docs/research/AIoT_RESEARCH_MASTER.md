@@ -1,6 +1,6 @@
 # AIoT Research Master
 
-- 문서 버전: `v1.5`
+- 문서 버전: `v1.6`
 - 기준일: `2026-10-04`
 - 상태: **CURRENT / Living Document**
 - 권장 위치: `docs/research/AIoT_RESEARCH_MASTER.md`
@@ -85,8 +85,8 @@ pre-implementation baseline `204 tests PASS`, 신규 Patch 5 targeted tests `48 
 `BLOCKER 0 / IMPORTANT 0 / MINOR 6`, implementation commit recommendation `YES`였다.
 6개 MINOR는 `docs/foundation/PATCH_05_end_to_end_lineage_hardening.md`의 closure disposition에 따라
 Patch 5 contract blocker가 아닌 residual/limitation/note로 수용한다.
-Patch 5 documentation closure 이후 branch final review와 main integration을 수행하고,
-그 다음 required Foundation scope는 Patch 6 Selection Manifest / Recapture Inclusion이다.
+Patch 5 documentation closure 이후 merge commit `ae86d58`에서 `main` 통합을 완료했고,
+merge 직후 전체 `252 tests PASS`를 재확인했다. 현재 다음 required Foundation scope는 Patch 6 Selection Manifest / Recapture Inclusion이다.
 
 이미 구현·검증된 Patch 1~4.5 provenance/schema/model-lock 동작은 그대로 유지한다.
 Patch 5는 `summary-schema/1.0.0`, `rf-sample-lineage/1.0.0`,
@@ -100,10 +100,10 @@ Patch 5는 `summary-schema/1.0.0`, `rf-sample-lineage/1.0.0`,
 
 ## 1.1 Repository 기준
 
-본 v1.5 / Patch 5 closure alignment의 **implementation baseline**:
+본 v1.6 / Patch 5 main-integration alignment의 **canonical baseline**:
 
 ```text
-current working branch: patch5/end-to-end-lineage-hardening
+current canonical branch: main
 Patch 4.5 main integration baseline: 15128ff
 Patch 4 main merge: d923b23 = merge: complete Patch 4 frame schema foundation
 Patch 4 status sync: 872dfe6
@@ -132,9 +132,11 @@ Patch 5 independent audit: PASS WITH MINOR FINDINGS
 Patch 5 BLOCKER / IMPORTANT / MINOR: 0 / 0 / 6
 Patch 5 implementation commit recommendation: YES
 Patch 5 Foundation Record: docs/foundation/PATCH_05_end_to_end_lineage_hardening.md
-Patch 5 documentation closure: DONE — current closure change
-Patch 5 main merge: PENDING
-Patch 5 state: IMPLEMENTED / SOFTWARE-VERIFIED / INDEPENDENTLY AUDITED / DOCUMENTATION-CLOSED / branch not yet main-integrated
+Patch 5 documentation closure: DONE — 0ed2954
+Patch 5 main merge: DONE — ae86d58 = merge: complete Patch 5 end-to-end lineage hardening foundation
+Patch 5 post-merge verification: 252 tests PASS
+Patch 5 origin/main sync: DONE — ae86d5875c8fe3200b3b2c1dd26c48256e01105f
+Patch 5 state: COMPLETE / MAIN-INTEGRATED / 252 tests PASS
 ```
 
 `110cce6`은 Patch 4 software implementation의 기준점이고,
@@ -159,7 +161,7 @@ Patch 2   forward gate evidence                        완료
 Patch 3   analysis provenance                          완료
 Patch 4   canonical fixed frame schema + hip           구현·hardening·software audit·main merge 완료
 Patch 4.5 MediaPipe model artifact lock                구현·204-test 검증·독립 audit·Foundation Record·documentation closure·main merge 완료
-Patch 5   end-to-end lineage hardening                 구현·252-test 검증·독립 audit·Foundation Record·documentation closure 완료 / main merge pending
+Patch 5   end-to-end lineage hardening                 구현·252-test 검증·독립 audit·Foundation Record·documentation closure·main merge·post-merge 252-test 검증 완료
 ```
 
 Patch 3 canonical record에는 commit `1cdc528` 계열에서 `146 tests PASS`가 기록되어 있고,
@@ -217,10 +219,10 @@ main merge 후 전체 `204 tests PASS`를 다시 확인했고 `origin/main` push
 Patch 5는 `PROV-005` / Design Freeze commit `d4dc23f` 이후 implementation commit `dd0464e`에서 완료했다.
 204 baseline + 48 targeted = `252 tests PASS`이며,
 독립 READ-ONLY audit은 `PASS WITH MINOR FINDINGS`, BLOCKER/IMPORTANT 0건이다.
-`docs/foundation/PATCH_05_end_to_end_lineage_hardening.md`에서 6개 MINOR의 closure disposition을 기록한다.
-현재 Patch 5 documentation closure를 수행 중이며 main integration은 그 다음 Git 단계다.
+`docs/foundation/PATCH_05_end_to_end_lineage_hardening.md`에서 6개 MINOR의 closure disposition을 기록했다.
+Patch 5 documentation closure commit `0ed2954`, main merge commit `ae86d58`, post-merge `252 tests PASS`, `origin/main` 동기화까지 완료했다.
 
-Patch 5 main integration 후 다음 required Foundation milestone은 Patch 6 Selection Manifest / Recapture Inclusion이다.
+현재 다음 required Foundation milestone은 Patch 6 Selection Manifest / Recapture Inclusion이다.
 
 아직 F1/F2 핵심 수식을 구현하는 단계가 아니다.
 
@@ -1326,7 +1328,7 @@ formal D455 hardware validation은 계속 Patch 8 범위다.
 
 ---
 
-## Patch 5 — DONE / MAIN INTEGRATION PENDING
+## Patch 5 — COMPLETE / MAIN-INTEGRATED
 
 ```text
 End-to-End Lineage Hardening
@@ -1358,6 +1360,15 @@ final full suite              252 PASS
 independent READ-ONLY audit
 PASS WITH MINOR FINDINGS
 BLOCKER 0 / IMPORTANT 0 / MINOR 6
+```
+
+Main integration:
+
+```text
+documentation closure   0ed2954
+main merge              ae86d58
+post-merge full suite   252 PASS
+origin/main             ae86d5875c8fe3200b3b2c1dd26c48256e01105f
 ```
 
 완료된 핵심:
@@ -1674,7 +1685,7 @@ bbox-vs-contour/oval의 F1/F2 feature 포함 여부 및 최종 논문 채택 여
 ```text
 Patch 4   canonical schema + hip        DONE
 Patch 4.5 model lock                    DONE
-Patch 5   lineage                       DONE — implementation/audit/closure
+Patch 5   lineage                       DONE — implementation/audit/closure/main integration
 Patch 6   selection policy              PENDING
 Patch 7   integrity                     PENDING
 Patch 8   actual D455 E2E validation    PENDING
@@ -1895,13 +1906,19 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
    → BLOCKER 0 / IMPORTANT 0 / MINOR 6
    → implementation commit recommendation YES
 
-21. Patch 5 Foundation Record / documentation closure                            DONE — CURRENT CHANGE
+21. Patch 5 Foundation Record / documentation closure                            DONE
    → docs/foundation/PATCH_05_end_to_end_lineage_hardening.md
    → 6 accepted MINOR dispositions documented
-   → main integration remains pending
+   → closure commit 0ed2954
 
-22. Patch 6 Selection Manifest / Recapture Inclusion                             NEXT REQUIRED FOUNDATION
-   → Patch 5 main integration 이후 Design Freeze부터 시작
+22. Patch 5 main integration                                                      DONE
+   → merge commit ae86d58
+   → merge: complete Patch 5 end-to-end lineage hardening foundation
+   → post-merge 252 tests PASS
+   → origin/main synchronized at ae86d5875c8fe3200b3b2c1dd26c48256e01105f
+
+23. Patch 6 Selection Manifest / Recapture Inclusion                             NEXT REQUIRED FOUNDATION
+   → READ-ONLY 조사 → exact contract → Design Freeze부터 시작
 ```
 
 ---
@@ -1960,3 +1977,4 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 | `v1.3` | 2026-10-04 | Patch 4 main merge `d923b23` 및 현재 Patch 4.5 branch baseline을 동기화. 2026-10-02 실제 D455 Early Hardware Preflight 수행 결과를 non-formal engineering evidence로 기록하고, `PROV-004`에 따른 Patch 4.5 MediaPipe Model Artifact Lock Design Freeze 완료를 반영. 다음 required Foundation 작업은 Patch 4.5 implementation이다. |
 | `v1.4` | 2026-10-04 | Patch 4.5 implementation commit `aef7f34`, `mediapipe-model-lock/1.0.0`, 기존 171 + 신규 33 = 204 tests PASS, 독립 Claude Opus READ-ONLY audit `PASS WITH MINOR FINDINGS / ACCEPT WITH MINOR NOTES` 및 BLOCKER/IMPORTANT 0건을 반영. `docs/foundation/PATCH_04_5_mediapipe_model_artifact_lock.md` Foundation Record와 documentation closure commit `26daf50`을 current state에 연결하고 model-lock exact values를 미확정 목록에서 제거했다. Patch 4.5 closure status-sync commit `9e657ac`과 main merge commit `15128ff`까지 current state에 반영했다. Patch 4.5는 main integration까지 완료됐으며, 현재 다음 required Foundation milestone은 Patch 5 End-to-End Lineage Hardening이다. |
 | `v1.5` | 2026-10-04 | Patch 5 `PROV-005` / Design Freeze commit `d4dc23f`, implementation commit `dd0464e`, `summary-schema/1.0.0`, `rf-sample-lineage/1.0.0`, `rf-experiment-provenance/1.0.0` 구현을 반영. pre-implementation 204 + 신규 48 = 최종 252 tests PASS, 독립 Claude Opus READ-ONLY audit `PASS WITH MINOR FINDINGS`, BLOCKER 0 / IMPORTANT 0 / MINOR 6 및 implementation commit recommendation YES를 기록했다. `docs/foundation/PATCH_05_end_to_end_lineage_hardening.md`에 6개 MINOR closure disposition을 기록하고 Patch 5를 implementation/audit/documentation-closure 완료 상태로 전환했다. Patch 5 main integration은 pending이며, 그 이후 다음 Foundation scope는 Patch 6 Selection Manifest / Recapture Inclusion이다. |
+| `v1.6` | 2026-10-04 | Patch 5 documentation closure commit `0ed2954` 이후 main merge commit `ae86d58` (`ae86d5875c8fe3200b3b2c1dd26c48256e01105f`)에서 Foundation을 `main`에 통합했다. merge 직후 전체 `252 tests PASS`를 재확인하고 `origin/main` 동기화를 완료했다. Patch 5는 COMPLETE / MAIN-INTEGRATED 상태이며, 현재 다음 required Foundation milestone은 Patch 6 Selection Manifest / Recapture Inclusion이다. |
