@@ -49,6 +49,13 @@ class AnalysisProvenanceTests(unittest.TestCase):
             directory.mkdir()
         for name, path in (("OUT_DIR", self.out), ("DATA_DIR", self.data), ("MODEL_DIR", self.models)):
             self.stack.enter_context(patch.object(analysis, name, str(path)))
+        # Synthetic bytes exercise provenance structure, never research model results.
+        self.lock = analysis.read_json(analysis.MODEL_LOCK_PATH)
+        for entry in self.lock["artifacts"]:
+            entry["sha256"] = hashlib.sha256(b"synthetic model " + entry["role"].encode()).hexdigest()
+        lock_path = self.root / "mediapipe_model_lock.json"
+        analysis.write_json(lock_path, self.lock)
+        self.stack.enter_context(patch.object(analysis, "MODEL_LOCK_PATH", str(lock_path)))
         self.stack.enter_context(redirect_stdout(io.StringIO()))
         self.stderr = self.stack.enter_context(redirect_stderr(io.StringIO()))
         self.versions = self.stack.enter_context(patch.object(analysis.importlib.metadata, "version",
@@ -73,7 +80,7 @@ class AnalysisProvenanceTests(unittest.TestCase):
 
     def model_paths(self):
         paths = {}
-        for role, (filename, _) in analysis.MODELS.items():
+        for role, filename in analysis.MODEL_FILENAMES.items():
             path = self.models / filename
             path.write_bytes(b"synthetic model " + role.encode())
             paths[role] = str(path)
@@ -314,12 +321,15 @@ class AnalysisProvenanceTests(unittest.TestCase):
         for entry in info["models"]:
             self.assertEqual(entry["sha256"], hashlib.sha256(Path(entry["path"]).read_bytes()).hexdigest())
             self.assertEqual(entry["filename"], Path(paths[entry["role"]]).name)
-            self.assertIn("/latest/", entry["source_url"])
+            locked = next(item for item in self.lock["artifacts"] if item["role"] == entry["role"])
+            self.assertEqual(entry["source_url"], locked["source_url"])
+            self.assertEqual(entry["version_identifier"], locked["version_identifier"])
             self.assertIs(entry["used_in_this_run"], False)
         first = info["models"][0]["sha256"]
         Path(paths["face"]).write_bytes(b"changed same filename")
-        analysis.record_model_artifacts(info, paths)
-        self.assertNotEqual(first, info["models"][0]["sha256"])
+        with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
+            analysis.record_model_artifacts(info, paths)
+        self.assertEqual(first, info["models"][0]["sha256"])
         analysis.mark_model_used(info, "face")
         self.assertEqual([m["used_in_this_run"] for m in info["models"]], [True, False, False])
 

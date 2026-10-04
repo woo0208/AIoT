@@ -1,7 +1,7 @@
 # Research Decision Log
 
-- 문서 버전: `v1.1`
-- 기준일: `2026-10-01`
+- 문서 버전: `v1.2`
+- 기준일: `2026-10-04`
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
 - 역할: 현재 Research Master에 반영된 중요한 연구·데이터·실험·거버넌스 결정을 **왜 그렇게 결정했는지** 기록
@@ -1393,6 +1393,7 @@ final-test 결과를 본 parameter 변경
 |---|---|---|
 | `v1.0` | 2026-10-01 | 현재 Research Master를 만들면서 기존 대화·schema·history·Foundation 기록에서 이미 확정된 연구/데이터/실험/거버넌스 결정을 최초 통합. 미확정 항목은 OPEN entry로 분리 |
 | `v1.1` | 2026-10-01 | `DATA-003`을 append하여 Patch 4 `frames-schema/1.0.0` exact canonical frame contract를 freeze하고 `OPEN-001`을 해소 |
+| `v1.2` | 2026-10-04 | `PROV-004`를 append하여 Patch 4.5 MediaPipe Model Artifact Lock의 exact artifact set, source/version identity, SHA-256, fail-closed verification, verified provisioning, Patch 3 provenance linkage 및 scope를 Design Freeze |
 
 ---
 
@@ -1579,3 +1580,777 @@ Patch 4의 목적은 F1/F2 feature를 설계하는 것이 아니라, 현재 dyna
 
 Supersedes:
 Resolves: OPEN-001
+
+
+## PROV-004 — Patch 4.5 MediaPipe Model Artifact Lock Design Freeze
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-04
+**Decision timing:** Patch 4.5 Design Freeze after local artifact / source-byte cross-verification and before implementation
+
+### Decision
+
+Foundation Patch 4.5에서 MediaPipe inference에 사용되는 model artifact의 exact identity와 provisioning contract를 다음과 같이 freeze한다.
+
+Patch 3은 실제 분석 실행에서 filesystem에 존재하는 model artifact의 SHA-256을 provenance에 기록하지만, 허용된 model bytes 자체를 강제하지는 않는다.
+
+Patch 4.5에서는:
+
+```text
+tracked model lock manifest
++
+exact artifact filename
++
+exact source locator
++
+exact version identifier
++
+exact SHA-256
+```
+
+을 canonical model artifact contract로 사용한다.
+
+raw MediaPipe inference는 이 contract를 통과한 artifact만 사용할 수 있다.
+
+---
+
+### 1. Lock manifest
+
+repository root에 다음 tracked manifest를 둔다.
+
+```text
+mediapipe_model_lock.json
+```
+
+lock schema version은:
+
+```text
+mediapipe-model-lock/1.0.0
+```
+
+으로 고정한다.
+
+canonical top-level structure는:
+
+```json
+{
+  "lock_schema_version": "mediapipe-model-lock/1.0.0",
+  "artifacts": [
+    ...
+  ]
+}
+```
+
+이다.
+
+각 artifact entry의 필수 field는 정확히 다음과 같다.
+
+```text
+role
+filename
+source_url
+version_identifier
+sha256
+```
+
+canonical artifact role은 정확히:
+
+```text
+face
+mesh
+pose
+```
+
+세 개다.
+
+SHA-256 textual representation은 lowercase 64-hex를 canonical representation으로 사용한다.
+
+Patch 4.5는 downloaded runtime model binary와 tracked lock contract를 분리한다.
+
+---
+
+### 2. Frozen artifact set
+
+#### face
+
+```text
+role:
+face
+
+filename:
+blaze_face_short_range.tflite
+
+source_url:
+https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite
+
+version_identifier:
+1
+
+sha256:
+b4578f35940bf5a1a655214a1cce5cab13eba73c1297cd78e1a04c2380b0152f
+```
+
+Windows에서 실제 사용된 local artifact와 위 versioned `/1/` source에서 다시 다운로드한 artifact의 SHA-256이 동일함을 확인했다.
+
+---
+
+#### mesh
+
+```text
+role:
+mesh
+
+filename:
+face_landmarker.task
+
+source_url:
+https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+
+version_identifier:
+1
+
+sha256:
+64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff
+```
+
+Windows에서 실제 사용된 local artifact와 위 versioned `/1/` source에서 다시 다운로드한 artifact의 SHA-256이 동일함을 확인했다.
+
+---
+
+#### pose
+
+```text
+role:
+pose
+
+filename:
+pose_landmarker_full.task
+
+source_url:
+https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task?generation=1682642787774579
+
+version_identifier:
+gcs-generation:1682642787774579
+
+sha256:
+4eaa5eb7a98365221087693fcc286334cf0858e2eb6e15b506aa4a7ecdcec4ad
+```
+
+Pose artifact는 단순 versioned `/1/` source를 사용하지 않는다.
+
+실제 source-byte 검증 결과:
+
+```text
+local artifact SHA-256
+=
+4eaa5eb7a98365221087693fcc286334cf0858e2eb6e15b506aa4a7ecdcec4ad
+
+current unqualified /latest/ SHA-256
+=
+4eaa5eb7a98365221087693fcc286334cf0858e2eb6e15b506aa4a7ecdcec4ad
+
+/1/ SHA-256
+=
+5134a3aad27a58b93da0088d431f366da362b44e3ccfbe3462b3827a839011b1
+```
+
+로 확인되었다.
+
+`/2/`~`/5/` numbered paths도 확인했으나 해당 object는 존재하지 않았다.
+
+따라서 `/1/` artifact를 현재 연구에서 실제 사용한 Pose artifact라고 간주하지 않는다.
+
+현재 `/latest/` object의 Google Cloud Storage metadata에서:
+
+```text
+generation:
+1682642787774579
+
+ETag:
+"5a9ad88919b2231d02b1fdf4a54090ec"
+
+Last-Modified:
+Fri, 28 Apr 2023 00:46:27 GMT
+
+Content-Length:
+9398198
+```
+
+를 확인했다.
+
+동일 generation을 명시한 source locator에서 artifact를 다시 다운로드한 결과 SHA-256이 local research artifact와 정확히 일치했다.
+
+따라서 Pose의 canonical source는 unqualified `/latest/`가 아니라:
+
+```text
+/latest/...task?generation=1682642787774579
+```
+
+인 generation-qualified source locator로 freeze한다.
+
+ETag, Last-Modified 및 Content-Length는 cross-verification evidence이며 canonical integrity criterion은 SHA-256이다.
+
+generation-qualified object의 향후 원격 보존 가능성 자체를 보장한다고 가정하지 않는다. 원격 source availability와 별개로 exact SHA-256 verification은 항상 필수다.
+
+---
+
+### 3. Artifact change policy
+
+위 artifact의 다음 항목 중 하나라도 변경하려면 silent replacement로 처리하지 않는다.
+
+```text
+filename
+model variant
+precision
+source locator
+version identifier
+expected SHA-256
+```
+
+변경이 필요한 경우 별도의 explicit research/reproducibility decision과 lock update를 수행한다.
+
+동일 filename이라는 이유만으로 다른 bytes를 동일 artifact로 간주하지 않는다.
+
+---
+
+### 4. Existing artifact verification
+
+`models/<filename>`이 이미 존재하면 network provisioning보다 먼저 전체 file SHA-256을 계산한다.
+
+```text
+actual SHA-256 == locked SHA-256
+→ PASS
+→ 기존 artifact 사용
+
+actual SHA-256 != locked SHA-256
+→ HARD FAIL
+```
+
+existing artifact mismatch 시 다음 동작을 하지 않는다.
+
+```text
+자동 overwrite
+자동 redownload
+자동 삭제
+자동 rename
+자동 quarantine
+```
+
+기존 mismatch artifact는 원인 조사 가능성을 위해 그대로 보존한다.
+
+HARD FAIL diagnostic에는 최소:
+
+```text
+artifact path
+expected SHA-256
+actual SHA-256
+```
+
+을 포함한다.
+
+mismatch가 존재하는 상태에서 다른 source에서 자동으로 대체 artifact를 받아 실행을 계속하지 않는다.
+
+---
+
+### 5. Missing artifact provisioning
+
+locked artifact가 존재하지 않는 경우에만 network provisioning을 허용한다.
+
+download source는 해당 manifest entry의 exact `source_url`만 사용한다.
+
+```text
+artifact missing
+→ exact locked source_url에서 temporary download
+→ complete SHA-256 verification
+→ expected SHA-256과 일치
+→ verified final install
+```
+
+다음 자동 fallback은 허용하지 않는다.
+
+```text
+unqualified /latest/
+다른 numbered version
+다른 generation
+다른 mirror
+다른 model variant
+다른 precision
+임의 fallback URL
+```
+
+단, Pose에 freeze된 generation-qualified `/latest/...?...generation=...` locator는 unqualified `/latest/`와 구분하며 허용한다.
+
+사용자가 model artifact를 수동으로 provision하는 것은 허용한다.
+
+그러나 수동으로 배치한 artifact도 동일한 locked SHA-256 verification을 반드시 통과해야 한다.
+
+---
+
+### 6. Verified temporary download and final install
+
+network bytes를 final model path에 직접 다운로드하지 않는다.
+
+동일 model directory의 temporary artifact 또는 동일 filesystem에서 atomic finalization이 가능한 temporary artifact를 사용한다.
+
+```text
+temporary download
+→ download completion
+→ SHA-256 계산
+→ expected SHA-256과 비교
+```
+
+hash가 일치할 때만 final model path로 설치한다.
+
+downloaded bytes mismatch 시:
+
+```text
+HARD FAIL
+temporary artifact 정리
+invalid final artifact 설치 금지
+```
+
+로 한다.
+
+network error, interrupted download 또는 provisioning failure 시에도:
+
+```text
+HARD FAIL
+incomplete final artifact를 남기지 않음
+```
+
+을 보장한다.
+
+verified install은 가능한 범위에서 atomic final install semantics를 사용한다.
+
+Patch 4.5의 명시적 contract는 기존 final artifact를 자동 overwrite하지 않는 것이다.
+
+download 중 다른 process가 destination을 생성한 경우에도 기존 destination을 무조건 교체하지 않고 해당 destination을 다시 검증한다.
+
+악의적 concurrent filesystem mutation에 대한 완전한 adversarial race-proof protocol은 Patch 4.5 scope에 포함하지 않는다.
+
+---
+
+### 7. Manifest validation
+
+raw MediaPipe inference를 수행하는 경로에서는 model provisioning 또는 model loading보다 먼저 lock manifest를 읽고 검증한다.
+
+다음은 HARD FAIL이다.
+
+```text
+manifest missing
+malformed JSON
+unsupported lock_schema_version
+invalid top-level structure
+artifacts structure malformed
+required role missing
+duplicate role
+unknown role
+required field missing
+invalid filename contract
+invalid SHA-256 representation
+invalid source_url
+invalid version_identifier
+```
+
+`mediapipe-model-lock/1.0.0`에서 canonical artifact set은 정확히:
+
+```text
+face
+mesh
+pose
+```
+
+세 개다.
+
+unqualified `/latest/` source는 canonical lock source로 허용하지 않는다.
+
+단, Pose와 같이 exact Google Cloud Storage generation이 명시된 generation-qualified locator는 해당 exact artifact를 식별하는 locked source로 허용한다.
+
+lock schema contract를 변경할 경우 기존 `1.0.0` 의미를 silently 변경하지 않고 명시적 schema-version update 또는 후속 decision을 사용한다.
+
+---
+
+### 8. Patch 3 analysis provenance linkage
+
+Patch 3의 기존 analysis provenance field set을 유지한다.
+
+Patch 4.5 이후 raw inference의 성공 invariant는:
+
+```text
+actual filesystem artifact SHA-256
+==
+lock manifest expected SHA-256
+```
+
+이다.
+
+completed raw analysis provenance의 각 model entry에서:
+
+```text
+sha256
+```
+
+은 실제 사용한 filesystem artifact의 SHA-256이며 동시에 corresponding lock entry의 SHA-256과 일치해야 한다.
+
+기존 provenance field:
+
+```text
+source_url
+version_identifier
+```
+
+에는 해당 lock entry의 frozen source/version 정보를 기록한다.
+
+현재 `source_url_kind` field와 전체 model provenance field set을 Patch 4.5만을 위해 불필요하게 확장하지 않는다.
+
+Patch 4.5를 위해 별도의 duplicate `expected_sha256` provenance field를 추가하지 않는다.
+
+source of truth의 역할은 다음과 같이 구분한다.
+
+```text
+mediapipe_model_lock.json
+→ 허용된 model artifact contract
+
+analysis provenance
+→ 해당 실행에서 실제로 사용한 artifact 기록
+```
+
+raw inference가 완료됐다면 두 SHA-256은 동일해야 한다.
+
+---
+
+### 9. Historical provenance
+
+Patch 4.5 이전 analysis provenance를 현재 lock 정보로 소급 수정하지 않는다.
+
+과거 provenance에:
+
+```text
+/latest/ source
+version_identifier = unknown / null
+historical model information
+```
+
+등이 기록되어 있다면 당시 상태 그대로 유지한다.
+
+현재 확인된 generation/version/hash 정보를 과거 실행 당시 이미 알고 있었던 정보처럼 backfill하지 않는다.
+
+이는 `PROV-002`의 historical-unknown policy를 유지한다.
+
+---
+
+### 10. `--from-csv` policy
+
+`--from-csv` reprocessing은 새로운 MediaPipe inference를 수행하지 않는다.
+
+따라서:
+
+```text
+raw MediaPipe inference
+→ current lock manifest 필수
+→ current model verification 필수
+
+--from-csv
+→ current local model provisioning 불필요
+→ current model verification 불필요
+```
+
+로 구분한다.
+
+`--from-csv`는 parent lineage의 historical model provenance를 유지하며, 현재 local model artifact를 새로 사용한 것처럼 기록하지 않는다.
+
+따라서 current lock manifest의 부재 또는 current model artifact의 부재가 historical CSV-only reprocessing 자체를 불필요하게 차단해서는 안 된다.
+
+---
+
+### 11. MediaPipe Python package version
+
+Windows Early Hardware Preflight 환경에서 실제 확인된 MediaPipe package version은:
+
+```text
+mediapipe = 1.0.1
+```
+
+이다.
+
+이 값은 existing analysis environment provenance의 관찰값으로 유지한다.
+
+그러나 Patch 4.5에서는 Python package dependency 자체를 model artifact lock에 포함하지 않는다.
+
+```text
+MediaPipe model bytes
+→ HARD LOCK
+
+MediaPipe Python package version
+→ environment provenance record
+```
+
+로 구분한다.
+
+전체 Python dependency/environment lock은 Patch 4.5 scope가 아니다.
+
+---
+
+### 12. Runtime model directory / Git policy
+
+downloaded runtime model binary는 tracked lock contract와 역할을 분리한다.
+
+```text
+models/
+→ runtime/local artifact storage
+
+mediapipe_model_lock.json
+→ canonical tracked model lock
+```
+
+Patch 4.5 implementation에서 accidental model binary commit을 방지하기 위해 `models/`를 repository ignore policy에 포함하는 것은 허용한다.
+
+model binary 자체를 Git에 commit하는 것은 Patch 4.5의 canonical artifact-lock 방식으로 채택하지 않는다.
+
+---
+
+### 13. Test contract
+
+Patch 4.5 implementation은 최소 다음을 자동 검증해야 한다.
+
+```text
+1. existing artifact hash == expected lock hash
+   → PASS
+   → network access 없음
+
+2. existing artifact bytes 변경
+   → HARD FAIL
+   → automatic download 없음
+   → existing bytes 보존
+
+3. artifact missing
+   → exact locked source에서 download
+   → expected hash 일치 시 verified install + PASS
+
+4. downloaded bytes hash mismatch
+   → HARD FAIL
+   → invalid final artifact 설치 금지
+
+5. network/download failure
+   → HARD FAIL
+   → incomplete final artifact 금지
+
+6. raw inference에서 lock manifest missing
+   → FAIL
+
+7. malformed / invalid lock manifest
+   → FAIL
+
+8. missing / duplicate / unknown artifact role
+   → FAIL
+
+9. invalid SHA-256 / source / version contract
+   → FAIL
+
+10. unqualified /latest/ source
+    → FAIL
+
+11. exact generation-qualified Pose source
+    → valid lock source
+
+12. completed raw analysis provenance model SHA-256
+    = actual filesystem SHA-256
+    = lock SHA-256
+
+13. raw analysis provenance source_url / version_identifier
+    = corresponding frozen lock values
+
+14. --from-csv
+    → current model provisioning/verification을 수행하지 않음
+    → historical parent model provenance 보존
+
+15. Patch 4 canonical frame contract
+    → frames-schema/1.0.0
+    → exact 60 fields
+    → regression 없음
+
+16. 기존 Patch 4 baseline tests
+    → 모두 계속 PASS
+
+17. 신규 Patch 4.5 tests
+    → 모두 PASS
+```
+
+Patch 4 baseline은 Design Freeze 시점 repository에서:
+
+```text
+171 tests PASS
+```
+
+로 검증되어 있다.
+
+따라서 Patch 4.5 acceptance criterion은 특정 총 test count를 171로 유지하는 것이 아니라:
+
+```text
+all previous 171 tests remain PASS
++
+all new Patch 4.5 tests PASS
+```
+
+이다.
+
+Windows에서는 기존 text encoding 환경 차이를 고려하여 필요 시:
+
+```powershell
+$env:PYTHONUTF8="1"
+python -B -m unittest -q
+```
+
+로 전체 regression suite를 검증한다.
+
+---
+
+### 14. Foundation Record requirement
+
+Patch 4.5 구현·테스트·독립 READ-ONLY audit가 완료된 뒤 별도 Foundation Record를 작성한다.
+
+Foundation Record에는 최소:
+
+```text
+Design Freeze authority = PROV-004
+implemented lock manifest
+implemented verification/provisioning behavior
+test evidence
+regression result
+independent audit result
+remaining deferred items
+implementation / documentation commit references
+```
+
+를 기록한다.
+
+본 `PROV-004` entry 자체는 Patch 4.5 구현 완료 또는 audit 완료를 의미하지 않는다.
+
+---
+
+### Rationale
+
+현재 `analyze_d455.py`는 model artifact가 없으면 configured `/latest/` URL에서 다운로드하고, 이미 artifact가 존재하면 exact allowed SHA-256 verification 없이 사용한다.
+
+Patch 3은 실제 사용 artifact의 SHA-256을 provenance에 기록하지만:
+
+```text
+실제로 무엇을 사용했는가
+```
+
+를 기록하는 것과:
+
+```text
+어떤 artifact만 사용하도록 허용하는가
+```
+
+를 강제하는 것은 별개의 문제다.
+
+Patch 4.5 source-byte cross-verification 과정에서 실제로 다음이 확인되었다.
+
+```text
+pose_landmarker_full.task
+
+local research artifact
+= current /latest/ bytes
+= generation 1682642787774579 bytes
+= SHA-256 4eaa5e...
+
+하지만:
+
+/1/ bytes
+= SHA-256 5134a3...
+```
+
+즉 동일 filename과 동일 byte length를 가지더라도 source/version에 따라 다른 model bytes가 존재할 수 있다.
+
+따라서 filename 또는 mutable `/latest/` path만으로 research model identity를 정의하는 것은 충분하지 않다.
+
+Patch 4.5는:
+
+```text
+exact source/version identity
++
+exact SHA-256
++
+fail-closed verification
+```
+
+을 통해 silent model drift를 차단한다.
+
+---
+
+### Alternatives / Rejected / Deferred
+
+다음은 채택하지 않는다.
+
+```text
+unqualified /latest/ URL을 canonical lock source로 사용
+filename만으로 artifact identity 판단
+동일 file size를 동일 artifact의 근거로 사용
+Pose /1/ artifact를 실제 사용 artifact로 간주
+hash mismatch 시 자동 overwrite
+hash mismatch 시 자동 redownload
+downloaded artifact를 hash verification 없이 설치
+다른 version/mirror로 자동 fallback
+historical provenance에 현재 lock 정보를 소급 삽입
+Patch 3 provenance schema를 불필요하게 확장
+--from-csv에 current model availability를 강제
+MediaPipe package 전체 dependency lock을 Patch 4.5에 포함
+```
+
+다음은 별도 scope로 남긴다.
+
+```text
+full Python dependency/environment lock
+general repository-wide artifact integrity framework
+remote source long-term archival guarantee
+malicious concurrent filesystem mutation threat model
+Patch 5 end-to-end lineage hardening
+Patch 7 general integrity checker
+```
+
+---
+
+### Evidence / Source
+
+- current repository `analyze_d455.py`의 MediaPipe model download/loading implementation
+- Patch 3 analysis provenance implementation 및 Foundation Record
+- `PROV-001` — Model provenance와 Model Lock은 별개
+- `PROV-002` — Historical unknown은 추정으로 채우지 않음
+- `AIoT_RESEARCH_MASTER.md`의 Patch 4.5 requirement
+- Windows actual MediaPipe environment: `mediapipe 1.0.1`
+- Windows local artifact `Get-FileHash -Algorithm SHA256` 결과
+- versioned `/1/` source-byte download verification
+- Pose `/1/`과 actual `/latest/` artifact의 SHA-256 불일치 확인
+- Pose `/2/`~`/5/` numbered source availability 확인
+- Pose current `/latest/` Google Cloud Storage generation metadata 확인
+- Pose generation-qualified source 재다운로드 후 SHA-256 재검증
+- Patch 4 baseline regression: 171 tests PASS
+
+본 evidence는 Patch 4.5 Design Freeze의 근거이며 Patch 4.5 implementation 완료 사실을 의미하지 않는다.
+
+---
+
+### Impact
+
+- Patch 4.5 implementation은 본 exact artifact/source/hash contract를 따라야 한다.
+- `PROV-001`을 supersede하지 않는다.
+- `PROV-001`에서 별도 Foundation 작업으로 남긴 model lock을 본 entry에서 구체적인 executable contract로 freeze한다.
+- raw MediaPipe inference는 locked artifact 검증을 통과해야 한다.
+- historical analysis provenance는 수정하지 않는다.
+- Patch 3 analysis provenance field set은 가능한 범위에서 유지한다.
+- Patch 4 `frames-schema/1.0.0` exact 60-field canonical contract를 변경하지 않는다.
+- F1/F2 feature formula를 설계하거나 구현하지 않는다.
+- posture classification을 변경하지 않는다.
+- RF algorithm을 변경하지 않는다.
+- landmark set을 변경하지 않는다.
+- elbow/wrist를 추가하지 않는다.
+- confidence threshold를 변경하지 않는다.
+- capture protocol / camera distance / forward gate를 변경하지 않는다.
+- UI / performance refactor / multi-person tracking / sagittal-view generation을 추가하지 않는다.
+- 본 entry 확정 후 Patch 4.5 implementation을 시작할 수 있다.
+- 본 entry 자체는 Patch 4.5 implementation, test, audit 또는 Foundation closure 완료를 의미하지 않는다.
+
+Supersedes:
+Resolves:

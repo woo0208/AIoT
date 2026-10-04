@@ -1,7 +1,7 @@
 # AIoT Research Master
 
-- 문서 버전: `v1.2`
-- 기준일: `2026-10-02`
+- 문서 버전: `v1.4`
+- 기준일: `2026-10-04`
 - 상태: **CURRENT / Living Document**
 - 권장 위치: `docs/research/AIoT_RESEARCH_MASTER.md`
 - 역할: **현재 연구 방향·범위·용어·로드맵의 Single Source of Truth**
@@ -20,7 +20,7 @@
 
 질문:
 
-> **“2026-10-02 현재 이 연구는 무엇을 연구하고 있으며, 무엇이 확정되어 있고, 무엇이 아직 미확정인가?”**
+> **“2026-10-04 현재 이 연구는 무엇을 연구하고 있으며, 무엇이 확정되어 있고, 무엇이 아직 미확정인가?”**
 
 에 답하는 문서다.
 
@@ -68,6 +68,13 @@ legacy 31-field ordered prefix
 Design Freeze 자체와 구현 완료는 별개 milestone이다. 구현 완료는 F1/F2 feature formula 확정,
 formal collection 승인, 실제 D455 validation 완료 또는 새 capture acceptance gate 도입을 의미하지 않는다.
 
+2026-10-04 `PROV-004`에서 Patch 4.5 MediaPipe Model Artifact Lock contract를 Design Freeze했고,
+commit `aef7f34`에서 구현을 완료했다. 기존 171 tests와 신규 Patch 4.5 tests 33개가 모두 유지되어
+총 `204 tests PASS`를 확인했으며, 독립 Claude Opus READ-ONLY audit 결과는
+`PASS WITH MINOR FINDINGS / ACCEPT WITH MINOR NOTES`였다. BLOCKER/IMPORTANT finding은 없고,
+Foundation Record `docs/foundation/PATCH_04_5_mediapipe_model_artifact_lock.md`를 작성했다.
+Patch 4.5 documentation closure는 commit `26daf50`에서 완료됐다. 현재 남은 Patch 4.5 작업은 status-sync commit, push, branch final review와 main merge다.
+
 이미 구현·검증된 Patch 1~3 provenance/lineage 동작은 그대로 유지한다.
 그 밖의 future/unimplemented schema section은 현재 구현 완료를 뜻하지 않으며,
 각 설계의 confirmed/open status는 해당 Decision Log entry를 따른다.
@@ -78,19 +85,34 @@ formal collection 승인, 실제 D455 validation 완료 또는 새 capture accep
 
 ## 1.1 Repository 기준
 
-본 v1.2 / Patch 4 closure의 **milestone baseline**:
+본 v1.4 / Patch 4.5 closure alignment의 **implementation baseline**:
 
 ```text
-branch at closure: patch4/frame-schema-1.0.0
-Patch 4 implementation commit: 110cce6170c307d8cbf9bac4a619454a36498980
-Patch 4 documentation closure commit: 144a264582bcb9b303b7dc8284d7f3cde7c772c4
-implementation state: Patch 4 complete / 171 tests PASS / independent audits PASS
-documentation closure: targeted re-audit PASS / committed and pushed
+current working branch: patch4.5/model-artifact-lock
+branch base / main baseline: d923b23
+Patch 4 main merge: d923b23 = merge: complete Patch 4 frame schema foundation
+Patch 4 status sync: 872dfe6
+Patch 4 documentation closure: 144a264
+Patch 4 implementation: 110cce6
+Patch 4 state: complete / 171 tests PASS / independent audits PASS
+
+Patch 4.5 Design Freeze: 6b69255
+Patch 4.5 implementation: aef7f34
+Patch 4.5 software verification: 204 tests PASS
+Patch 4.5 independent audit: PASS WITH MINOR FINDINGS / ACCEPT WITH MINOR NOTES
+Patch 4.5 BLOCKER / IMPORTANT: none
+Patch 4.5 Foundation Record: created
+Patch 4.5 documentation closure: DONE — 26daf50
 ```
 
 `110cce6`은 Patch 4 software implementation의 기준점이고,
-`144a264`는 Patch 4 documentation/authority closure의 기준점이다.
-이후 상태 동기화 commit으로 repository `HEAD`가 이동하더라도 두 milestone commit의 의미는 유지한다.
+`144a264`는 Patch 4 documentation/authority closure, `872dfe6`은 Patch 4 status sync,
+`d923b23`은 Patch 4를 `main`에 반영한 merge 기준점이다.
+
+Patch 4.5는 `d923b23`에서 시작한 feature branch에서 `PROV-004`를 Design Freeze했고,
+commit `6b69255`에 Design Freeze 문서를 고정한 뒤 commit `aef7f34`에서 구현했다.
+현재 v1.4가 대조하는 Patch 4.5 implementation baseline은 `aef7f34`이며,
+본 Master와 Foundation Record의 documentation closure 기준점은 commit `26daf50`이다.
 
 Research document canonicalization의 이전 기준점은 commit `f97530c`이며,
 History/Foundation canonicalization 기준점 `474733c`는 해당 기록의 역사적 provenance로 유지한다.
@@ -102,16 +124,27 @@ Prelude   algorithm / evaluation / capture hardening   완료
 Patch 1   capture recording provenance                 완료
 Patch 2   forward gate evidence                        완료
 Patch 3   analysis provenance                          완료
-Patch 4   canonical fixed frame schema + hip           구현·hardening·software audit 완료
+Patch 4   canonical fixed frame schema + hip           구현·hardening·software audit·main merge 완료
+Patch 4.5 MediaPipe model artifact lock                구현·204-test 검증·독립 audit·Foundation Record·documentation closure 완료
 ```
 
 Patch 3 canonical record에는 commit `1cdc528` 계열에서 `146 tests PASS`가 기록되어 있고,
 그 이후 review baseline `474733c`까지 Python source 변경이 없음을 확인했다.
 본 canonicalization 검토에서는 read-only 원칙 때문에 tests를 재실행하지 않는 독립 audit도 수행했다.
+
 Patch 4는 commit `110cce6`에서 `frames-schema/1.0.0`을 구현했고,
 post-hardening 기준 `171 tests PASS`, 초기 독립 READ-ONLY audit PASS,
 targeted READ-ONLY re-audit PASS를 완료했다.
-실제 D455 hardware end-to-end validation은 아직 완료하지 않았으며 Patch 8 대상이다.
+
+Patch 4.5는 commit `aef7f34`에서 `mediapipe-model-lock/1.0.0`을 구현했다.
+기존 171 tests와 신규 33 tests를 합한 `204 tests PASS`를 확인했고,
+독립 Claude Opus READ-ONLY audit에서도 `204 tests PASS`,
+`PASS WITH MINOR FINDINGS / ACCEPT WITH MINOR NOTES`를 받았다.
+4개 MINOR는 integrity bypass 또는 PROV-004 위반이 아니며 closure blocker로 취급하지 않는다.
+
+Patch 8의 formal D455 hardware end-to-end validation은 아직 완료하지 않았다.
+다만 2026-10-02 실제 D455로 Early Hardware Preflight를 수행했으며,
+이는 non-formal engineering evidence로만 유지하고 Patch 8 또는 formal research evidence로 승격하지 않는다.
 
 History/Foundation 기존 6개 문서는 READ-ONLY 독립 검토와 canonicalization을 완료했고,
 위 baseline commit에 canonical filename으로 반영되어 있다.
@@ -122,8 +155,20 @@ History/Foundation 기존 6개 문서는 READ-ONLY 독립 검토와 canonicaliza
 
 ## 1.2 현재 단계 한 줄 요약
 
-Patch 4 `frames-schema/1.0.0` 구현·hardening·software audit와 documentation closure까지 완료했다.
-운영상 optional Early Hardware Preflight를 수행할 수 있으며, 다음 required Foundation milestone은 Patch 4.5 MediaPipe Model Artifact Lock이다.
+Patch 4 `frames-schema/1.0.0` 구현·hardening·software audit·documentation closure와 main merge까지 완료했다.
+
+2026-10-02 실제 D455 Early Hardware Preflight를 수행했으며,
+이는 engineering preflight evidence로만 유지하고 Patch 8 formal hardware validation 또는 formal research data로 사용하지 않는다.
+
+2026-10-04 `PROV-004`에서 Patch 4.5 MediaPipe Model Artifact Lock의 Design Freeze를 완료했고,
+commit `aef7f34`에서 구현했다. 기존 171 tests + 신규 33 tests = `204 tests PASS`를 확인했으며,
+독립 Claude Opus READ-ONLY audit 결과는 `PASS WITH MINOR FINDINGS / ACCEPT WITH MINOR NOTES`,
+BLOCKER/IMPORTANT 0건이다.
+
+`docs/foundation/PATCH_04_5_mediapipe_model_artifact_lock.md` Foundation Record를 작성했고,
+documentation closure commit `26daf50`까지 완료했다.
+현재 다음 작업은 Patch 4.5 status-sync commit → push → branch final review → main merge다.
+main merge 완료 후 다음 required Foundation milestone은 Patch 5 End-to-End Lineage Hardening이다.
 
 아직 F1/F2 핵심 수식을 구현하는 단계가 아니다.
 
@@ -1043,49 +1088,179 @@ formal framing/coverage와 D455 hardware stability는 `OPEN-005` / `OPEN-006`의
 
 ---
 
-## Early Hardware Preflight — OPTIONAL / NON-FORMAL
+## Early Hardware Preflight — DONE / NON-FORMAL
 
-Patch 4 software closure 이후 실제 장치 연결과 기본 extraction path를 조기에 점검하기 위한
-제한된 engineering smoke/preflight는 수행할 수 있다.
+2026-10-02 실제 Intel RealSense D455로 제한된 engineering preflight를 수행했다.
+
+확인된 범위:
 
 ```text
-Patch 8 대체 아님
-research evidence 아님
-formal participant collection 아님
-threshold / protocol decision 도출 근거 아님
+D455 인식                                      PASS
+RGB + Depth streaming                         PASS
+약 70초 DB3 recording                         PASS
+color/depth frames                            1056 / 1056
+평균 frame rate                               약 14.9 FPS
+check_recording.py                            PASS
+Patch 4 analyze_d455.py                       PASS
+canonical frame CSV                           649 rows
+frame schema                                  frames-schema/1.0.0 / 60 fields
+recording_id / analysis_run_id / frame_index  확인
+source color/depth frame number               확인
+MediaPipe timestamp                           확인
+bilateral hip x/y/depth/visibility            실제 값 확인
 ```
 
-이 preflight는 Patch 4.5~8의 canonical 순서를 재배치하거나 OPEN-006을 해소하지 않는다.
+단, 이 recording은 처음 capture할 때 현재 Git clone이 아닌 예전 ZIP 작업 폴더를 사용했으므로 capture-side Git provenance가 완전하지 않다.
+원본 DB3와 sidecar/analysis는 Windows PC 로컬에 보존하고 Git에는 포함하지 않는다.
+
+따라서 이 결과의 역할은 다음으로 제한한다.
+
+```text
+Early Hardware Preflight evidence
+= engineering smoke / extraction-path sanity evidence
+
+Patch 8 formal hardware validation evidence
+= 아님
+
+formal research data
+= 아님
+
+threshold / protocol decision 도출 근거
+= 아님
+```
+
+이 preflight는 Patch 4.5~8의 canonical 순서를 재배치하거나 `OPEN-006`을 해소하지 않는다.
 
 ---
 
-## Patch 4.5 — REQUIRED BEFORE FORMAL DATA WORK
+## Patch 4.5 — DONE / SOFTWARE-VERIFIED / INDEPENDENTLY AUDITED / DOCUMENTATION-CLOSED
 
 ```text
 MediaPipe Model Artifact Lock
 ```
 
-Patch 3은 model artifact hash를 **기록**한다.
+Patch 3은 실제 사용 model artifact의 hash를 **기록**한다.
+Patch 4.5는 허용되는 exact model artifact identity를 별도로 **강제**한다.
 
-그러나 아직:
-
-```text
-허용된 exact hash를 강제
-```
-
-하지 않는다.
-
-Patch 4.5에서:
+Design Freeze authority:
 
 ```text
-model artifact
-SHA-256
-source/version
-allowed lock
-mismatch failure
+docs/research/RESEARCH_DECISION_LOG.md
+→ PROV-004 — Patch 4.5 MediaPipe Model Artifact Lock Design Freeze
 ```
 
-를 명시적으로 고정한다.
+관련 commit:
+
+```text
+Design Freeze
+6b69255
+docs: freeze Patch 4.5 model artifact lock design
+
+implementation
+aef7f34
+feat: implement Patch 4.5 model artifact lock
+
+documentation closure
+26daf50
+docs: close Patch 4.5 model artifact lock milestone
+```
+
+canonical tracked manifest:
+
+```text
+repository root / mediapipe_model_lock.json
+lock schema = mediapipe-model-lock/1.0.0
+```
+
+Frozen artifact set:
+
+```text
+face
+= blaze_face_short_range.tflite
+= versioned /1/ source
+= exact SHA-256 lock
+
+mesh
+= face_landmarker.task
+= versioned /1/ source
+= exact SHA-256 lock
+
+pose
+= pose_landmarker_full.task
+= GCS generation 1682642787774579 qualified source
+= exact SHA-256 lock
+```
+
+implemented policy:
+
+```text
+existing artifact hash match
+→ verified cached artifact 사용
+→ network access 없음
+
+existing artifact hash mismatch
+→ HARD FAIL
+→ automatic overwrite / redownload / delete / rename / fallback 금지
+
+artifact missing
+→ exact locked source에서 temporary download
+→ complete SHA-256 verification
+→ PASS 후 verified final install
+
+raw inference provenance
+→ actual filesystem SHA-256
+ = lock SHA-256
+ = recorded provenance SHA-256
+
+--from-csv historical reprocessing
+→ current lock/model provisioning 및 verification 불필요
+→ historical parent model provenance 유지
+```
+
+MediaPipe Python package version은 environment provenance에 기록하되
+Patch 4.5 model artifact lock에는 포함하지 않는다.
+
+verification:
+
+```text
+pre-change baseline        171 tests PASS
+new Patch 4.5 tests         33 tests PASS
+final full suite           204 tests PASS
+
+independent audit
+→ PASS WITH MINOR FINDINGS
+→ ACCEPT WITH MINOR NOTES
+
+BLOCKER
+→ 0
+
+IMPORTANT
+→ 0
+```
+
+독립 audit의 4개 MINOR finding은 Foundation Record에 기록했으며,
+현재 exact artifact integrity를 우회하거나 PROV-004를 위반하는 defect로 판정되지 않았다.
+
+Foundation Record:
+
+```text
+docs/foundation/PATCH_04_5_mediapipe_model_artifact_lock.md
+```
+
+현재 상태:
+
+```text
+Design Freeze       DONE — PROV-004 / 6b69255
+Implementation      DONE — aef7f34
+Tests               DONE — 204 PASS
+Independent audit   DONE — PASS WITH MINOR FINDINGS
+Foundation Record   CREATED
+Documentation close DONE — 26daf50
+Branch finalization NEXT
+```
+
+새 D455 raw run은 Patch 4.5 closure criterion이 아니다.
+formal D455 hardware validation은 계속 Patch 8 범위다.
 
 ---
 
@@ -1349,6 +1524,8 @@ runtime/FPS를 새 핵심 연구축으로 승격
 22. face bbox와 contour/oval 표현 차이를 **secondary exploratory analysis candidate로 분류한다는 guardrail은 확정**하되, 실제 분석 채택·metric·F1/F2 포함·최종 논문 사용 여부는 `FEAT-008 (DEFERRED)`로 남긴다.
 
 23. `DATA-003`에 따라 Patch 4 exact canonical raw frame contract는 `frames-schema/1.0.0`으로 freeze되었다. 총 60 fields이며 legacy 31 ordered prefix + metadata/state 17 + bilateral hip 12 구조다. 해당 contract의 Python 구현은 commit `110cce6`에서 완료됐지만 F1/F2 feature 확정을 의미하지 않는다.
+
+24. `PROV-004`에 따라 Patch 4.5 MediaPipe model artifact contract는 `mediapipe-model-lock/1.0.0`으로 freeze되었고 commit `aef7f34`에서 구현 완료됐다. raw inference는 locked artifact verification을 통과해야 하며, `--from-csv` historical reprocessing에는 current model lock/provisioning을 강제하지 않는다.
 ```
 
 ---
@@ -1375,7 +1552,6 @@ F2 missing-depth policy
 
 >6 feature에서 rank_weights exact policy (M1/M2 shared weighting 경로)
 
-MediaPipe exact lock hashes
 
 formal participant 수
 formal round 수
@@ -1405,13 +1581,13 @@ bbox-vs-contour/oval의 F1/F2 feature 포함 여부 및 최종 논문 채택 여
 다음이 완료되기 전 대규모 formal 수집을 시작하지 않는다.
 
 ```text
-Patch 4   canonical schema + hip
-Patch 4.5 model lock
-Patch 5   lineage
-Patch 6   selection policy
-Patch 7   integrity
-Patch 8   actual D455 E2E validation
-EXPERIMENT_PROTOCOL freeze
+Patch 4   canonical schema + hip        DONE
+Patch 4.5 model lock                    DONE
+Patch 5   lineage                       PENDING
+Patch 6   selection policy              PENDING
+Patch 7   integrity                     PENDING
+Patch 8   actual D455 E2E validation    PENDING
+EXPERIMENT_PROTOCOL freeze              PENDING
 ```
 
 pilot/smoke/validation 촬영은 별개다.
@@ -1565,19 +1741,57 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
    → commit 144a264
    → docs: close Patch 4 implementation milestone
 
-10. Early Hardware Preflight                                                      OPTIONAL / NON-FORMAL
-   → engineering smoke only
-   → Patch 8 / research evidence / formal collection 대체 아님
+10. Early Hardware Preflight                                                      DONE — NON-FORMAL
+   → 2026-10-02 actual D455 engineering preflight 수행
+   → Patch 8 / formal research evidence / formal collection 대체 아님
 
-11. Patch 4.5 MediaPipe Model Artifact Lock                                      NEXT REQUIRED FOUNDATION
+11. Patch 4.5 MediaPipe Model Artifact Lock Design Freeze                        DONE
+   → PROV-004
+   → Design Freeze commit 6b69255
+   → exact artifact / source-version / SHA-256 contract frozen
+
+12. Patch 4.5 MediaPipe Model Artifact Lock implementation                       DONE
+   → implementation commit aef7f34
+   → mediapipe-model-lock/1.0.0
+   → fail-closed existing-artifact verification
+   → verified temporary download / install
+   → Patch 3 provenance linkage
+   → --from-csv historical isolation
+   → 171 existing + 33 new = 204 tests PASS
+
+13. Patch 4.5 independent READ-ONLY audit                                        DONE — ACCEPT
+   → Claude Opus
+   → PASS WITH MINOR FINDINGS
+   → ACCEPT WITH MINOR NOTES
+   → BLOCKER 0 / IMPORTANT 0
+   → 204 tests reproduced PASS
+
+14. Patch 4.5 Foundation Record                                                  DONE
+   → docs/foundation/PATCH_04_5_mediapipe_model_artifact_lock.md
+   → 4 accepted MINOR notes documented
+
+15. Patch 4.5 documentation closure commit                                       DONE
+   → commit 26daf50
+   → docs: close Patch 4.5 model artifact lock milestone
+   → Foundation Record + AIoT_RESEARCH_MASTER v1.4 closure alignment
+
+16. Patch 4.5 status-sync / push / branch final review                           NEXT
+   → 26daf50 closure 사실을 Master/Foundation Record 상태에 반영
+   → docs-only status-sync commit
+   → push 후 branch final review
+
+17. Patch 4.5 main merge                                                         FOLLOWING
+   → branch final review 통과 후 main에 merge
+
+18. Patch 5 End-to-End Lineage Hardening                                         FOLLOWING REQUIRED FOUNDATION
+   → Patch 4.5 main merge 완료 후 시작
 ```
-
 
 ---
 
 # 22. Source Basis
 
-본 v1.2는 다음을 통합한 **현재 기준 문서**다.
+본 v1.4는 다음을 통합한 **현재 기준 문서**다.
 
 ```text
 - 실제 현재 repository / Git history
@@ -1588,6 +1802,15 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 - FOUNDATION_PRELUDE_00
 - canonical `PATCH_01_capture_provenance.md` ~ `PATCH_03_analysis_provenance.md`
 - `docs/foundation/PATCH_04_canonical_frame_schema.md`
+- `docs/research/RESEARCH_DECISION_LOG.md`의 `PROV-004` Patch 4.5 Design Freeze
+- Patch 4.5 Design Freeze commit `6b69255`
+- Patch 4.5 implementation commit `aef7f34`
+- Patch 4.5 documentation closure commit `26daf50`
+- repository root `mediapipe_model_lock.json`
+- Patch 4.5 software verification: 204 tests PASS
+- independent Claude Opus READ-ONLY audit: PASS WITH MINOR FINDINGS / ACCEPT WITH MINOR NOTES
+- `docs/foundation/PATCH_04_5_mediapipe_model_artifact_lock.md`
+- 2026-10-02 actual D455 Early Hardware Preflight의 local engineering evidence (formal research data 아님)
 - 바른자세 알고리즘개량 연구마스터 v6.1
 - 현재까지 진행상황 인계요약
 - 이후 교수 피드백 반영 및 대화에서 확정된
@@ -1610,3 +1833,5 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 | `v1.0` | 2026-10-01 | 역사/Foundation 정리 이후 현재 연구 방향을 재기준화. M0/M1/M2 역할, F0/F_cal/F1/F2, calibration-free 원칙, data role, operational Patch 1~8, Research Stage 전환, unresolved research decisions를 통합 |
 | `v1.1` | 2026-10-01 | `DATA-003` Patch 4 Design Freeze 반영. `OPEN-001` 해소, `frames-schema/1.0.0` exact 60-field contract를 frozen-but-unimplemented로 전환, elbow/wrist `exclude-and-version-later`, 다음 단계는 Patch 4 implementation으로 갱신 |
 | `v1.2` | 2026-10-02 | commit `110cce6`의 Patch 4 구현·hardening·171-test 검증·독립 software audit와 commit `144a264`의 documentation/authority closure 완료를 반영. 실제 D455 validation과 OPEN-002~OPEN-006은 계속 pending이다. Early Hardware Preflight는 optional/non-formal이며, 다음 required Foundation milestone은 Patch 4.5 MediaPipe Model Artifact Lock이다. |
+| `v1.3` | 2026-10-04 | Patch 4 main merge `d923b23` 및 현재 Patch 4.5 branch baseline을 동기화. 2026-10-02 실제 D455 Early Hardware Preflight 수행 결과를 non-formal engineering evidence로 기록하고, `PROV-004`에 따른 Patch 4.5 MediaPipe Model Artifact Lock Design Freeze 완료를 반영. 다음 required Foundation 작업은 Patch 4.5 implementation이다. |
+| `v1.4` | 2026-10-04 | Patch 4.5 implementation commit `aef7f34`, `mediapipe-model-lock/1.0.0`, 기존 171 + 신규 33 = 204 tests PASS, 독립 Claude Opus READ-ONLY audit `PASS WITH MINOR FINDINGS / ACCEPT WITH MINOR NOTES` 및 BLOCKER/IMPORTANT 0건을 반영. `docs/foundation/PATCH_04_5_mediapipe_model_artifact_lock.md` Foundation Record와 documentation closure commit `26daf50`을 current state에 연결하고 model-lock exact values를 미확정 목록에서 제거했다. 현재 다음 작업은 Patch 4.5 status-sync/push/branch final review/main merge이며, main merge 이후 다음 required Foundation milestone은 Patch 5 End-to-End Lineage Hardening이다. |
