@@ -7,6 +7,9 @@ data/
 analysis/
 results/
 
+# Local MediaPipe runtime artifacts (contract: mediapipe_model_lock.json)
+models/
+
 # Python
 __pycache__/
 *.pyc

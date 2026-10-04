@@ -516,10 +516,15 @@ class FrameSchemaTests(unittest.TestCase):
         Path(str(base) + "_markers.csv").write_text(
             "frame_timestamp_ms,phase,label,step\n0,hold,upright,1\n10000,end,end,\n", encoding="utf-8")
         model_paths = {}
-        for role, (filename, _) in analysis.MODELS.items():
+        lock = analysis.read_json(analysis.MODEL_LOCK_PATH)
+        for role, filename in analysis.MODEL_FILENAMES.items():
             path = self.root / filename
             path.write_bytes(("model-" + role).encode())
             model_paths[role] = str(path)
+            next(entry for entry in lock["artifacts"] if entry["role"] == role)["sha256"] = hashlib.sha256(
+                path.read_bytes()).hexdigest()
+        lock_path = self.root / "mediapipe_model_lock.json"
+        analysis.write_json(lock_path, lock)
         args = types.SimpleNamespace(subjects=["P03"], step=1, from_csv=False, legacy_pilot=False)
 
         def fake_process(path, models, step, provenance=None, output_dir=None):
@@ -532,6 +537,7 @@ class FrameSchemaTests(unittest.TestCase):
             return [row]
 
         with patch.object(analysis, "ensure_models", return_value=model_paths), \
+                patch.object(analysis, "MODEL_LOCK_PATH", str(lock_path)), \
                 patch.object(analysis, "process_recording", side_effect=fake_process), \
                 patch.object(analysis, "analysis_code", return_value={}), \
                 patch.object(analysis, "analysis_environment", return_value={}), \

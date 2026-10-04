@@ -48,6 +48,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 import urllib.request
 import uuid
 import warnings
@@ -60,16 +61,16 @@ import numpy as np
 DATA_DIR = "data"
 OUT_DIR = "analysis"
 MODEL_DIR = "models"
-MODELS = {
-    "face": ("blaze_face_short_range.tflite",
-             "https://storage.googleapis.com/mediapipe-models/face_detector/"
-             "blaze_face_short_range/float16/latest/blaze_face_short_range.tflite"),
-    "mesh": ("face_landmarker.task",
-             "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
-             "face_landmarker/float16/latest/face_landmarker.task"),
-    "pose": ("pose_landmarker_full.task",
-             "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
-             "pose_landmarker_full/float16/latest/pose_landmarker_full.task"),
+MODEL_LOCK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mediapipe_model_lock.json")
+MODEL_FILENAMES = {
+    "face": "blaze_face_short_range.tflite",
+    "mesh": "face_landmarker.task",
+    "pose": "pose_landmarker_full.task",
+}
+MODEL_SOURCE_PATHS = {
+    "face": "/mediapipe-models/face_detector/blaze_face_short_range/float16/",
+    "mesh": "/mediapipe-models/face_landmarker/face_landmarker/float16/",
+    "pose": "/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/",
 }
 # 얼굴 외곽선(턱선~이마) 랜드마크 순서 - 머리카락·배경을 제외한 얼굴 영역(세그먼트)
 FACE_OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377,
@@ -434,11 +435,12 @@ def start_analysis_run(path, args, batch_id):
     return run_dir, manifest
 
 
-def record_model_artifacts(manifest, paths):
-    manifest["models"] = [dict(artifact_info(path, manifest["provenance_unknown_reasons"]),
-                               role=key, source_url=MODELS[key][1], source_url_kind="configured_download_url",
-                               version_identifier=None, used_in_this_run=False)
-                          for key, path in paths.items()]
+def record_model_artifacts(manifest, paths, lock=None):
+    lock = load_model_lock() if lock is None else lock
+    manifest["models"] = [dict(verify_model_artifact(paths[role], entry),
+                               role=role, source_url=entry["source_url"], source_url_kind="configured_download_url",
+                               version_identifier=entry["version_identifier"], used_in_this_run=False)
+                          for role, entry in lock.items()]
 
 
 def mark_model_used(manifest, role):
@@ -493,19 +495,109 @@ def finish_analysis_run(directory, manifest, error=None, ended_at=None):
 
 
 # ---------------------------------------------------------------- 준비
-def ensure_models():
+def load_model_lock():
+    """Validate the tracked artifact contract before raw inference/provisioning."""
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate model lock JSON key: {key}")
+            result[key] = value
+        return result
+
+    try:
+        with open(MODEL_LOCK_PATH, encoding="utf-8") as source:
+            value = json.load(source, object_pairs_hook=unique_object)
+    except (OSError, ValueError) as error:
+        raise ValueError(f"cannot load model lock {MODEL_LOCK_PATH}: {error}") from error
+    if not isinstance(value, dict) or set(value) != {"lock_schema_version", "artifacts"}:
+        raise ValueError("invalid model lock top-level structure")
+    if value["lock_schema_version"] != "mediapipe-model-lock/1.0.0":
+        raise ValueError(f"unsupported model lock schema: {value['lock_schema_version']!r}")
+    if not isinstance(value["artifacts"], list):
+        raise ValueError("malformed model lock artifacts collection")
+    lock = {}
+    fields = {"role", "filename", "source_url", "version_identifier", "sha256"}
+    for entry in value["artifacts"]:
+        if not isinstance(entry, dict) or set(entry) != fields or any(
+                not isinstance(entry[field], str) or not entry[field] for field in fields):
+            raise ValueError("invalid model lock artifact fields")
+        role = entry["role"]
+        if role not in MODEL_FILENAMES:
+            raise ValueError(f"unknown model lock role: {role}")
+        if role in lock:
+            raise ValueError(f"duplicate model lock role: {role}")
+        if entry["filename"] != MODEL_FILENAMES[role]:
+            raise ValueError(f"invalid model lock filename for {role}: {entry['filename']}")
+        if re.fullmatch(r"[0-9a-f]{64}", entry["sha256"]) is None:
+            raise ValueError(f"invalid canonical SHA-256 for {role}: {entry['sha256']}")
+        validate_model_source(entry)
+        lock[role] = entry
+    if set(lock) != set(MODEL_FILENAMES):
+        raise ValueError(f"missing model lock roles: {sorted(set(MODEL_FILENAMES) - set(lock))}")
+    return {role: lock[role] for role in MODEL_FILENAMES}
+
+
+def validate_model_source(entry):
+    role, source, version = entry["role"], entry["source_url"], entry["version_identifier"]
+    url = urllib.parse.urlsplit(source)
+    prefix = MODEL_SOURCE_PATHS[role]
+    suffix = "/" + entry["filename"]
+    if (url.geturl() != source or any(char.isspace() for char in source) or
+            url.scheme != "https" or url.netloc != "storage.googleapis.com" or url.fragment or
+            not url.path.startswith(prefix) or not url.path.endswith(suffix)):
+        raise ValueError(f"invalid model lock source_url for {role}: {source}")
+    locator = url.path[len(prefix):-len(suffix)]
+    if re.fullmatch(r"[1-9][0-9]*", locator) and not url.query and version == locator:
+        return
+    generation = re.fullmatch(r"generation=([1-9][0-9]*)", url.query)
+    if (role == "pose" and locator == "latest" and generation and
+            version == "gcs-generation:" + generation[1]):
+        return
+    raise ValueError(f"invalid model lock source/version contract for {role}: {source} / {version}")
+
+
+def verify_model_artifact(path, entry):
+    """Return actual filesystem provenance only after a complete matching hash."""
+    info = artifact_info(path, {})
+    if info["hash_status"] != "complete":
+        raise OSError(f"cannot completely hash model artifact: {os.path.abspath(path)}")
+    if info["sha256"] != entry["sha256"]:
+        raise ValueError(f"model artifact SHA-256 mismatch: {os.path.abspath(path)}\n"
+                         f"expected SHA-256: {entry['sha256']}\nactual SHA-256: {info['sha256']}")
+    return info
+
+
+def provision_model_artifact(path, entry):
+    if os.path.lexists(path):
+        verify_model_artifact(path, entry)
+        return
+    fd, temporary = tempfile.mkstemp(prefix=".model-", suffix=".tmp", dir=os.path.dirname(path))
+    os.close(fd)
+    try:
+        print(f"[모델 다운로드] {entry['filename']} ...")
+        urllib.request.urlretrieve(entry["source_url"], temporary)
+        verify_model_artifact(temporary, entry)
+        try:
+            # Atomic publication without replacement; both paths are on the same filesystem.
+            os.link(temporary, path)
+        except FileExistsError:
+            verify_model_artifact(path, entry)
+    finally:
+        os.unlink(temporary)
+
+
+def ensure_models(lock=None):
+    lock = load_model_lock() if lock is None else lock
     os.makedirs(MODEL_DIR, exist_ok=True)
-    paths = {}
-    for key, (fname, url) in MODELS.items():
-        path = os.path.join(MODEL_DIR, fname)
-        if not os.path.exists(path):
-            print(f"[모델 다운로드] {fname} ...")
-            try:
-                urllib.request.urlretrieve(url, path)
-            except Exception as e:
-                print(f"[오류] 모델 다운로드 실패: {e}\n  아래 주소에서 직접 받아 {MODEL_DIR} 폴더에 넣어주세요:\n  {url}")
-                sys.exit(1)
-        paths[key] = path
+    paths = {role: os.path.join(MODEL_DIR, entry["filename"]) for role, entry in lock.items()}
+    # Diagnose every cached artifact before any network operation.
+    for role, path in paths.items():
+        if os.path.lexists(path):
+            verify_model_artifact(path, lock[role])
+    for role, path in paths.items():
+        if not os.path.lexists(path):
+            provision_model_artifact(path, lock[role])
     return paths
 
 
@@ -1227,7 +1319,8 @@ def run_analysis(files, args):
         for path in files:
             directory, manifest = start_analysis_run(path, args, batch_id)
             runs.append((path, directory, manifest))
-        models = None if args.from_csv else ensure_models()
+        lock = None if args.from_csv else load_model_lock()
+        models = None if args.from_csv else ensure_models(lock)
         for path, directory, manifest in runs:
             if args.from_csv:
                 snapshot = archive_output(path, directory, manifest, "source_frames")
@@ -1235,7 +1328,7 @@ def run_analysis(files, args):
                     raise ValueError("source frames changed before reprocessing")
                 rows = load_frames_csv(args.subjects, paths=[snapshot["path"]])
             else:
-                record_model_artifacts(manifest, models)
+                record_model_artifacts(manifest, models, lock)
                 rows = process_recording(path, models, max(1, args.step), provenance=manifest, output_dir=directory)
                 if rows:
                     frame_path = os.path.join(directory, os.path.splitext(os.path.basename(path))[0] + "_frames.csv")

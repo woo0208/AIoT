@@ -1,0 +1,26 @@
+{
+  "lock_schema_version": "mediapipe-model-lock/1.0.0",
+  "artifacts": [
+    {
+      "role": "face",
+      "filename": "blaze_face_short_range.tflite",
+      "source_url": "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",
+      "version_identifier": "1",
+      "sha256": "b4578f35940bf5a1a655214a1cce5cab13eba73c1297cd78e1a04c2380b0152f"
+    },
+    {
+      "role": "mesh",
+      "filename": "face_landmarker.task",
+      "source_url": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+      "version_identifier": "1",
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+    },
+    {
+      "role": "pose",
+      "filename": "pose_landmarker_full.task",
+      "source_url": "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task?generation=1682642787774579",
+      "version_identifier": "gcs-generation:1682642787774579",
+      "sha256": "4eaa5eb7a98365221087693fcc286334cf0858e2eb6e15b506aa4a7ecdcec4ad"
+    }
+  ]
+}
