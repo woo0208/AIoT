@@ -115,8 +115,8 @@ KOREAN_OK = PIL_OK and font(20) is not None
 def validate_capture_identity(subject, rnd, dataset_role):
     if not re.fullmatch(r"[A-Za-z0-9-]+", subject):
         raise ValueError("subject는 영문·숫자·하이픈만 사용할 수 있습니다.")
-    if not re.fullmatch(r"[0-9]+", rnd) or int(rnd) < 1:
-        raise ValueError("round는 양의 정수 문자열이어야 합니다.")
+    if not isinstance(rnd, str) or not re.fullmatch(r"[1-9][0-9]*", rnd):
+        raise ValueError("round는 선행 0 없는 양의 정수 문자열이어야 합니다.")
     if dataset_role not in DATASET_ROLES:
         raise ValueError(f"dataset_role은 {', '.join(DATASET_ROLES)} 중 하나여야 합니다.")
 

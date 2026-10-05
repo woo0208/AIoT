@@ -370,7 +370,7 @@ class Patch5Tests(unittest.TestCase):
         self.assertEqual(manifest["dataset_manifest"], dict(dataset_manifest_id=None, path=None, sha256=None))
         self.assertEqual(set(manifest["code"]), {"git_commit", "git_dirty", "rf_script_sha256", "path"})
         self.assertEqual(manifest["code"]["rf_script_sha256"], hashlib.sha256(Path(rf.__file__).read_bytes()).hexdigest())
-        self.assertEqual(set(manifest["options"]), set("argv paper multiposture ours ours_frames trees seeds stride lams skip_paper_loso features".split()))
+        self.assertEqual(set(manifest["options"]), set("argv paper multiposture ours ours_frames dataset_manifest trees seeds stride lams skip_paper_loso features".split()))
         self.assertTrue(set("python os architecture numpy matplotlib openpyxl".split()) <= set(manifest["environment"]))
         self.assertEqual(set(manifest["inputs"]), {"paper", "multiposture", "ours"})
         lineage = [json.loads(line) for line in (directory / "sample_lineage.jsonl").read_text(encoding="utf-8").splitlines()]

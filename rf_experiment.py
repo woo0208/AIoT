@@ -52,6 +52,7 @@ import numpy as np
 warnings.filterwarnings("ignore", message=".*Glyph.*")
 OUT_DIR = "analysis"
 RESULTS_DIR = "results"
+REPO_ROOT = Path(__file__).resolve().parent
 FEAT_NAMES = ["A", "x_c", "y_c", "thetaL", "thetaR", "theta1"]
 PAPER_RANK_W = [0.30, 0.20, 0.15, 0.15, 0.15, 0.05]
 LAB5 = ["upright", "forward_head", "lean_back", "lean_left", "lean_right"]
@@ -340,6 +341,15 @@ def verify_inputs(inputs):
     for entry in inputs["ours"]:
         verify_file(entry["frames_path"], entry["frames_sha256"])
         verify_file(entry["analysis_manifest_path"], entry["analysis_manifest_sha256"])
+
+
+def verify_dataset_selection(manifest):
+    reference = manifest["dataset_manifest"]
+    if reference["path"] is not None:
+        from selection_manifest import resolve_dataset_manifest
+        inputs, current = resolve_dataset_manifest(reference["path"], REPO_ROOT, reference["sha256"])
+        if current != reference or inputs != manifest["inputs"]["ours"]:
+            raise ValueError("dataset manifest resolved inputs changed during experiment")
 
 
 # ================================================================ 랜덤 포레스트 (직접 구현)
@@ -934,6 +944,7 @@ def main():
     ours = ap.add_mutually_exclusive_group()
     ours.add_argument("--ours", nargs="*", default=None)
     ours.add_argument("--ours-frames", nargs="+", default=None)
+    ours.add_argument("--dataset-manifest", default=None)
     ap.add_argument("--trees", type=int, default=500)
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--stride", type=int, default=5)
@@ -950,11 +961,17 @@ def main():
         if a.multiposture:
             manifest["inputs"]["multiposture"] = dict(source_dataset_id="multiposture_dataset",
                                                       **file_identity(a.multiposture))
-        manifest["inputs"]["ours"] = resolve_ours_inputs(a.ours, a.ours_frames, compatibility_dir)
+        if a.dataset_manifest is not None:
+            from selection_manifest import resolve_dataset_manifest
+            manifest["inputs"]["ours"], manifest["dataset_manifest"] = resolve_dataset_manifest(
+                a.dataset_manifest, REPO_ROOT)
+        else:
+            manifest["inputs"]["ours"] = resolve_ours_inputs(a.ours, a.ours_frames, compatibility_dir)
         write_experiment_manifest(directory, manifest)
         OUT_DIR = str(directory)
         execute_experiment(a, directory, manifest)
         verify_inputs(manifest["inputs"])
+        verify_dataset_selection(manifest)
         verify_file(directory / "sample_lineage.jsonl", manifest["sample_lineage"]["sha256"])
         for name in ("rf_results.csv", "rf_results.txt", "fig5_rf_compare.png"):
             path = directory / name
@@ -1002,7 +1019,7 @@ def execute_experiment(a, directory, manifest):
         raise ValueError("paper sample lineage does not match model sample order")
     ref_p = yp == 0  # 원 논문: 사람마다 정상 자세 1장이 기준
     Xo0 = yo = meta = None
-    if a.ours or a.ours_frames:
+    if a.ours or a.ours_frames or a.dataset_manifest is not None:
         Xo0, yo, meta = load_ours(a.ours, log=log, inputs=manifest["inputs"]["ours"], lineage=ours_sources)
         if len(ours_sources) != len(yo):
             raise ValueError("canonical sample lineage does not match model sample order")
@@ -1024,12 +1041,13 @@ def execute_experiment(a, directory, manifest):
             raise ValueError("MultiPosture sample lineage does not match model sample order")
     for fs in a.features:
         lineage += lineage_rows(paper_sources, manifest["experiment_run_id"], "paper_loso", fs)
-        if a.ours or a.ours_frames:
+        if a.ours or a.ours_frames or a.dataset_manifest is not None:
             lineage += lineage_rows(ours_sources, manifest["experiment_run_id"], "ours_external", fs,
                                     reference_steps)
     if a.multiposture:
         lineage += lineage_rows(multi_sources, manifest["experiment_run_id"], "multiposture_loso", "all")
     verify_inputs(manifest["inputs"])
+    verify_dataset_selection(manifest)
     # Persist before fitting: even a failed numerical execution retains every model input sample.
     manifest["sample_lineage"] = write_sample_lineage(directory, lineage)
     write_experiment_manifest(directory, manifest)
@@ -1040,7 +1058,7 @@ def execute_experiment(a, directory, manifest):
             rows += [dict(r, features=fs) for r in
                      loso(Xp, yp, gp, 5, a.trees, a.seeds, a.lams, f"[A] 원 논문 Dataset.xlsx ({fs})", log,
                           ref_mask=ref_p if fs == "relative" else None, feature_set=fs)]
-        if a.ours or a.ours_frames:
+        if a.ours or a.ours_frames or a.dataset_manifest is not None:
             if len(yo):
                 Xo = transform(Xo0, go, ref_o, fs)
                 rows += [dict(r, features=fs, dataset=f"C_ours_external ({fs})") for r in
@@ -1057,7 +1075,8 @@ def execute_experiment(a, directory, manifest):
     log("* M2의 λ는 탐색적으로 여러 값을 모두 보고함. 최종 결론은 학습 fold 안에서 λ를 고른 결과로 내야 함")
     keys = sorted({k for r in rows for k in r}) + list(RESULT_LINEAGE_FIELDS)
     for row in rows:
-        row.update(experiment_run_id=manifest["experiment_run_id"], dataset_manifest_sha256=None,
+        row.update(experiment_run_id=manifest["experiment_run_id"],
+                   dataset_manifest_sha256=manifest["dataset_manifest"]["sha256"],
                    lineage_manifest_path="sample_lineage.jsonl",
                    lineage_manifest_sha256=manifest["sample_lineage"]["sha256"])
     with open(os.path.join(OUT_DIR, "rf_results.csv"), "x", newline="", encoding="utf-8-sig") as f:
