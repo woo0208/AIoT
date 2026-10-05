@@ -2261,3 +2261,268 @@ Patch 7 tests MUST demonstrate:
 
 Authority:
 PROV-009 — Patch 7 Mutable Compatibility Input Integrity Clarification
+
+---
+# Post-Freeze Clarification — PROV-010
+
+Status: CONFIRMED
+Logged: 2026-10-05
+
+This addendum clarifies two additional authority boundaries identified by the
+Patch 7 Round 2 independent READ-ONLY re-audit:
+
+1. how mutable compatibility publication identity is established across
+   modern and legacy-pilot naming; and
+2. when selection evidence requires a completed analysis owner.
+
+Authority:
+PROV-010 — Patch 7 Compatibility Identity and Selection-Evidence Completion Clarification
+
+## D-1. Mutable compatibility identity is provenance-defined
+
+The literal modern path:
+
+analysis/<recording_id>_frames.csv
+
+is an example of a mutable flat compatibility publication, not the complete
+identity rule for that artifact role.
+
+Patch 7 MUST identify the mutable compatibility publication through the
+explicit frozen provenance relationship recorded by the parent analysis
+output, including its `compatibility_path`, rather than by a filename pattern
+alone.
+
+Therefore both of the following may represent the same mutable semantic role:
+
+modern:
+analysis/<recording_id>_frames.csv
+
+legacy-pilot:
+analysis/<raw-stem>_frames.csv
+
+when the parent authoritative frames output explicitly identifies that path as
+its compatibility publication.
+
+The `.provenance.json` sibling associated with the explicitly identified flat
+publication follows the same historical compatibility semantics.
+
+## D-2. No wildcard or currentness inference
+
+Patch 7 MUST NOT infer mutable compatibility identity from:
+
+- `*_frames.csv` naming alone
+- basename similarity
+- mtime
+- ctime
+- directory order
+- lexical ordering
+- newest/largest analysis_run_id
+- any latest/newest heuristic
+
+An unrelated or immutable `*_frames.csv` remains subject to ordinary stored-hash
+verification.
+
+PROV-009's mutable-publication exception applies only when the artifact role is
+established by an explicit frozen provenance relationship.
+
+## D-3. Legacy historical CSV lifecycle
+
+The following legal legacy lifecycle MUST NOT fail solely because the flat
+publication was legitimately replaced:
+
+legacy raw analysis A
+→ parent frames output explicitly records legacy compatibility_path
+→ CSV-mode analysis B consumes that publication
+→ B preserves archived source_frames and explicit parent lineage
+→ later legacy raw analysis C replaces the same flat publication
+→ historical B flat-input SHA differs from the current flat SHA
+
+If B's immutable archived source and parent lineage remain intact, the historical
+flat SHA mismatch alone is NOT an integrity ERROR.
+
+Historical integrity remains anchored by:
+
+historical CSV-mode run
+→ archived source_frames
+→ explicit parent analysis identity
+→ parent analysis_manifest
+→ parent canonical frames/output
+→ authoritative stored hash
+
+The following remain ERROR:
+
+- archived source_frames missing
+- archived source_frames hash mismatch
+- archived source identity/schema mismatch
+- parent manifest missing
+- parent recording_id mismatch
+- parent analysis_run_id mismatch
+- parent canonical output missing
+- parent output ownership mismatch
+- parent authoritative hash mismatch
+- false current compatibility ownership claim
+
+## D-4. Selection evidence role is not selected-source role
+
+Patch 7 MUST preserve the Patch 6 distinction between:
+
+A. historical evidence referenced by a selection event; and
+B. a canonical analysis source selected for downstream consumption.
+
+Merely referencing an `analysis_manifest` as evidence does NOT automatically
+turn that analysis into a completed consumable canonical source.
+
+## D-5. Exclude evidence may reference a non-completed analysis
+
+For a Patch 6-valid exclude decision, a failed/running/incomplete analysis may be
+referenced as historical decision evidence when that role is allowed by the
+frozen Patch 6 contract.
+
+Patch 7 MUST NOT report OWNER_MISMATCH solely because:
+
+analysis status != completed
+
+when validating that exclude evidence.
+
+However, all applicable historical-evidence integrity checks remain mandatory,
+including:
+
+- manifest existence and parseability
+- recording_id
+- analysis_run_id
+- recorded output path
+- declared artifact existence
+- stored SHA versus actual bytes
+- canonical frames header/schema
+- row identity
+- owner/output relation
+- selection-event reference consistency
+
+Non-completed status is not corruption by itself; corrupted evidence remains
+ERROR.
+
+## D-6. Include-selected canonical source still requires completion
+
+Where an include decision selects an analysis as the canonical source for
+dataset/RF/downstream consumption, all existing Patch 6 completed-owner
+requirements remain in force.
+
+Applicable include/consumer validation continues to require:
+
+- completed analysis owner
+- exact recording_id
+- exact analysis_run_id
+- exact frames artifact
+- exact hash
+- existing dataset-role and lineage constraints
+
+This clarification MUST NOT weaken completed-owner enforcement for:
+
+- include-selected analysis sources
+- dataset-manifest canonical sources
+- RF canonical inputs
+- parent authoritative sources where completion is required by frozen authority
+- current compatibility claims of canonical ownership
+
+## D-7. DF-17 interpretation
+
+DF-17 evidence validation does not create a new global rule that every
+`analysis_manifest` or `canonical_frames` artifact used as evidence must have a
+completed owner.
+
+Patch 7 MUST preserve status requirements already frozen by Patch 6 according
+to the artifact's role.
+
+For this ambiguity:
+
+exclude historical evidence
+→ historical/evidence integrity validation
+→ completion not required by status alone
+
+include-selected canonical source
+→ canonical consumer validation
+→ completion required
+
+This PROV-010 interpretation controls this specific conflict.
+
+## D-8. Required regressions
+
+Before Patch 7 implementation commit, targeted tests MUST demonstrate at least:
+
+### Legacy compatibility lifecycle
+
+1. legacy raw A → CSV B → later legacy raw C
+   → NO ERROR solely because B's historical flat SHA differs from the current
+     explicitly identified compatibility publication.
+
+2. Same lifecycle + archived source corruption
+   → ERROR.
+
+3. Same lifecycle + parent canonical source loss/corruption
+   → ERROR.
+
+4. Unrelated/non-compatibility `*_frames.csv` hash mismatch
+   → ERROR.
+
+### Selection evidence completion
+
+5. failed analysis + valid recorded output + Patch 6-valid exclude event using
+   that analysis as evidence
+   → NO ERROR solely because the analysis status is failed.
+
+6. Same exclude evidence + output hash corruption
+   → ERROR.
+
+7. Same exclude evidence + schema/identity corruption
+   → ERROR.
+
+8. Include decision selecting a non-completed analysis
+   → ERROR.
+
+## D-9. Scope / invariants
+
+This clarification does NOT change:
+
+- frames-schema/1.0.0
+- summary-schema
+- selection-event serialization
+- dataset-selection-manifest schema
+- RF experiment schema
+- sample-lineage schema
+- Patch 6 include semantics
+- RF completed-owner requirements
+- scientific inclusion/exclusion policy
+- retake policy
+- F1/F2 definitions
+- Patch 8 hardware-validation criteria
+
+The following invariants remain mandatory:
+
+1. Patch 7 remains READ-ONLY.
+2. PROV-009 remains in force.
+3. Compatibility identity is established through explicit provenance, not
+   filename guessing or currentness heuristics.
+4. Modern and legacy naming may represent the same mutable compatibility role.
+5. Historical CSV integrity remains anchored by immutable archived source +
+   explicit parent lineage.
+6. Exclude evidence is not promoted into a consumable canonical source merely
+   because it references an analysis manifest.
+7. Failed/running/incomplete status alone is not corruption.
+8. Corrupted historical evidence remains ERROR.
+9. Include-selected canonical sources retain completed-owner enforcement.
+10. RF/dataset consumer completion rules remain unchanged.
+11. Scientific/numerical behavior remains unchanged.
+12. Patch 1–6 schemas and selection semantics are not rewritten.
+
+## D-10. Round 3 commit gate
+
+Patch 7 implementation remains uncommitted until the focused Round 3 repair:
+
+- resolves Round 2 re-audit N-1
+- resolves Round 2 re-audit N-2
+- adds the required regressions above
+- passes targeted and full regression
+- passes a subsequent independent READ-ONLY re-audit with:
+
+BLOCKER == 0
+IMPORTANT == 0

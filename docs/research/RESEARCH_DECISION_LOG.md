@@ -1,6 +1,6 @@
 # Research Decision Log
 
-- 문서 버전: `v1.7`
+- 문서 버전: `v1.8`
 - 기준일: `2026-10-05`
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
@@ -1399,6 +1399,7 @@ final-test 결과를 본 parameter 변경
 | `v1.5` | 2026-10-05 | Patch 6 independent READ-ONLY implementation audit의 I-1/OA-1을 반영하여 `PROV-007`을 append. 동일 logical slot의 selection decision을 single-terminal linear supersession chain으로 제한하고, `round` canonical form을 `^[1-9][0-9]*$`로 확정 |
 | `v1.6` | 2026-10-05 | `PROV-008`을 append하여 Patch 7 Integrity Checker / Hardening의 repository-wide read-only integrity audit 역할, severity/success semantics, existing-authority reuse, missing/orphan/torn/external 처리 및 implementation boundary를 Design Freeze |
 | `v1.7` | 2026-10-05 | Patch 7 independent READ-ONLY implementation audit의 I-2를 반영하여 `PROV-009`를 append. historical CSV-mode input이 참조한 mutable flat compatibility publication의 교체를 corruption으로 보지 않고 immutable `source_frames` + parent analysis lineage로 historical integrity를 검증하도록 authority boundary를 명확화 |
+| `v1.8` | 2026-10-05 | Patch 7 Round 2 independent READ-ONLY re-audit의 N-1/N-2를 반영하여 `PROV-010`을 append. mutable compatibility publication을 explicit parent `compatibility_path` relation으로 식별하여 legacy-pilot naming까지 동일 semantics로 포함하고, exclude evidence와 include-selected canonical source의 completed-owner requirement를 역할별로 구분하도록 명확화 |
 
 ---
 
@@ -4760,5 +4761,619 @@ Clarifies:
 Resolves:
 - Patch 7 independent audit finding I-2:
   historical CSV-mode analysis falsely becoming permanent repository ERROR after legitimate re-analysis of the same recording.
+
+---
+
+## PROV-010 — Patch 7 Compatibility Identity and Selection-Evidence Completion Clarification
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-05
+**Decision timing:** Patch 7 Round 2 independent READ-ONLY re-audit에서 PROV-009의 filename-pattern scope와 Patch 6 exclude-evidence completion semantics에 대한 추가 ambiguity가 재현된 후
+
+### Context
+
+Patch 7 Round 2 independent READ-ONLY re-audit에서 두 개의 추가 false-positive path가 확인되었다.
+
+```text
+N-1
+PROV-009의 mutable compatibility exception이
+analysis/<recording_id>_frames.csv
+형식만 인식하여 legacy-pilot compatibility publication을 놓침.
+
+N-2
+selection evidence로 참조된 analysis_manifest의 frames output에
+completed-owner requirement를 무조건 적용하여,
+Patch 6에서 허용된 failed analysis evidence를 ERROR로 판정함.
+```
+
+두 finding 모두 corrupted repository가 아니라
+기존 frozen authority의 합법적 historical state를 Patch 7 checker가 과도하게 제한하면서 발생한다.
+
+---
+
+### Decision
+
+Patch 7은 다음 두 authority boundary를 추가로 명확히 한다.
+
+```text
+1. Mutable compatibility publication identity
+   → filename pattern 자체가 아니라
+      explicit frozen provenance relation으로 판단한다.
+
+2. Selection evidence completion requirement
+   → evidence reference와 consumable selected source를 구분한다.
+```
+
+---
+
+# 1. Mutable compatibility publication identity
+
+PROV-009의 다음 예시 경로:
+
+```text
+analysis/<recording_id>_frames.csv
+analysis/<recording_id>_frames.csv.provenance.json
+```
+
+는 mutable compatibility publication의 대표적인 modern naming example이다.
+
+이 literal filename pattern 자체가 compatibility artifact의 canonical identity rule은 아니다.
+
+Patch 7 checker는 mutable compatibility publication 여부를
+가능한 경우 parent authoritative frames output에 기록된 explicit provenance relation으로 판정한다.
+
+대표적으로:
+
+```text
+parent analysis_manifest
+        ↓
+frames output
+        ↓
+compatibility_path
+```
+
+관계를 사용한다.
+
+즉:
+
+```text
+compatibility_path
+```
+
+가 해당 parent output이 publish한 flat compatibility artifact를 명시적으로 가리킨다면,
+그 path는 filename spelling과 무관하게 PROV-009의 mutable compatibility semantics를 따른다.
+
+---
+
+## 1.1 Modern and legacy naming
+
+다음 두 형태는 naming rule은 다르지만
+동일한 semantic role의 mutable compatibility publication이 될 수 있다.
+
+```text
+modern:
+analysis/<recording_id>_frames.csv
+
+legacy-pilot:
+analysis/<raw-stem>_frames.csv
+```
+
+legacy-pilot recording에서 producer가 raw stem 기반 compatibility path를 사용하고,
+해당 path가 parent frames output의 frozen explicit `compatibility_path` relation으로 식별된다면,
+그 artifact 역시 PROV-009의 mutable compatibility publication으로 취급한다.
+
+따라서 정상 workflow:
+
+```text
+legacy raw analysis A
+→ legacy flat compatibility publication A
+→ CSV-mode analysis B consumes A
+→ B archives immutable source_frames / parent lineage
+→ later legacy raw re-analysis C
+→ same compatibility publication path replaced by C
+```
+
+에서:
+
+```text
+B historical flat-input SHA
+!=
+current legacy flat compatibility SHA
+```
+
+라는 사실만으로 B를 repository corruption으로 판정해서는 안 된다.
+
+---
+
+## 1.2 No filename-only or heuristic inference
+
+Patch 7은 compatibility identity를 판단하기 위해 다음을 authority로 사용하지 않는다.
+
+```text
+basename pattern guess
+mtime
+ctime
+directory order
+lexical latest
+newest analysis_run_id
+largest run ID
+```
+
+특히:
+
+```text
+*_frames.csv
+```
+
+라는 이름만으로 임의의 artifact를 mutable compatibility publication으로 승격하지 않는다.
+
+필요한 relation은 frozen authority가 제공하는 explicit provenance field와
+parent/output identity를 통해 확인한다.
+
+---
+
+## 1.3 Historical integrity remains immutable-lineage based
+
+modern 또는 legacy naming 여부와 무관하게,
+historical CSV-mode integrity는 계속 다음 chain으로 검증한다.
+
+```text
+historical CSV-mode analysis run
+        ↓
+archived source_frames
+        ↓
+explicit parent analysis identity
+        ↓
+parent analysis_manifest
+        ↓
+parent canonical frames/output
+        ↓
+stored authoritative SHA
+```
+
+따라서 다음은 계속 ERROR다.
+
+```text
+archived source_frames missing
+archived source_frames SHA mismatch
+archived source identity/schema mismatch
+parent manifest missing
+parent recording_id mismatch
+parent analysis_run_id mismatch
+parent canonical output missing
+parent output ownership mismatch
+parent authoritative SHA mismatch
+false compatibility ownership claim
+```
+
+본 clarification은 immutable lineage validation을 약화하지 않는다.
+
+---
+
+# 2. Selection evidence and completion semantics
+
+Patch 7은 selection event가 참조하는 analysis artifact를 다음 두 역할로 구분한다.
+
+```text
+A. evidence
+B. selected consumable source
+```
+
+두 역할은 동일하지 않다.
+
+---
+
+## 2.1 Exclude decision evidence
+
+Patch 6에서 exclude decision은
+실패하거나 불완전한 analysis state를 decision evidence로 참조할 수 있다.
+
+예:
+
+```text
+analysis status = failed
++
+valid recorded frames/output exists
++
+selection decision = exclude
++
+event cites analysis manifest as evidence
+```
+
+이 상태에서 해당 analysis artifact는:
+
+```text
+왜 exclude했는지를 증명하는 historical evidence
+```
+
+이지,
+
+```text
+향후 RF/dataset에서 소비할 canonical completed source
+```
+
+가 아니다.
+
+따라서 Patch 7 checker는 exclude evidence에 대해
+단지:
+
+```text
+analysis status != completed
+```
+
+라는 이유만으로 ERROR를 발생시키지 않는다.
+
+---
+
+## 2.2 Historical evidence validation
+
+exclude evidence가 non-completed analysis를 참조하더라도
+Patch 7은 가능한 integrity facts를 계속 검증한다.
+
+예:
+
+```text
+manifest 존재
+manifest parseability
+recording_id
+analysis_run_id
+recorded output path
+output existence
+stored SHA
+actual SHA
+frames header/schema
+row identity
+owner/output relation
+selection-event reference consistency
+```
+
+즉:
+
+```text
+non-completed
+```
+
+라는 상태만 허용되는 것이며,
+
+```text
+corrupted evidence
+```
+
+까지 허용되는 것은 아니다.
+
+---
+
+## 2.3 Include / selected canonical source
+
+selection decision이 실제 canonical source를 include/select하여
+후속 dataset/RF 소비 대상으로 지정하는 경우,
+기존 Patch 6 completed-owner requirement를 유지한다.
+
+즉 applicable include path에서는:
+
+```text
+selected analysis
+→ completed authority required
+```
+
+이다.
+
+Patch 7은 이를 약화하지 않는다.
+
+대표적으로 기존 frozen validator / selection source resolution이 요구하는:
+
+```text
+completed analysis owner
+exact recording_id
+exact analysis_run_id
+exact frames artifact
+exact hash
+dataset-role consistency
+```
+
+를 그대로 적용한다.
+
+---
+
+## 2.4 Evidence-kind analysis_manifest
+
+`analysis_manifest`가 selection evidence로 등장한다는 이유만으로
+그 manifest의 모든 frames output에 consumable canonical-input semantics를 강제하지 않는다.
+
+검증 mode는 해당 reference의 frozen role에 따라 구분한다.
+
+```text
+exclude evidence
+→ historical-output / evidence integrity validation
+→ completion not required by status alone
+
+include selected source
+→ canonical consumer validation
+→ completion required
+```
+
+---
+
+# 3. Relationship to DF-17 / Patch 6 authority
+
+Patch 7 Design Freeze DF-17의 evidence validation은
+Patch 6에서 이미 freeze된 selection semantics를 재정의하지 않는다.
+
+따라서 DF-17의 `analysis_manifest` / `canonical_frames` evidence validation 문구를
+모든 evidence에 completed-owner requirement를 새로 부과하는 규칙으로 해석하지 않는다.
+
+Patch 6에서 status requirement가 역할별로 다르게 freeze되어 있다면
+Patch 7은 그 차이를 보존해야 한다.
+
+이 특정 conflict에서는 본 PROV-010 interpretation이 우선한다.
+
+---
+
+# 4. What remains an ERROR
+
+본 clarification 이후에도 다음은 ERROR다.
+
+```text
+exclude evidence manifest missing
+
+exclude evidence path/hash mismatch
+
+exclude evidence frames schema/identity mismatch
+
+exclude event가 존재하지 않는 analysis_run_id를 claim
+
+include decision이 non-completed analysis를 selected canonical source로 사용
+
+dataset manifest가 non-completed selected analysis를 canonical source로 claim
+
+RF input이 non-completed owner를 canonical input으로 사용
+
+legacy/modern compatibility path를 explicit provenance relation 없이
+단순 filename guess로 mutable publication이라고 간주
+
+archived CSV source or parent immutable lineage corruption
+
+false current compatibility ownership claim
+```
+
+---
+
+# 5. What is NOT an ERROR
+
+다음 상태는 그 자체로 repository corruption이 아니다.
+
+```text
+Case A — legacy mutable compatibility lifecycle
+
+legacy raw A
+→ CSV B
+→ legacy raw C
+→ parent compatibility_path로 식별된 flat publication replaced
+→ B immutable archived lineage intact
+```
+
+결과:
+
+```text
+historical flat SHA != current flat SHA
+```
+
+여도 ERROR가 아니다.
+
+---
+
+```text
+Case B — exclude evidence from failed analysis
+
+analysis run fails after recording valid diagnostic output
+→ append-only selection event records exclude decision
+→ failed analysis manifest/output cited as evidence
+```
+
+이 경우:
+
+```text
+status == failed
+```
+
+라는 이유만으로 evidence를 ERROR로 판정하지 않는다.
+
+---
+
+# 6. Scope limitation
+
+본 clarification은 다음 두 항목에만 적용한다.
+
+```text
+1. PROV-009 mutable compatibility publication identity
+2. Patch 6 selection evidence completion semantics
+```
+
+다음을 변경하지 않는다.
+
+```text
+frames-schema/1.0.0
+summary-schema
+selection ledger serialization
+dataset manifest schema
+RF experiment schema
+sample lineage schema
+Patch 6 include semantics
+RF completed-owner requirement
+scientific inclusion/exclusion policy
+retake policy
+F1/F2 definition
+Patch 8 hardware validation
+```
+
+---
+
+# 7. Required regression tests
+
+Patch 7 implementation commit 전에 최소 다음 test를 추가한다.
+
+## N-1 regression
+
+```text
+legacy raw analysis A
+→ CSV-mode B consuming legacy flat compatibility publication
+→ later legacy raw analysis C replaces flat publication
+→ B archived immutable lineage intact
+
+Expected:
+NO ERROR solely from historical-flat SHA != current-flat SHA
+```
+
+Negative controls:
+
+```text
+same lifecycle + archived source corruption
+→ ERROR
+
+same lifecycle + parent canonical source loss/corruption
+→ ERROR
+
+unrelated/non-compatibility *_frames.csv hash mismatch
+→ ERROR
+```
+
+---
+
+## N-2 regression
+
+```text
+failed analysis
++
+valid recorded frames/output
++
+Patch 6-valid exclude event
++
+analysis_manifest used as exclude evidence
+
+Expected:
+NO ERROR solely because analysis status == failed
+```
+
+Negative controls:
+
+```text
+same exclude evidence + output hash corruption
+→ ERROR
+
+same exclude evidence + identity/schema corruption
+→ ERROR
+
+include decision selecting non-completed analysis
+→ ERROR
+```
+
+---
+
+# 8. Invariants
+
+```text
+1. Patch 7 remains READ-ONLY.
+
+2. PROV-009 remains in force.
+
+3. Mutable compatibility identity is established through explicit
+   provenance relation, not filename guess or latest/newest heuristic.
+
+4. Modern and legacy naming may represent the same mutable semantic role.
+
+5. Historical CSV-mode integrity remains anchored by immutable archived
+   source + parent lineage.
+
+6. Exclude evidence does not become a consumable canonical source merely
+   because it references an analysis manifest.
+
+7. Failed/running/incomplete status alone is not corruption.
+
+8. Corrupted historical evidence remains ERROR.
+
+9. Include/selected canonical sources retain completed-owner enforcement.
+
+10. RF/dataset consumer completion rules remain unchanged.
+
+11. Scientific/numerical behavior is unchanged.
+
+12. Patch 1–6 schemas and selection semantics are not rewritten.
+```
+
+---
+
+### Evidence / Source
+
+- Patch 7 Round 2 independent READ-ONLY re-audit
+  - `BLOCKER 0`
+  - `IMPORTANT 2`
+  - `MINOR 5`
+
+- re-audit finding `N-1`
+  - modern `recording_id`-named compatibility lifecycle passes
+  - legacy-pilot raw-stem-named compatibility lifecycle reproduces historical `HASH_MISMATCH`
+  - producer already records explicit compatibility relation through parent frames output
+
+- re-audit finding `N-2`
+  - Patch 6-valid exclude event can cite a failed analysis as evidence
+  - Patch 7 evidence path incorrectly reapplies completed-owner requirement
+
+- `PROV-008`
+- `PROV-009`
+- `docs/foundation/PATCH_07_integrity_checker_hardening.md`
+- Patch 3 legacy-pilot provenance contract
+- Patch 6 Selection Manifest / Recapture Inclusion frozen contract
+
+---
+
+### Impact
+
+Patch 7 implementation must be corrected so that:
+
+```text
+N-1:
+explicitly identified legacy mutable compatibility publication
+receives the same historical semantics as the modern equivalent.
+
+N-2:
+exclude evidence uses historical/evidence integrity validation,
+while include-selected canonical sources retain completion enforcement.
+```
+
+The repair must not:
+
+```text
+broaden compatibility exceptions by filename wildcard
+
+remove completed-owner checks from consumers
+
+rewrite selection history
+
+rewrite historical manifests
+
+introduce newest/latest heuristics
+
+change scientific or numerical behavior
+```
+
+Patch 7 implementation remains uncommitted until
+the Round 3 repair passes targeted/full regression and
+a subsequent independent READ-ONLY re-audit confirms:
+
+```text
+BLOCKER == 0
+IMPORTANT == 0
+```
+
+Supersedes:
+- None.
+
+Clarifies:
+- `PROV-009` compatibility-publication identity semantics beyond the modern `<recording_id>_frames.csv` naming example.
+- `PROV-008` / Patch 7 DF-17 evidence validation where Patch 6 distinguishes exclude evidence from include-selected canonical sources.
+
+Resolves:
+- Patch 7 Round 2 re-audit `N-1`
+- Patch 7 Round 2 re-audit `N-2`
 
 ---
