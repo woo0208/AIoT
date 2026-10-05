@@ -1,9 +1,9 @@
 # PATCH_06 — Selection Manifest / Recapture Inclusion
 
-- 문서 상태: **IMPLEMENTED / SOFTWARE-VERIFIED / INDEPENDENTLY RE-AUDITED / DOCUMENTATION-CLOSED / MAIN-INTEGRATION PENDING**
+- 문서 상태: **COMPLETE / MAIN-INTEGRATED / POST-MERGE VERIFIED**
 - 기준일: `2026-10-05`
 - clarification date: `2026-10-05`
-- 기준 repository state: `patch6/selection-manifest` / Design Freeze `432da73` / clarification `3235220` / implementation `9c5fff9`; `main`/`origin/main`은 merge 전 `432da73`
+- 기준 repository state: `main` / Design Freeze `432da73` / clarification `3235220` / implementation `9c5fff9` / documentation closure `950d2ce` / main merge `2058db1`
 - Decision Log authority: `PROV-006` + `PROV-007` clarification
 - 선행 Foundation:
   - Foundation Prelude — DONE
@@ -17,7 +17,7 @@
 - implementation commit: `9c5fff9` — `feat: implement Patch 6 selection manifest`
 - committed-state verification: Patch 6 targeted `75 PASS` / Patch 5 lineage `48 PASS` / capture protocol `56 PASS` / full suite `330 PASS`
 - independent re-audit: **PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0 / MINOR 1 / implementation commit recommendation YES**
-- implementation status: **DONE — documentation closure complete in this change; main integration pending**
+- implementation status: **COMPLETE — documentation closure `950d2ce`, main integration `2058db1`, immediate post-merge full regression `330 PASS`**
 
 ---
 
@@ -1656,10 +1656,13 @@ test_patch6_selection.py
 [x] implementation commit
     → 9c5fff9
 [x] Foundation documentation closure completed
-    → this documentation-closure change
-[ ] main merge
-[ ] post-merge regression
-[ ] status sync
+    → 950d2ce
+[x] main merge
+    → 2058db1 = merge: integrate Patch 6 selection manifest
+[x] post-merge regression
+    → full suite 330 PASS
+[x] status sync
+    → current post-merge status-sync change
 ```
 
 ---
@@ -1981,7 +1984,58 @@ docs: close Patch 6 selection manifest milestone
 
 ---
 
+# 27.1 Post-Merge Status Sync — 2026-10-05
+
+Patch 6 was integrated into `main` by:
+
+```text
+2058db1
+merge: integrate Patch 6 selection manifest
+```
+
+The documentation-closure commit included by that merge is:
+
+```text
+950d2ce
+docs: close Patch 6 documentation
+```
+
+Immediately after the merge, the repository was verified with:
+
+```text
+python -X utf8 -m unittest -q
+→ Ran 330 tests
+→ OK
+```
+
+`git status --short` was clean at the verification point.
+
+Therefore Patch 6 is no longer in `MAIN-INTEGRATION PENDING` state.
+
+Canonical current status:
+
+```text
+COMPLETE / MAIN-INTEGRATED / POST-MERGE VERIFIED
+```
+
+This status sync does not change:
+
+```text
+selection-event/1.0.0
+dataset-selection-manifest/1.0.0
+frames-schema/1.0.0
+rf-sample-lineage/1.0.0
+rf-experiment-provenance/1.0.0
+formal scientific inclusion/exclusion policy
+Patch 8 D455 validation criteria
+```
+
+The next required Foundation scope is Patch 7 Integrity Checker / Hardening.
+
+---
+
 # 28. Current Disposition
+
 
 Patch 6 is now:
 
@@ -1993,10 +2047,10 @@ Software verification         DONE — 330 PASS
 Independent re-audit          DONE — PASS WITH MINOR FINDINGS
 BLOCKER                       0
 IMPORTANT                     0
-Documentation closure         DONE — current closure change
-Main integration              PENDING
-Post-merge regression         PENDING
-Status sync                   PENDING
+Documentation closure         DONE — 950d2ce
+Main integration              DONE — 2058db1
+Post-merge regression         DONE — 330 PASS
+Status sync                   DONE — current post-merge status-sync change
 ```
 
 Patch 6 software/documentation closure does **not** mean:
@@ -2009,15 +2063,18 @@ formal collection may start
 Patch 8 D455 validation is complete
 ```
 
-Immediate next Git milestone after this closure commit:
+Post-merge integration result:
 
 ```text
-merge patch6/selection-manifest into main
-→ run full post-merge regression
-→ synchronize main/origin-main status
+documentation closure 950d2ce
+→ main merge 2058db1
+→ immediate full regression 330 PASS
+→ this status-sync change records the completed local main state
 ```
 
-After Patch 6 main integration, the next required Foundation scope is:
+After this status-sync commit is created, push `main` to `origin/main`; no additional Patch 6 contract change is required solely for that push.
+
+The next required Foundation scope is:
 
 ```text
 Patch 7 — Integrity Checker / Hardening

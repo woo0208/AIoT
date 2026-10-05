@@ -1,6 +1,6 @@
 # AIoT Research Master
 
-- 문서 버전: `v1.7`
+- 문서 버전: `v1.8`
 - 기준일: `2026-10-05`
 - 상태: **CURRENT / Living Document**
 - 권장 위치: `docs/research/AIoT_RESEARCH_MASTER.md`
@@ -93,7 +93,7 @@ merge 직후 전체 `252 tests PASS`를 재확인했다.
 최종 implementation commit `9c5fff9`은 `selection-event/1.0.0`, `dataset-selection-manifest/1.0.0`, append-only selection ledger, explicit recapture relation, per-slot single-terminal linear supersession, canonical round identity, exact analysis/run/frames binding, RF `--dataset-manifest` integration을 구현한다.
 committed-state verification은 Patch 6 targeted `75 PASS`, Patch 5 lineage `48 PASS`, capture protocol `56 PASS`, full suite `330 PASS`다.
 independent READ-ONLY re-audit는 `PASS WITH MINOR FINDINGS`, `BLOCKER 0 / IMPORTANT 0 / MINOR 1`, implementation commit recommendation `YES`였다.
-Patch 6 documentation closure는 본 v1.7 closure change에서 완료하며 main integration은 아직 pending이다.
+Patch 6 documentation closure는 commit `950d2ce`에서 완료했고, merge commit `2058db1`에서 `main` 통합 후 immediate post-merge full suite `330 tests PASS`를 재확인했다. Patch 6는 COMPLETE / MAIN-INTEGRATED 상태다.
 
 이미 구현·검증된 Patch 1~5 provenance/schema/model-lock/lineage 동작은 그대로 유지한다.
 Patch 6는 selection mechanism을 구현했지만 formal scientific selection policy의 내용 자체를 임의로 확정하지 않는다.
@@ -106,11 +106,11 @@ Patch 6는 selection mechanism을 구현했지만 formal scientific selection po
 
 ## 1.1 Repository 기준
 
-본 v1.7 / Patch 6 documentation-closure alignment의 **canonical baseline**:
+본 v1.8 / Patch 6 post-merge status-sync alignment의 **canonical baseline**:
 
 ```text
-current closure branch: patch6/selection-manifest
-main / origin/main before Patch 6 merge: 432da73
+current branch: main
+Patch 6 main merge baseline: 2058db1 = merge: integrate Patch 6 selection manifest
 Patch 4.5 main integration baseline: 15128ff
 Patch 4 main merge: d923b23 = merge: complete Patch 4 frame schema foundation
 Patch 4 status sync: 872dfe6
@@ -157,10 +157,11 @@ Patch 6 initial audit: FAIL / BLOCKER 0 / IMPORTANT 1 / MINOR 5
 Patch 6 re-audit: PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0 / MINOR 1
 Patch 6 implementation commit recommendation: YES
 Patch 6 Foundation Record: docs/foundation/PATCH_06_selection_manifest_recapture_inclusion.md
-Patch 6 documentation closure: DONE — current closure change
-Patch 6 main merge: PENDING
-Patch 6 post-merge verification: PENDING
-Patch 6 state: IMPLEMENTED / SOFTWARE-VERIFIED / INDEPENDENTLY RE-AUDITED / DOCUMENTATION-CLOSED / MAIN-INTEGRATION PENDING
+Patch 6 documentation closure: DONE — 950d2ce
+Patch 6 main merge: DONE — 2058db1 = merge: integrate Patch 6 selection manifest
+Patch 6 post-merge verification: DONE — 330 tests PASS
+Patch 6 status sync: CURRENT CHANGE
+Patch 6 state: COMPLETE / MAIN-INTEGRATED / 330 tests PASS
 ```
 
 `110cce6`은 Patch 4 software implementation의 기준점이고,
@@ -186,7 +187,7 @@ Patch 3   analysis provenance                          완료
 Patch 4   canonical fixed frame schema + hip           구현·hardening·software audit·main merge 완료
 Patch 4.5 MediaPipe model artifact lock                구현·204-test 검증·독립 audit·Foundation Record·documentation closure·main merge 완료
 Patch 5   end-to-end lineage hardening                 구현·252-test 검증·독립 audit·Foundation Record·documentation closure·main merge·post-merge 252-test 검증 완료
-Patch 6   selection manifest / recapture inclusion       구현·330-test 검증·independent re-audit·documentation closure 완료 / main merge pending
+Patch 6   selection manifest / recapture inclusion       구현·330-test 검증·independent re-audit·documentation closure·main merge·post-merge 330-test 검증 완료
 ```
 
 Patch 3 canonical record에는 commit `1cdc528` 계열에서 `146 tests PASS`가 기록되어 있고,
@@ -216,7 +217,7 @@ Patch 6는 `PROV-006` / `PROV-007`에 따라 commit `9c5fff9`에서 구현했다
 selection history와 recapture relation은 append-only ledger로 분리하고, immutable dataset manifest가 exact recording/run/frames/analysis-manifest hashes를 pin한다. 동일 logical slot의 current selection은 single terminal decision이며 supersession은 linear chain만 허용한다. `round`는 `^[1-9][0-9]*$` canonical string이다.
 RF `--dataset-manifest`는 Patch 5 canonical-input validation과 sample lineage를 그대로 사용하며 manual modes와 mutually exclusive다.
 final full suite는 `330 tests PASS`, independent re-audit는 `PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0`이다.
-formal scientific selection policy 자체는 여전히 별도 decision이며, Patch 6 main integration은 documentation closure 이후 수행한다.
+formal scientific selection policy 자체는 여전히 별도 decision이며, Patch 6 main integration은 merge `2058db1`에서 완료됐다. 다음 required Foundation scope는 Patch 7 Integrity Checker / Hardening이다.
 
 Patch 8의 formal D455 hardware end-to-end validation은 아직 완료하지 않았다.
 다만 2026-10-02 실제 D455로 Early Hardware Preflight를 수행했으며,
@@ -252,9 +253,9 @@ Patch 5는 `PROV-005` / Design Freeze commit `d4dc23f` 이후 implementation com
 `docs/foundation/PATCH_05_end_to_end_lineage_hardening.md`에서 6개 MINOR의 closure disposition을 기록했다.
 Patch 5 documentation closure commit `0ed2954`, main merge commit `ae86d58`, post-merge `252 tests PASS`, `origin/main` 동기화까지 완료했다.
 
-Patch 6 Design Freeze `432da73`, clarification `3235220`, implementation `9c5fff9`까지 완료했다.
+Patch 6 Design Freeze `432da73`, clarification `3235220`, implementation `9c5fff9`, documentation closure `950d2ce`, main merge `2058db1`까지 완료했다.
 final committed-state full suite는 `330 tests PASS`이고 independent READ-ONLY re-audit는 `PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0`이다.
-documentation closure는 본 v1.7 change에서 완료하며, 다음 즉시 단계는 Patch 6 main merge + post-merge regression이다. 그 다음 required Foundation milestone은 Patch 7 Integrity Checker / Hardening이다.
+merge 직후 full regression `330 tests PASS`를 재확인했다. Patch 6는 COMPLETE / MAIN-INTEGRATED 상태이며, 현재 다음 required Foundation milestone은 Patch 7 Integrity Checker / Hardening이다.
 
 아직 F1/F2 핵심 수식을 구현하는 단계가 아니며 real D455 formal validation은 Patch 8 범위다.
 
@@ -1417,7 +1418,7 @@ Patch 5 scope에서는 Patch 6 selection ledger를 구현하지 않았다. forma
 
 ---
 
-## Patch 6 — IMPLEMENTED / SOFTWARE-VERIFIED / INDEPENDENTLY RE-AUDITED / DOCUMENTATION-CLOSED / MAIN-MERGE PENDING
+## Patch 6 — COMPLETE / MAIN-INTEGRATED / POST-MERGE VERIFIED
 
 ```text
 Selection Manifest / Recapture Inclusion
@@ -1429,6 +1430,8 @@ Authority / commits:
 PROV-006 Design Freeze      432da73
 PROV-007 clarification     3235220
 implementation             9c5fff9
+documentation closure      950d2ce
+main merge                 2058db1
 ```
 
 구현 완료:
@@ -1457,7 +1460,7 @@ BLOCKER / IMPORTANT  0 / 0
 ```
 
 Initial audit의 I-1/OA-1은 `PROV-007`과 implementation fix로 해소했다.
-Patch 6 closure는 scientific inclusion criteria를 임의로 정의하지 않으며 main integration은 아직 pending이다.
+Patch 6 closure는 scientific inclusion criteria를 임의로 정의하지 않는다. main integration은 `2058db1`에서 완료됐고 immediate post-merge full regression도 `330 PASS`다.
 
 ---
 
@@ -1746,7 +1749,7 @@ bbox-vs-contour/oval의 F1/F2 feature 포함 여부 및 최종 논문 채택 여
 Patch 4   canonical schema + hip        DONE
 Patch 4.5 model lock                    DONE
 Patch 5   lineage                       DONE — implementation/audit/closure/main integration
-Patch 6   selection mechanism           DONE — implementation/audit/documentation closure; main merge pending
+Patch 6   selection mechanism           DONE — implementation/audit/documentation closure/main merge/post-merge regression
 formal selection_policy_version contents PENDING
 Patch 7   integrity                     PENDING
 Patch 8   actual D455 E2E validation    PENDING
@@ -2000,24 +2003,25 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
    → BLOCKER 0 / IMPORTANT 0 / MINOR 1
    → implementation commit recommendation YES
 
-27. Patch 6 Foundation Record / documentation closure                            DONE — CURRENT CLOSURE CHANGE
+27. Patch 6 Foundation Record / documentation closure                            DONE
+   → closure commit 950d2ce
    → docs/foundation/PATCH_06_selection_manifest_recapture_inclusion.md
    → M-1 Patch 5 options-key compatibility documentation sync
    → carried MINOR notes disposition
 
-28. Patch 6 main integration                                                     NEXT
-   → merge patch6/selection-manifest into main
-   → post-merge full regression
-   → origin/main status sync
+28. Patch 6 main integration                                                     DONE
+   → merge commit 2058db1 = merge: integrate Patch 6 selection manifest
+   → immediate post-merge full regression 330 tests PASS
+   → post-merge status synchronization recorded in this v1.8 change
 
-29. Patch 7 Integrity Checker / Hardening                                        NEXT REQUIRED FOUNDATION AFTER PATCH 6 MAIN INTEGRATION
+29. Patch 7 Integrity Checker / Hardening                                        NEXT REQUIRED FOUNDATION
 ```
 
 ---
 
 # 22. Source Basis
 
-본 v1.7은 다음을 통합한 **현재 기준 문서**다.
+본 v1.8은 다음을 통합한 **현재 기준 문서**다.
 
 ```text
 - 실제 현재 repository / Git history
@@ -2046,7 +2050,10 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 - Patch 6 Design Freeze `PROV-006` / commit `432da73`
 - Patch 6 clarification `PROV-007` / commit `3235220`
 - Patch 6 implementation commit `9c5fff9`
+- Patch 6 documentation closure commit `950d2ce`
+- Patch 6 main merge commit `2058db1`
 - Patch 6 committed-state verification: targeted 75 / Patch 5 lineage 48 / capture protocol 56 / full 330 tests PASS
+- Patch 6 immediate post-merge verification: full 330 tests PASS
 - Patch 6 independent initial audit: FAIL / BLOCKER 0 / IMPORTANT 1 / MINOR 5
 - Patch 6 independent re-audit: PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0 / MINOR 1
 - `docs/foundation/PATCH_06_selection_manifest_recapture_inclusion.md`
@@ -2078,3 +2085,4 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 | `v1.5` | 2026-10-04 | Patch 5 `PROV-005` / Design Freeze commit `d4dc23f`, implementation commit `dd0464e`, `summary-schema/1.0.0`, `rf-sample-lineage/1.0.0`, `rf-experiment-provenance/1.0.0` 구현을 반영. pre-implementation 204 + 신규 48 = 최종 252 tests PASS, 독립 Claude Opus READ-ONLY audit `PASS WITH MINOR FINDINGS`, BLOCKER 0 / IMPORTANT 0 / MINOR 6 및 implementation commit recommendation YES를 기록했다. `docs/foundation/PATCH_05_end_to_end_lineage_hardening.md`에 6개 MINOR closure disposition을 기록하고 Patch 5를 implementation/audit/documentation-closure 완료 상태로 전환했다. Patch 5 main integration은 pending이며, 그 이후 다음 Foundation scope는 Patch 6 Selection Manifest / Recapture Inclusion이다. |
 | `v1.6` | 2026-10-04 | Patch 5 documentation closure commit `0ed2954` 이후 main merge commit `ae86d58` (`ae86d5875c8fe3200b3b2c1dd26c48256e01105f`)에서 Foundation을 `main`에 통합했다. merge 직후 전체 `252 tests PASS`를 재확인하고 `origin/main` 동기화를 완료했다. Patch 5는 COMPLETE / MAIN-INTEGRATED 상태이며, 현재 다음 required Foundation milestone은 Patch 6 Selection Manifest / Recapture Inclusion이다. |
 | `v1.7` | 2026-10-05 | Patch 6 `PROV-006` Design Freeze `432da73`, `PROV-007` clarification `3235220`, implementation `9c5fff9`를 반영. `selection-event/1.0.0`, `dataset-selection-manifest/1.0.0`, single-terminal linear supersession, canonical round, RF `--dataset-manifest` integration을 구현했고 committed-state full suite `330 tests PASS`를 확인했다. Initial audit의 I-1/OA-1을 수정한 뒤 independent re-audit `PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0 / MINOR 1`을 받았다. Patch 6 documentation closure를 본 v1.7 change에서 완료하며 main integration은 pending, 이후 next required Foundation은 Patch 7 Integrity Checker / Hardening이다. |
+| `v1.8` | 2026-10-05 | Patch 6 documentation closure commit `950d2ce` 이후 merge commit `2058db1` (`merge: integrate Patch 6 selection manifest`)에서 `main` 통합을 완료했다. merge 직후 `python -X utf8 -m unittest -q` 전체 regression `330 tests PASS`를 재확인했다. Patch 6를 COMPLETE / MAIN-INTEGRATED 상태로 동기화하고, 다음 required Foundation milestone을 Patch 7 Integrity Checker / Hardening으로 전환했다. formal scientific selection policy와 Patch 8 D455 formal validation은 계속 별도/pending 범위다. |
