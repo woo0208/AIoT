@@ -1,9 +1,10 @@
 # PATCH_06 — Selection Manifest / Recapture Inclusion
 
-- 문서 상태: **DESIGN FROZEN — IMPLEMENTATION NOT STARTED**
+- 문서 상태: **DESIGN FROZEN — IMPLEMENTATION IN PROGRESS / CLARIFICATION 1 APPLIED**
 - 기준일: `2026-10-04`
+- clarification date: `2026-10-05`
 - 기준 repository state: `main = dbb6540` 인계 상태 / Patch 5 main-integrated source snapshot
-- Decision Log authority: `PROV-006`
+- Decision Log authority: `PROV-006` + `PROV-007` clarification
 - 선행 Foundation:
   - Foundation Prelude — DONE
   - Patch 1 Capture Recording Provenance — DONE
@@ -13,8 +14,8 @@
   - Patch 4.5 MediaPipe Model Artifact Lock — DONE
   - Patch 5 End-to-End Lineage Hardening — DONE / MAIN-INTEGRATED
 - baseline regression: `252 tests PASS`
-- implementation status: **NOT STARTED**
-- 본 Design Freeze 확정 전 source/test implementation 금지
+- implementation status: **IN PROGRESS — independent audit I-1/OA-1 clarification pending code fix**
+- `PROV-007` clarification 반영 및 independent re-audit 완료 전 Patch 6 implementation commit 금지
 
 ---
 
@@ -235,9 +236,31 @@ logical slot:
 
 ```text
 type = string
-regex = [0-9]+
-numeric value >= 1
+regex = ^[1-9][0-9]*$
+canonical positive decimal string
+leading zero forbidden
 ```
+
+허용:
+
+```text
+"1"
+"2"
+"10"
+```
+
+금지:
+
+```text
+"0"
+"01"
+"001"
+"+1"
+"-1"
+"1.0"
+```
+
+logical round 1의 canonical serialization은 오직 `"1"`이다.
 
 same planned measurement recapture:
 
@@ -758,7 +781,74 @@ hash mismatch
 
 # 7. DF-4 — Supersession Semantics
 
-**Status: FROZEN**
+**Status: FROZEN — CLARIFIED BY PROV-007**
+
+## 7.0 Single-terminal / linear-chain rule
+
+logical slot:
+
+```text
+(dataset_role, subject, round)
+```
+
+마다 current terminal `selection_decision`은 최대 하나만 존재할 수 있다.
+
+규칙:
+
+```text
+slot에 prior decision 없음
+→ new decision.supersedes_selection_event_id == null
+
+slot에 current terminal decision A 존재
+→ new decision B MUST supersede A
+
+A already superseded by B
+→ A cannot be superseded again
+
+therefore:
+unlinked second decision = reject
+branching supersession = reject
+```
+
+허용:
+
+```text
+A
+↓
+B supersedes A
+↓
+C supersedes B
+```
+
+금지:
+
+```text
+A
+├─ B supersedes A
+└─ C supersedes A
+```
+
+supersession currentness는 recording 단위가 아니라 logical slot 단위다.
+
+따라서 recording이 바뀌어도 같은 slot의 history는 하나의 linear chain을 유지한다.
+
+예:
+
+```text
+A: exclude R1
+↓
+B: include R2, supersedes A
+↓
+C: include R3, supersedes B
+```
+
+새 dataset manifest는 각 slot의 current terminal decision만 사용할 수 있고,
+그 terminal decision의 disposition은 `include`여야 한다.
+
+기존 immutable manifest는 자신이 pin한 historical event/source hashes로 검증하며,
+later supersession만으로 invalid 처리하지 않는다.
+
+---
 
 selection decision 변경:
 
@@ -773,10 +863,20 @@ new selection_decision
 
 ## 7.1 New-manifest build-time rule
 
-새 dataset manifest를 만들 때 선택하려는 decision event가
-**현재 ledger state에서 이미 superseded**되어 있으면 reject한다.
+새 dataset manifest를 만들 때 선택하려는 decision event는
+해당 logical slot의 **유일한 current terminal decision**이어야 한다.
 
-즉 새 snapshot은 build 시점의 terminal authoritative decision만 사용할 수 있다.
+다음은 reject한다.
+
+```text
+already superseded decision
+unlinked second decision
+branch sibling
+non-terminal decision
+```
+
+즉 새 snapshot은 build 시점의 single terminal authoritative decision만 사용할 수 있고,
+그 decision의 disposition은 `include`여야 한다.
 
 ---
 
@@ -1312,7 +1412,7 @@ unrelated Patch 5 accepted MINOR cleanup
 ```text
 AC-01 same-slot candidates are never auto-selected
 AC-02 recapture keeps same round and gets new recording_id
-AC-03 round is serialized as positive-integer decimal string
+AC-03 round matches canonical regex ^[1-9][0-9]*$; leading zero forbidden
 AC-04 recapture relation requires explicit child→parent link
 AC-05 recapture self-link/cycle/multiple-parent rejected
 AC-06 recapture relation does not change selection state
@@ -1327,8 +1427,8 @@ AC-14 no frames dataset_role/protocol_version columns are required
 AC-15 evidence/path hashes are exact and traversal-safe
 AC-16 ledger duplicate/malformed/broken-reference events rejected
 AC-17 selection history append-only
-AC-18 new manifest cannot use a currently superseded decision
-AC-19 later supersession does not invalidate an old immutable manifest
+AC-18 each logical slot has at most one current terminal decision; unlinked second decisions and branching supersession are rejected
+AC-19 new manifest uses only the current terminal include decision; later supersession does not invalidate an old immutable manifest
 AC-20 dataset manifest cannot overwrite existing ID/path
 AC-21 logical slot unique in manifest
 AC-22 entry order deterministic by subject + int(round)
@@ -1343,6 +1443,9 @@ AC-30 existing rf-sample-lineage/1.0.0 remains unchanged
 AC-31 existing manual RF modes unchanged
 AC-32 full pre-Patch-6 regression remains PASS
 AC-33 canonical JSON/JSONL LF bytes stable on supported development OSes
+AC-34 valid linear supersession chain A→B→C passes
+AC-35 supersession may cross recording_id values within the same logical slot
+AC-36 new capture round input rejects non-canonical values such as "01"
 ```
 
 ---
@@ -1351,7 +1454,7 @@ AC-33 canonical JSON/JSONL LF bytes stable on supported development OSes
 
 ```text
 A. selection-event schema exact keys/types
-B. round string validation
+B. canonical round validation (`^[1-9][0-9]*$`); reject leading zero
 C. append-only writer behavior
 D. duplicate event ID rejection
 E. malformed JSONL rejection
@@ -1366,8 +1469,11 @@ M. dataset_role mismatch rejection
 N. protocol_version capture↔analysis mismatch rejection
 O. exact frame 60-field schema preservation
 P. evidence hash/path traversal rejection
-Q. supersession chain
-R. new-manifest current-superseded event rejection
+Q. valid linear supersession chain
+Q2. unlinked second decision in same logical slot rejection
+Q3. branching supersession rejection
+Q4. same-slot supersession across different recording_id values
+R. new-manifest requires the current terminal include decision
 S. old-manifest later-supersession stability
 T. dataset manifest exact schema
 U. no-overwrite
@@ -1437,7 +1543,11 @@ RF numeric semantics 수정 금지.
 
 ```text
 selection logic 추가하지 않음
+new capture round input은 canonical regex ^[1-9][0-9]*$ 적용
+leading-zero round 신규 생성 금지
 ```
+
+이 변경은 selection policy 추가가 아니라 identity canonicalization이다.
 
 `analyze_d455.py`:
 
@@ -1563,20 +1673,76 @@ docs: freeze Patch 6 selection manifest and recapture inclusion design
 
 ---
 
-# 24. Current Draft Disposition
+# 24. Audit Clarification 1 — I-1 / OA-1
 
-현재 문서는 확정된 Patch 6 Design Freeze contract다.
+**Authority:** `PROV-007`
 
-다음 단계:
+Independent READ-ONLY implementation audit에서 implementation commit을 막는
+`I-1`과 open ambiguity `OA-1`이 확인되어 다음을 Design Freeze clarification으로 확정했다.
 
 ```text
-1. repository의 세 문서를 본 freeze본으로 교체/추가
-2. git status --short
-3. git diff --check
-4. 세 문서 diff 확인
-5. source/test 변경이 없으면 docs-only Design Freeze commit
-6. 이후에만 Patch 6 implementation 시작
+I-1
+one logical slot
+→ at most one current terminal selection_decision
+→ linear supersession chain only
+→ unlinked second decision reject
+→ branching supersession reject
+
+OA-1
+round
+→ canonical regex ^[1-9][0-9]*$
+→ leading zero forbidden
 ```
 
-본 문서가 존재하거나 commit되었다는 사실만으로
-Patch 6 implementation 또는 formal scientific selection policy가 완료된 것은 아니다.
+implementation commit 전 최소 required tests:
+
+```text
+same-slot unlinked second decision → reject
+branching supersession → reject
+valid A→B→C chain → PASS
+same-slot chain across different recording_id → PASS
+new manifest from non-terminal event → reject
+old immutable manifest after later supersession → PASS
+round "1" → PASS
+round "01" → reject
+new capture round "01" → reject
+```
+
+본 clarification은 scientific selection criteria를 새로 정하지 않는다.
+
+---
+
+# 25. Current Disposition
+
+현재 문서는 `PROV-007` clarification을 포함한 Patch 6 Design Freeze contract다.
+
+현재 구현은 이미 working tree에 존재하며 independent READ-ONLY audit에서:
+
+```text
+BLOCKER = 0
+IMPORTANT = 1 (I-1)
+OPEN AMBIGUITY = OA-1
+```
+
+이 확인되었다.
+
+따라서 다음 순서를 따른다.
+
+```text
+1. RESEARCH_DECISION_LOG.md와 본 PATCH_06 문서에 clarification 반영
+2. 두 문서만 stage하여 docs-only clarification commit
+3. Codex로 I-1/OA-1 targeted implementation fix
+4. required targeted tests + Patch 5 regression + full regression
+5. independent READ-ONLY re-audit
+6. BLOCKER=0 / IMPORTANT=0 확인
+7. 그 이후에만 Patch 6 implementation commit
+8. documentation closure / main integration은 후속 단계
+```
+
+권장 clarification commit message:
+
+```text
+docs: clarify Patch 6 supersession and canonical round
+```
+
+본 clarification은 Patch 6 implementation 완료 또는 formal scientific selection policy 확정을 의미하지 않는다.
