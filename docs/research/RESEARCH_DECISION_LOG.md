@@ -1,7 +1,7 @@
 # Research Decision Log
 
-- 문서 버전: `v1.4`
-- 기준일: `2026-10-04`
+- 문서 버전: `v1.5`
+- 기준일: `2026-10-05`
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
 - 역할: 현재 Research Master에 반영된 중요한 연구·데이터·실험·거버넌스 결정을 **왜 그렇게 결정했는지** 기록
@@ -1396,6 +1396,7 @@ final-test 결과를 본 parameter 변경
 | `v1.2` | 2026-10-04 | `PROV-004`를 append하여 Patch 4.5 MediaPipe Model Artifact Lock의 exact artifact set, source/version identity, SHA-256, fail-closed verification, verified provisioning, Patch 3 provenance linkage 및 scope를 Design Freeze |
 | `v1.3` | 2026-10-04 | `PROV-005`를 append하여 Patch 5 End-to-End Lineage Hardening의 raw SHA identity collision, `summary-schema/1.0.0`, immutable RF input resolution, `rf-sample-lineage/1.0.0`, `rf-experiment-provenance/1.0.0`, Patch 6 selection boundary를 Design Freeze |
 | `v1.4` | 2026-10-04 | `PROV-006` Design Freeze 후보를 append하여 Patch 6 Selection Manifest / Recapture Inclusion의 planned measurement-slot semantics, explicit recapture relation, append-only selection ledger, immutable dataset manifest, exact analysis/run/frames pinning, dataset-role guard, RF `--dataset-manifest` interface를 동결 제안 |
+| `v1.5` | 2026-10-05 | Patch 6 independent READ-ONLY implementation audit의 I-1/OA-1을 반영하여 `PROV-007`을 append. 동일 logical slot의 selection decision을 single-terminal linear supersession chain으로 제한하고, `round` canonical form을 `^[1-9][0-9]*$`로 확정 |
 
 ---
 
@@ -3513,3 +3514,387 @@ docs/foundation/PATCH_06_selection_manifest_recapture_inclusion.md
 
 Supersedes:
 Resolves:
+
+---
+
+## PROV-007 — Patch 6 Supersession / Canonical Round Clarification
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-05
+**Decision timing:** Patch 6 implementation 후 independent READ-ONLY audit에서 I-1 및 OA-1 확인, implementation commit 이전 clarification
+
+### Context
+
+Patch 6 Design Freeze (`PROV-006`)는 다음을 이미 확정했다.
+
+```text
+logical slot
+= (dataset_role, subject, round)
+
+selection history
+= append-only
+
+selection 변경
+= supersedes_selection_event_id 사용
+
+new manifest
+= current terminal decision 사용
+
+old immutable manifest
+= later supersession 이후에도 historical snapshot으로 유효
+```
+
+그러나 independent READ-ONLY implementation audit에서 다음 ambiguity가 확인되었다.
+
+```text
+I-1
+same logical slot에 서로 연결되지 않은 복수 selection_decision이 동시에 current로 남을 수 있음
+
+I-1
+하나의 decision을 둘 이상의 후속 decision이 동시에 supersede하는 branch가 가능함
+
+OA-1
+round="1"과 round="01"이 서로 다른 lexical slot으로 취급될 수 있음
+```
+
+이 ambiguity는 실제 ledger event가 생성되기 전에 해소한다.
+
+---
+
+### Decision A — One current terminal selection decision per logical slot
+
+logical slot은 기존과 동일하다.
+
+```text
+(dataset_role, subject, round)
+```
+
+각 logical slot에는 **현재 terminal `selection_decision`이 최대 하나만** 존재할 수 있다.
+
+#### A.1 First decision
+
+해당 slot에 prior selection decision이 없으면:
+
+```text
+supersedes_selection_event_id = null
+```
+
+이어야 한다.
+
+#### A.2 Subsequent decision
+
+해당 slot에 current terminal decision이 하나 존재하면,
+새 `selection_decision`은 반드시 그 terminal decision을 직접 supersede해야 한다.
+
+```text
+A
+↓
+B supersedes A
+↓
+C supersedes B
+```
+
+만 허용한다.
+
+#### A.3 Unlinked second decision forbidden
+
+같은 logical slot에 current terminal decision이 이미 존재하는데
+새 decision이:
+
+```text
+supersedes_selection_event_id = null
+```
+
+이면 hard error다.
+
+즉 다음은 금지한다.
+
+```text
+A = include R1
+
+B = exclude R1
+supersedes = null
+```
+
+recording_id가 같거나 달라도 동일 slot이면 같은 규칙을 적용한다.
+
+#### A.4 Branching supersession forbidden
+
+이미 superseded된 decision은 다시 supersede할 수 없다.
+
+따라서 다음은 금지한다.
+
+```text
+A
+├─ B supersedes A
+└─ C supersedes A
+```
+
+selection history는 logical slot별 **single linear chain**이어야 한다.
+
+#### A.5 Supersession is slot-level, not recording-level
+
+supersession chain은 recording_id가 바뀌어도 유지된다.
+
+예:
+
+```text
+P01 / round 1
+
+A: exclude recording R1
+↓
+B: include recording R2
+   supersedes A
+↓
+C: include recording R3
+   supersedes B
+```
+
+이 구조가 허용된다.
+
+Patch 6 selection authority의 현재성(currentness)은 recording 단위가 아니라
+logical measurement slot 단위로 판단한다.
+
+---
+
+### Decision B — New manifest uses only the current terminal include decision
+
+새 dataset manifest를 생성할 때는 각 selected logical slot에 대해
+**현재 terminal selection decision**만 사용할 수 있다.
+
+그 terminal decision은:
+
+```text
+event_type == selection_decision
+decision.disposition == include
+```
+
+이어야 한다.
+
+이미 superseded된 decision이나,
+같은 slot에서 terminal chain에 연결되지 않은 decision을 새 manifest source로 사용할 수 없다.
+
+---
+
+### Decision C — Existing immutable manifests remain historically valid
+
+`PROV-006`의 immutable snapshot semantics는 유지한다.
+
+예:
+
+```text
+A = include R1
+M1 created from A
+
+later:
+B supersedes A
+B = include R2
+M2 created from B
+```
+
+이면:
+
+```text
+M1 = historical immutable snapshot으로 계속 유효
+M2 = 새로운 selection snapshot
+```
+
+이다.
+
+기존 manifest revalidation은 자신이 pin한:
+
+```text
+selection_event_id
+selection_event_sha256
+source artifact hashes
+```
+
+를 검증한다.
+
+ledger에 나중 superseding event가 append되었다는 사실만으로
+old manifest를 invalid 처리하지 않는다.
+
+---
+
+### Decision D — Canonical `round` representation
+
+Patch 6 identity에서 `round`는 **canonical positive decimal string**이어야 한다.
+
+exact regex:
+
+```regex
+^[1-9][0-9]*$
+```
+
+허용 예:
+
+```text
+"1"
+"2"
+"9"
+"10"
+"100"
+```
+
+금지 예:
+
+```text
+"0"
+"00"
+"01"
+"001"
+"+1"
+"-1"
+"1.0"
+" 1"
+"1 "
+```
+
+따라서 logical round 1의 canonical serialization은 오직:
+
+```json
+"round": "1"
+```
+
+이다.
+
+`"1"`과 `"01"`을 서로 다른 logical slot으로 허용하지 않는다.
+
+---
+
+### Decision E — New capture identity must use canonical round
+
+앞으로 새 capture identity를 생성할 때도 동일 canonical round rule을 적용한다.
+
+```regex
+^[1-9][0-9]*$
+```
+
+즉 new capture invocation은 leading-zero round를 허용하지 않는다.
+
+이 clarification은:
+
+```text
+frames-schema/1.0.0
+RF numeric semantics
+scientific selection policy
+```
+
+를 변경하지 않는다.
+
+기존 historical/pilot artifact의 non-canonical round를 자동 rename/rewrite하지 않는다.
+
+non-canonical historical round는 새로운 Patch 6 authoritative dataset manifest에
+그대로 포함할 수 없다.
+
+---
+
+### Required implementation behavior
+
+Patch 6 implementation은 최소 다음을 보장해야 한다.
+
+```text
+1. same slot + no prior decision
+   → supersedes must be null
+
+2. same slot + one terminal decision
+   → next decision must supersede exactly that terminal decision
+
+3. already-superseded event
+   → cannot be superseded again
+
+4. branch
+   → reject
+
+5. unlinked second decision in same slot
+   → reject
+
+6. linear chain A→B→C
+   → allow
+
+7. new manifest
+   → current terminal include decision only
+
+8. old immutable manifest
+   → later supersession alone does not invalidate it
+
+9. round
+   → must match ^[1-9][0-9]*$
+
+10. new capture round input
+    → same canonical rule
+```
+
+---
+
+### Required tests before implementation commit
+
+최소 다음 regression/negative tests를 요구한다.
+
+```text
+T1 same slot second unlinked decision → reject
+
+T2 A superseded by B, then C also supersedes A → reject
+
+T3 valid linear chain A→B→C → PASS
+
+T4 recording_id가 바뀌어도 same-slot chain 유지 → PASS
+
+T5 new manifest from non-terminal/superseded event → reject
+
+T6 old manifest remains valid after later supersession → PASS
+
+T7 round "1" → PASS
+
+T8 round "01" → reject
+
+T9 round "0", "001", "+1", "-1", "1.0" → reject
+
+T10 new capture invocation with non-canonical round → reject
+```
+
+---
+
+### Scope boundary
+
+본 clarification은 다음을 새로 결정하지 않는다.
+
+```text
+formal participant count
+formal round count
+ok_with_warnings scientific policy
+retake maximum count
+outlier/exclusion scientific criteria
+F1/F2 definition
+Patch 7
+Patch 8
+```
+
+이는 selection identity / currentness / canonical serialization clarification이다.
+
+---
+
+### Evidence / Source
+
+- Patch 6 independent READ-ONLY implementation audit
+  - `I-1`: contradictory/unlinked current decisions and branching supersession
+  - `OA-1`: leading-zero round ambiguity
+- `PROV-006`
+- `docs/foundation/PATCH_06_selection_manifest_recapture_inclusion.md`
+
+---
+
+### Impact
+
+- `PROV-006`의 Patch 6 Design Freeze 전체를 폐기하지 않는다.
+- 본 entry가 supersession currentness와 canonical round ambiguity에 대해 더 구체적인 authority다.
+- Patch 6 implementation commit 전에 I-1/OA-1을 반영하고 targeted/full regression을 재실행한다.
+- independent READ-ONLY re-audit에서 BLOCKER=0 / IMPORTANT=0을 확인하기 전 implementation commit하지 않는다.
+
+Supersedes:
+- `PROV-006` 중 supersession currentness가 단일 terminal chain인지 명시되지 않았던 ambiguity
+- `PROV-006` 중 `positive-integer decimal string`이 leading zero를 허용하는지 명시되지 않았던 ambiguity
+
+Resolves:
+- Patch 6 audit `I-1`
+- Patch 6 audit `OA-1`

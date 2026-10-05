@@ -297,6 +297,37 @@ class CaptureProvenanceTests(unittest.TestCase):
             with self.subTest(subject=subject, rnd=rnd), self.assertRaises(ValueError):
                 capture.capture_provenance(subject, rnd, "pilot")
 
+    def test_new_capture_accepts_canonical_round_strings(self):
+        for rnd in ("1", "2", "9", "10", "100"):
+            with self.subTest(round=rnd):
+                args = capture.parse_capture_args(["P03", rnd, "--dataset-role", "pilot"])
+                info = capture.capture_provenance(args.subject, args.round, args.dataset_role)
+                self.assertEqual(args.round, rnd)
+                self.assertEqual(info["round"], rnd)
+                self.assertTrue(info["recording_id"].startswith(f"P03_r{rnd}_"))
+
+    def test_new_capture_rejects_noncanonical_round_before_identity_or_files(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(capture.uuid, "uuid4", side_effect=AssertionError("must not generate identity")) as new_id:
+            destination = Path(directory) / "new_capture"
+            for rnd in ("01", "001", "0", "00", "+1", "-1", "1.0", " 1", "1 ", "1\n", "１", "", 1, True, None):
+                with self.subTest(round=rnd), self.assertRaisesRegex(ValueError, "round"):
+                    capture.reserve_capture("P03", rnd, "pilot", directory=destination)
+                self.assertFalse(destination.exists())
+            new_id.assert_not_called()
+
+    def test_new_capture_invocation_rejects_leading_zero_before_capture(self):
+        with patch("sys.argv", ["capture_d455.py", "P03", "01", "--dataset-role", "pilot"]), \
+                patch.object(capture, "capture_provenance") as provenance, \
+                patch.object(capture, "guide_phase") as guide, \
+                patch.object(capture, "record_phase") as record, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as error:
+                capture.main()
+            self.assertEqual(error.exception.code, 2)
+            provenance.assert_not_called()
+            guide.assert_not_called()
+            record.assert_not_called()
+
     def test_protocol_and_gate_metadata_use_constants(self):
         info = capture.capture_provenance("P03", "1", "formal")
         self.assertEqual(info["protocol_version"], "capture-forward-face-v2.0.0")

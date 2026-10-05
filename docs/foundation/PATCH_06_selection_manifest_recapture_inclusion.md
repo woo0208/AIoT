@@ -1,9 +1,10 @@
 # PATCH_06 — Selection Manifest / Recapture Inclusion
 
-- 문서 상태: **DESIGN FROZEN — IMPLEMENTATION NOT STARTED**
-- 기준일: `2026-10-04`
-- 기준 repository state: `main = dbb6540` 인계 상태 / Patch 5 main-integrated source snapshot
-- Decision Log authority: `PROV-006`
+- 문서 상태: **IMPLEMENTED / SOFTWARE-VERIFIED / INDEPENDENTLY RE-AUDITED / DOCUMENTATION-CLOSED / MAIN-INTEGRATION PENDING**
+- 기준일: `2026-10-05`
+- clarification date: `2026-10-05`
+- 기준 repository state: `patch6/selection-manifest` / Design Freeze `432da73` / clarification `3235220` / implementation `9c5fff9`; `main`/`origin/main`은 merge 전 `432da73`
+- Decision Log authority: `PROV-006` + `PROV-007` clarification
 - 선행 Foundation:
   - Foundation Prelude — DONE
   - Patch 1 Capture Recording Provenance — DONE
@@ -12,9 +13,11 @@
   - Patch 4 Canonical Fixed Frames Schema + Hip Raw Observations — DONE
   - Patch 4.5 MediaPipe Model Artifact Lock — DONE
   - Patch 5 End-to-End Lineage Hardening — DONE / MAIN-INTEGRATED
-- baseline regression: `252 tests PASS`
-- implementation status: **NOT STARTED**
-- 본 Design Freeze 확정 전 source/test implementation 금지
+- pre-implementation baseline: `252 tests PASS`
+- implementation commit: `9c5fff9` — `feat: implement Patch 6 selection manifest`
+- committed-state verification: Patch 6 targeted `75 PASS` / Patch 5 lineage `48 PASS` / capture protocol `56 PASS` / full suite `330 PASS`
+- independent re-audit: **PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0 / MINOR 1 / implementation commit recommendation YES**
+- implementation status: **DONE — documentation closure complete in this change; main integration pending**
 
 ---
 
@@ -38,7 +41,7 @@ capture / quality / analysis evidence
 → Patch 5 RF lineage
 ```
 
-본 문서 확정 전 다음을 하지 않는다.
+Design Freeze 당시 다음을 금지했다.
 
 ```text
 selection artifact implementation
@@ -71,7 +74,9 @@ protocol_version
 `round` validation:
 
 ```text
-positive-integer decimal string
+canonical positive decimal string
+regex = ^[1-9][0-9]*$
+leading zero forbidden
 ```
 
 예:
@@ -201,7 +206,7 @@ GAP-6 dataset manifest → RF binding 없음
 ```text
 INV-1  round = planned measurement slot, not capture-attempt counter.
 INV-2  logical slot = (dataset_role, subject, round).
-INV-3  round serialized type = positive-integer decimal string.
+INV-3  round serialized type = canonical positive decimal string matching ^[1-9][0-9]*$; leading zero forbidden.
 INV-4  every capture attempt has a unique recording_id.
 INV-5  recapture relationship is explicit; never inferred.
 INV-6  recapture relation != replacement/include/exclude.
@@ -235,9 +240,31 @@ logical slot:
 
 ```text
 type = string
-regex = [0-9]+
-numeric value >= 1
+regex = ^[1-9][0-9]*$
+canonical positive decimal string
+leading zero forbidden
 ```
+
+허용:
+
+```text
+"1"
+"2"
+"10"
+```
+
+금지:
+
+```text
+"0"
+"01"
+"001"
+"+1"
+"-1"
+"1.0"
+```
+
+logical round 1의 canonical serialization은 오직 `"1"`이다.
 
 same planned measurement recapture:
 
@@ -758,7 +785,74 @@ hash mismatch
 
 # 7. DF-4 — Supersession Semantics
 
-**Status: FROZEN**
+**Status: FROZEN — CLARIFIED BY PROV-007**
+
+## 7.0 Single-terminal / linear-chain rule
+
+logical slot:
+
+```text
+(dataset_role, subject, round)
+```
+
+마다 current terminal `selection_decision`은 최대 하나만 존재할 수 있다.
+
+규칙:
+
+```text
+slot에 prior decision 없음
+→ new decision.supersedes_selection_event_id == null
+
+slot에 current terminal decision A 존재
+→ new decision B MUST supersede A
+
+A already superseded by B
+→ A cannot be superseded again
+
+therefore:
+unlinked second decision = reject
+branching supersession = reject
+```
+
+허용:
+
+```text
+A
+↓
+B supersedes A
+↓
+C supersedes B
+```
+
+금지:
+
+```text
+A
+├─ B supersedes A
+└─ C supersedes A
+```
+
+supersession currentness는 recording 단위가 아니라 logical slot 단위다.
+
+따라서 recording이 바뀌어도 같은 slot의 history는 하나의 linear chain을 유지한다.
+
+예:
+
+```text
+A: exclude R1
+↓
+B: include R2, supersedes A
+↓
+C: include R3, supersedes B
+```
+
+새 dataset manifest는 각 slot의 current terminal decision만 사용할 수 있고,
+그 terminal decision의 disposition은 `include`여야 한다.
+
+기존 immutable manifest는 자신이 pin한 historical event/source hashes로 검증하며,
+later supersession만으로 invalid 처리하지 않는다.
+
+---
 
 selection decision 변경:
 
@@ -773,10 +867,20 @@ new selection_decision
 
 ## 7.1 New-manifest build-time rule
 
-새 dataset manifest를 만들 때 선택하려는 decision event가
-**현재 ledger state에서 이미 superseded**되어 있으면 reject한다.
+새 dataset manifest를 만들 때 선택하려는 decision event는
+해당 logical slot의 **유일한 current terminal decision**이어야 한다.
 
-즉 새 snapshot은 build 시점의 terminal authoritative decision만 사용할 수 있다.
+다음은 reject한다.
+
+```text
+already superseded decision
+unlinked second decision
+branch sibling
+non-terminal decision
+```
+
+즉 새 snapshot은 build 시점의 single terminal authoritative decision만 사용할 수 있고,
+그 decision의 disposition은 `include`여야 한다.
 
 ---
 
@@ -1312,7 +1416,7 @@ unrelated Patch 5 accepted MINOR cleanup
 ```text
 AC-01 same-slot candidates are never auto-selected
 AC-02 recapture keeps same round and gets new recording_id
-AC-03 round is serialized as positive-integer decimal string
+AC-03 round matches canonical regex ^[1-9][0-9]*$; leading zero forbidden
 AC-04 recapture relation requires explicit child→parent link
 AC-05 recapture self-link/cycle/multiple-parent rejected
 AC-06 recapture relation does not change selection state
@@ -1327,8 +1431,8 @@ AC-14 no frames dataset_role/protocol_version columns are required
 AC-15 evidence/path hashes are exact and traversal-safe
 AC-16 ledger duplicate/malformed/broken-reference events rejected
 AC-17 selection history append-only
-AC-18 new manifest cannot use a currently superseded decision
-AC-19 later supersession does not invalidate an old immutable manifest
+AC-18 each logical slot has at most one current terminal decision; unlinked second decisions and branching supersession are rejected
+AC-19 new manifest uses only the current terminal include decision; later supersession does not invalidate an old immutable manifest
 AC-20 dataset manifest cannot overwrite existing ID/path
 AC-21 logical slot unique in manifest
 AC-22 entry order deterministic by subject + int(round)
@@ -1343,6 +1447,9 @@ AC-30 existing rf-sample-lineage/1.0.0 remains unchanged
 AC-31 existing manual RF modes unchanged
 AC-32 full pre-Patch-6 regression remains PASS
 AC-33 canonical JSON/JSONL LF bytes stable on supported development OSes
+AC-34 valid linear supersession chain A→B→C passes
+AC-35 supersession may cross recording_id values within the same logical slot
+AC-36 new capture round input rejects non-canonical values such as "01"
 ```
 
 ---
@@ -1351,7 +1458,7 @@ AC-33 canonical JSON/JSONL LF bytes stable on supported development OSes
 
 ```text
 A. selection-event schema exact keys/types
-B. round string validation
+B. canonical round validation (`^[1-9][0-9]*$`); reject leading zero
 C. append-only writer behavior
 D. duplicate event ID rejection
 E. malformed JSONL rejection
@@ -1366,8 +1473,11 @@ M. dataset_role mismatch rejection
 N. protocol_version capture↔analysis mismatch rejection
 O. exact frame 60-field schema preservation
 P. evidence hash/path traversal rejection
-Q. supersession chain
-R. new-manifest current-superseded event rejection
+Q. valid linear supersession chain
+Q2. unlinked second decision in same logical slot rejection
+Q3. branching supersession rejection
+Q4. same-slot supersession across different recording_id values
+R. new-manifest requires the current terminal include decision
 S. old-manifest later-supersession stability
 T. dataset manifest exact schema
 U. no-overwrite
@@ -1437,7 +1547,11 @@ RF numeric semantics 수정 금지.
 
 ```text
 selection logic 추가하지 않음
+new capture round input은 canonical regex ^[1-9][0-9]*$ 적용
+leading-zero round 신규 생성 금지
 ```
+
+이 변경은 selection policy 추가가 아니라 identity canonicalization이다.
 
 `analyze_d455.py`:
 
@@ -1491,42 +1605,58 @@ test_patch6_selection.py
 ## Design Freeze
 
 ```text
-[ ] PROV-006 내용 확정
-[ ] PATCH_06 문서 확정
-[ ] RESEARCH_DATA_SCHEMA sync
-[ ] git diff --check PASS
-[ ] docs-only change 확인
-[ ] docs-only Design Freeze commit
+[x] PROV-006 내용 확정
+[x] PATCH_06 문서 확정
+[x] RESEARCH_DATA_SCHEMA sync
+[x] git diff --check PASS
+[x] docs-only change 확인
+[x] docs-only Design Freeze commit
+    → 432da73
+[x] audit clarification PROV-007
+    → 3235220
 ```
 
 ## Implementation
 
 ```text
-[ ] selection-event/1.0.0
-[ ] dataset-selection-manifest/1.0.0
-[ ] append-only event ledger
-[ ] explicit recapture graph
-[ ] exact include binding
-[ ] exclude without analysis
-[ ] supersession semantics
-[ ] immutable dataset snapshots
-[ ] role/protocol validation
-[ ] --dataset-manifest
-[ ] manual/manifest mutual exclusion
-[ ] Patch 5 experiment/result linkage
-[ ] LF canonical artifact protection
+[x] selection-event/1.0.0
+[x] dataset-selection-manifest/1.0.0
+[x] append-only event ledger
+[x] explicit recapture graph
+[x] exact include binding
+[x] exclude without analysis
+[x] supersession semantics
+[x] immutable dataset snapshots
+[x] role/protocol validation
+[x] --dataset-manifest
+[x] manual/manifest mutual exclusion
+[x] Patch 5 experiment/result linkage
+[x] LF canonical artifact protection
+[x] canonical new-capture round validation
+[x] implementation commit
+    → 9c5fff9
 ```
 
 ## Verification / closure
 
 ```text
-[ ] targeted tests PASS
-[ ] full regression PASS
-[ ] independent READ-ONLY implementation audit
-[ ] BLOCKER 0
-[ ] IMPORTANT 0
-[ ] implementation commit
-[ ] Foundation documentation closure
+[x] targeted tests PASS
+    → Patch 6 selection 75 PASS
+    → Patch 5 lineage regression 48 PASS
+    → capture protocol 56 PASS
+[x] full regression PASS
+    → 330 PASS
+[x] independent READ-ONLY implementation audit
+    → initial audit FAIL: BLOCKER 0 / IMPORTANT 1 / MINOR 5
+    → I-1/OA-1 clarified by PROV-007 and fixed before implementation commit
+[x] independent READ-ONLY re-audit
+    → PASS WITH MINOR FINDINGS
+[x] BLOCKER = 0
+[x] IMPORTANT = 0
+[x] implementation commit
+    → 9c5fff9
+[x] Foundation documentation closure completed
+    → this documentation-closure change
 [ ] main merge
 [ ] post-merge regression
 [ ] status sync
@@ -1563,20 +1693,334 @@ docs: freeze Patch 6 selection manifest and recapture inclusion design
 
 ---
 
-# 24. Current Draft Disposition
+# 24. Audit Clarification 1 — I-1 / OA-1
 
-현재 문서는 확정된 Patch 6 Design Freeze contract다.
+**Authority:** `PROV-007`
 
-다음 단계:
+Independent READ-ONLY implementation audit에서 implementation commit을 막는
+`I-1`과 open ambiguity `OA-1`이 확인되어 다음을 Design Freeze clarification으로 확정했다.
 
 ```text
-1. repository의 세 문서를 본 freeze본으로 교체/추가
-2. git status --short
-3. git diff --check
-4. 세 문서 diff 확인
-5. source/test 변경이 없으면 docs-only Design Freeze commit
-6. 이후에만 Patch 6 implementation 시작
+I-1
+one logical slot
+→ at most one current terminal selection_decision
+→ linear supersession chain only
+→ unlinked second decision reject
+→ branching supersession reject
+
+OA-1
+round
+→ canonical regex ^[1-9][0-9]*$
+→ leading zero forbidden
 ```
 
-본 문서가 존재하거나 commit되었다는 사실만으로
-Patch 6 implementation 또는 formal scientific selection policy가 완료된 것은 아니다.
+implementation commit 전 최소 required tests:
+
+```text
+same-slot unlinked second decision → reject
+branching supersession → reject
+valid A→B→C chain → PASS
+same-slot chain across different recording_id → PASS
+new manifest from non-terminal event → reject
+old immutable manifest after later supersession → PASS
+round "1" → PASS
+round "01" → reject
+new capture round "01" → reject
+```
+
+본 clarification은 scientific selection criteria를 새로 정하지 않는다.
+
+---
+
+# 25. Implementation and Verification Closure
+
+## 25.1 Commit chain
+
+```text
+Design Freeze
+432da73
+docs: freeze Patch 6 selection manifest and recapture inclusion design
+
+Clarification
+3235220
+docs: clarify Patch 6 supersession and canonical round
+
+Implementation
+9c5fff9
+feat: implement Patch 6 selection manifest
+```
+
+The implementation commit contains the final I-1/OA-1 fix that was independently re-audited before commit.
+
+---
+
+## 25.2 Implemented files
+
+```text
+.gitattributes
+selection_manifest.py
+capture_d455.py
+rf_experiment.py
+test_patch6_selection.py
+test_capture_protocol.py
+test_patch5_lineage.py
+```
+
+Implemented responsibilities:
+
+```text
+selection-event/1.0.0 strict validation/read/append
+dataset-selection-manifest/1.0.0 immutable build/validate
+append-only selection event ledger
+explicit recapture graph
+single-terminal per-slot selection history
+linear supersession only
+exact include recording/run/frames/analysis-manifest binding
+exclude without analysis
+pilot/formal role guard
+capture↔analysis protocol consistency
+canonical round ^[1-9][0-9]*$
+new-capture leading-zero round rejection
+RF --dataset-manifest mode
+manual/manifest source-mode mutual exclusion
+Patch 5 canonical-input reuse
+experiment_manifest.dataset_manifest binding
+experiment_manifest.inputs.ours preservation
+result dataset_manifest_sha256 linkage
+LF protection for canonical selection artifacts
+```
+
+The following remain unchanged:
+
+```text
+frames-schema/1.0.0 exact 60 fields
+rf-sample-lineage/1.0.0
+RF feature computation
+LOSO grouping
+first-upright reference semantics
+RF numerical/evaluation semantics
+formal scientific inclusion criteria
+```
+
+---
+
+## 25.3 Software verification
+
+Committed-state verification at `9c5fff9`:
+
+```text
+python -X utf8 -m unittest -q test_patch6_selection
+→ 75 PASS
+
+python -X utf8 -m unittest -q test_patch5_lineage
+→ 48 PASS
+
+python -X utf8 -m unittest -q test_capture_protocol
+→ 56 PASS
+
+python -X utf8 -m unittest -q
+→ 330 PASS
+```
+
+`git status --short` was clean after the implementation commit and the committed-state verification.
+
+These tests are software/synthetic structural verification. They are not formal D455 hardware evidence and do not replace Patch 8.
+
+---
+
+## 25.4 Independent audit history
+
+### Initial READ-ONLY audit
+
+```text
+verdict    FAIL
+BLOCKER    0
+IMPORTANT  1
+MINOR      5
+```
+
+IMPORTANT I-1:
+
+```text
+same logical slot could have multiple current selection decisions
+unlinked second decision could remain current
+branching supersession could remain current
+```
+
+Open ambiguity OA-1:
+
+```text
+round="1" and round="01" could become distinct lexical identities
+```
+
+These were resolved before implementation commit by `PROV-007` and targeted implementation changes.
+
+### Independent READ-ONLY re-audit
+
+```text
+verdict    PASS WITH MINOR FINDINGS
+BLOCKER    0
+IMPORTANT  0
+MINOR      1
+implementation commit recommendation: YES
+```
+
+The re-audit independently verified:
+
+```text
+one terminal selection decision per logical slot
+unlinked second decision rejection
+branch rejection
+valid A→B→C linear supersession
+cross-recording same-slot supersession
+new-manifest terminal include enforcement
+historical immutable manifest validity after later supersession
+canonical round regex and leading-zero rejection
+new capture round validation before identity generation
+Patch 5 lineage / 60-field frames / RF numeric behavior preservation
+```
+
+It reproduced the 75 / 48 / 56 / 330 test results and ran additional temporary-directory probes without modifying repository files.
+
+---
+
+# 26. Audit Finding Closure Disposition
+
+The initial audit findings are recorded rather than silently discarded.
+
+## M-1 — Patch 5 options exact-key list
+
+**Disposition: DOCUMENTATION-SYNCED / NON-BLOCKING**
+
+Patch 6 adds the frozen CLI option:
+
+```text
+--dataset-manifest
+```
+
+Therefore current `rf-experiment-provenance/1.0.0` producer options contain the additive:
+
+```text
+dataset_manifest
+```
+
+key. Manual modes record null; manifest mode records the supplied manifest argument.
+
+This closure updates `docs/foundation/PATCH_05_end_to_end_lineage_hardening.md` §10.9 with a Patch 6 compatibility amendment.
+No RF numeric behavior, top-level dataset-manifest slot, sample-lineage schema, or manual-mode semantics are changed.
+
+## M-2 — Evidence-kind deep semantic type checks
+
+**Disposition: ACCEPTED MINOR / PATCH 7 HARDENING CANDIDATE**
+
+Patch 6 verifies pinned paths/hashes, identity consistency, minimum evidence sets, and exact selected source ownership.
+The initial audit noted that every evidence `kind` is not necessarily deep-validated against a dedicated artifact schema beyond the frozen Patch 6 requirements.
+This does not bypass the exact-byte/source binding used for included data, so it is not a Patch 6 closure blocker.
+
+## M-3 — Crash/torn-write recovery
+
+**Disposition: ACCEPTED MINOR / PATCH 7 HARDENING CANDIDATE**
+
+A process crash at an unfortunate write point can leave a partial new manifest or torn JSONL tail requiring operator recovery.
+Current readers fail closed on malformed/tampered authoritative artifacts; the issue is recovery/failure-atomicity hardening rather than silent acceptance.
+Patch 7 may add integrity scanning/recovery guidance without rewriting historical events.
+
+## M-4 — Additional test-depth opportunities
+
+**Disposition: ACCEPTED MINOR**
+
+The initial audit identified test-depth opportunities such as a real subprocess `rf_experiment.py --dataset-manifest` path and narrower exception assertions.
+After I-1/OA-1 the Patch 6 targeted suite increased from 68 to 75, capture protocol gained 3 tests, the full suite increased from 320 to 330, and the independent re-audit added temporary-directory probes.
+No remaining missing test was classified IMPORTANT.
+
+## M-5 — Windows path spelling/case normalization
+
+**Disposition: ACCEPTED MINOR / PORTABILITY NOTE**
+
+Windows-equivalent path spellings/case variants are not fully canonicalized into one lexical spelling.
+Repository-root escape, absolute-path, traversal, role/protocol, hash and source-owner checks remain fail-closed.
+This is not a silent data-selection bypass under the frozen contract.
+
+The re-audit did not identify a reason to upgrade any carried MINOR to IMPORTANT or BLOCKER.
+
+---
+
+# 27. Documentation Closure Boundary
+
+This documentation-closure change may update current-state/authority documents, but it must not:
+
+```text
+change Python implementation
+change tests
+change generated selection JSON/JSONL
+create formal selection decisions
+invent selection_policy_version scientific contents
+resolve OPEN-002 through OPEN-006
+claim real D455 Patch 8 validation
+claim main integration before merge
+```
+
+Closure synchronization targets:
+
+```text
+AGENTS.md
+CLAUDE.md
+RESEARCH_DATA_SCHEMA.md
+docs/research/AIoT_RESEARCH_MASTER.md
+docs/foundation/PATCH_05_end_to_end_lineage_hardening.md  # M-1 compatibility note only
+docs/foundation/PATCH_06_selection_manifest_recapture_inclusion.md
+```
+
+`RESEARCH_DECISION_LOG.md` is not rewritten during closure because `PROV-006` and append-only `PROV-007` already contain the authoritative design/clarification decisions.
+
+Recommended closure commit message:
+
+```text
+docs: close Patch 6 selection manifest milestone
+```
+
+---
+
+# 28. Current Disposition
+
+Patch 6 is now:
+
+```text
+Design Freeze                 DONE — 432da73 / PROV-006
+Clarification                 DONE — 3235220 / PROV-007
+Implementation                DONE — 9c5fff9
+Software verification         DONE — 330 PASS
+Independent re-audit          DONE — PASS WITH MINOR FINDINGS
+BLOCKER                       0
+IMPORTANT                     0
+Documentation closure         DONE — current closure change
+Main integration              PENDING
+Post-merge regression         PENDING
+Status sync                   PENDING
+```
+
+Patch 6 software/documentation closure does **not** mean:
+
+```text
+formal scientific inclusion/exclusion policy is fixed
+formal participant/round count is fixed
+OPEN-002 through OPEN-006 are resolved
+formal collection may start
+Patch 8 D455 validation is complete
+```
+
+Immediate next Git milestone after this closure commit:
+
+```text
+merge patch6/selection-manifest into main
+→ run full post-merge regression
+→ synchronize main/origin-main status
+```
+
+After Patch 6 main integration, the next required Foundation scope is:
+
+```text
+Patch 7 — Integrity Checker / Hardening
+```
+
+Real D455 formal hardware validation remains Patch 8 scope.
