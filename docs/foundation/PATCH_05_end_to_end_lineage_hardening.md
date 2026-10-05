@@ -1463,6 +1463,50 @@ features
 
 Patch 5는 이 option들의 scientific semantics를 변경하지 않는다.
 
+### 10.9.1 Patch 6 additive options compatibility amendment — 2026-10-05
+
+Patch 6 implementation commit `9c5fff9`은 frozen Patch 6 interface인 `--dataset-manifest`를 `rf_experiment.py`에 추가했다.
+따라서 current `rf-experiment-provenance/1.0.0`의 `options`에는 다음 additive key가 하나 추가된다.
+
+```text
+dataset_manifest
+```
+
+current exact options key set:
+
+```text
+argv
+paper
+multiposture
+ours
+ours_frames
+dataset_manifest
+trees
+seeds
+stride
+lams
+skip_paper_loso
+features
+```
+
+manual `--ours` / `--ours-frames` 실행에서는 `dataset_manifest = null`이고,
+manifest mode에서는 실제 CLI argument value를 기록한다.
+
+이 amendment는 Patch 6 independent audit의 documentation MINOR M-1을 해소하기 위한 compatibility 기록이다.
+다음은 변경하지 않는다.
+
+```text
+rf-experiment-provenance/1.0.0 schema identifier
+Patch 5 top-level dataset_manifest reserved slot
+experiment_manifest.inputs.ours actual-source provenance
+rf-sample-lineage/1.0.0
+RF numeric semantics
+manual-mode result behavior
+```
+
+Patch 5 Design Freeze 당시 11-key 목록은 당시 interface의 historical contract였으며,
+Patch 6의 frozen forward integration이 CLI option을 하나 추가하면서 current producer의 exact option set이 12 keys가 됐다.
+
 ---
 
 ## 10.10 Sample lineage descriptor

@@ -43,7 +43,8 @@ This read order is not a single precedence chain. Route conflicts by authority:
 - data/schema contracts → `RESEARCH_DATA_SCHEMA.md`
 - Patch 4 exact frame contract → `DATA-003` + `RESEARCH_DATA_SCHEMA.md` §F (`frames-schema/1.0.0`), frozen-and-implemented at commit `110cce6`; software verification/audit complete, real D455 hardware validation pending
 - Patch 5 lineage contracts → `PROV-005` + `docs/foundation/PATCH_05_end_to_end_lineage_hardening.md`; implemented at commit `dd0464e` and main-integrated at merge commit `ae86d58` as `summary-schema/1.0.0`, `rf-sample-lineage/1.0.0`, and `rf-experiment-provenance/1.0.0`, with 252 tests PASS both pre-merge final and post-merge regression, and independent audit BLOCKER 0 / IMPORTANT 0
-- other unimplemented/future schema designs, including Patch 6 selection policy → confirm their status in `RESEARCH_DECISION_LOG.md` before treating them as implemented or frozen contracts
+- Patch 6 selection contracts → `PROV-006` + `PROV-007` + `docs/foundation/PATCH_06_selection_manifest_recapture_inclusion.md`; implemented at commit `9c5fff9` as `selection-event/1.0.0` and `dataset-selection-manifest/1.0.0`, with single-terminal per-slot linear supersession, canonical `round` (`^[1-9][0-9]*$`), RF `--dataset-manifest` linkage, 330 tests PASS, and independent re-audit BLOCKER 0 / IMPORTANT 0; main integration remains pending
+- other unimplemented/future schema designs, including Patch 7 integrity automation and Patch 8 formal D455 validation details → confirm their status in `RESEARCH_DECISION_LOG.md` before treating them as implemented or frozen contracts
 
 The Step 1.5 Patch 4 field details were pre-freeze proposals. After `DATA-003`
 resolved `OPEN-001`, Schema §F is the exact frozen Patch 4 frame contract. Do not
@@ -522,9 +523,11 @@ At the current canonical state:
 - Foundation Patch 4.5 `mediapipe-model-lock/1.0.0` is complete and main-integrated,
 - Foundation Patch 5 Design Freeze is `d4dc23f`, implementation is `dd0464e`, main integration is `ae86d58`, and the lineage contracts `summary-schema/1.0.0`, `rf-sample-lineage/1.0.0`, and `rf-experiment-provenance/1.0.0` are implemented,
 - Patch 5 verification is 204 baseline + 48 targeted = 252 tests PASS; post-merge regression is also 252 tests PASS; independent READ-ONLY audit is PASS WITH MINOR FINDINGS with BLOCKER 0 / IMPORTANT 0,
-- real D455 formal hardware validation remains pending, `OPEN-002` through `OPEN-006` remain unresolved, and formal collection has not started,
-- Patch 5 documentation closure and main integration are complete; Patch 6 Selection Manifest / Recapture Inclusion is the next required Foundation scope,
-- do not reopen `OPEN-001`, `DATA-003`, `PROV-004`, or `PROV-005`, and do not alter frozen contracts implicitly in later work.
+- Foundation Patch 6 Design Freeze is `432da73`, clarification is `3235220`, implementation is `9c5fff9`, and `selection-event/1.0.0`, `dataset-selection-manifest/1.0.0`, explicit recapture/selection authority, canonical round identity, and RF `--dataset-manifest` integration are implemented,
+- Patch 6 committed-state verification is Patch 6 targeted 75 PASS / Patch 5 lineage regression 48 PASS / capture protocol 56 PASS / full suite 330 PASS; independent re-audit is PASS WITH MINOR FINDINGS with BLOCKER 0 / IMPORTANT 0 / MINOR 1 and implementation commit recommendation YES,
+- Patch 6 documentation closure is complete in the current closure change; main integration and post-merge regression are still pending, and Patch 7 Integrity Checker / Hardening follows after main integration,
+- real D455 formal hardware validation remains Patch 8 scope, `OPEN-002` through `OPEN-006` remain unresolved, and formal collection has not started,
+- do not reopen `OPEN-001`, `DATA-003`, `PROV-004`, `PROV-005`, `PROV-006`, or `PROV-007`, and do not alter frozen contracts implicitly in later work.
 
 Only perform the currently requested scope.
 

@@ -1,6 +1,6 @@
 # Research Data Schema — recording / provenance / analysis
 
-- 명세 버전: `research-data-schema/1.3.0`
+- 명세 버전: `research-data-schema/1.4.0`
 - 최초 작성일: 2026-09-30
 - Canonicalization amendment: **2026-10-01 — GOV-005 / OPEN-001에 따른 Patch 4 pre-freeze authority/status overlay를 추가했다. 이 amendment는 field/data contract 또는 capture protocol 변경을 의미하지 않았다.**
 - Patch 4 Design Freeze amendment: **2026-10-01 — `DATA-003`이 `OPEN-001`을 해소하여 `frames-schema/1.0.0` exact canonical frame contract를 freeze한다. 이 amendment는 contract 확정이며 구현 완료 또는 capture protocol 변경을 의미하지 않는다.**
@@ -8,7 +8,9 @@
 - Patch 5 implementation closure amendment: **2026-10-04 — `PROV-005`로 freeze한 end-to-end lineage contract가 Design Freeze commit `d4dc23f` 이후 implementation commit `dd0464e`에서 구현됐다. `summary-schema/1.0.0`, `rf-sample-lineage/1.0.0`, `rf-experiment-provenance/1.0.0`, raw SHA identity collision rejection, immutable RF input resolution을 포함하며 204 baseline + 신규 48 = 252 tests PASS 및 독립 READ-ONLY audit BLOCKER 0 / IMPORTANT 0을 기록한다. 이는 Patch 6 selection policy 또는 Patch 8 hardware validation 완료를 의미하지 않는다.**
 - Patch 5 main-integration sync amendment: **2026-10-04 — Patch 5는 merge commit `ae86d58` (`ae86d5875c8fe3200b3b2c1dd26c48256e01105f`)에서 `main`에 통합됐고, merge 직후 `python -X utf8 -m unittest -q` 전체 regression `252 tests PASS`를 재확인했다. 따라서 §G lineage contract는 implementation/audit/documentation closure/main integration까지 완료 상태이며, 다음 required Foundation scope는 Patch 6 Selection Manifest / Recapture Inclusion이다.**
 - Patch 6 Design Freeze amendment: **2026-10-04 — `PROV-006` Design Freeze 후보에 맞춰 §H/§I의 selection architecture를 `selection_events.jsonl + immutable datasets/<dataset_manifest_id>.json` 2-layer authority로 정리한다. `round`는 planned measurement slot이며 재촬영은 same round + new `recording_id`를 사용한다. Technical evidence와 scientific inclusion decision을 분리하고, formal selection은 별도 `selection_policy_version` 확정 전 임의 수행하지 않는다. `frames-schema/1.0.0` exact 60 fields는 변경하지 않으며 Patch 6 implementation은 아직 시작하지 않았다.**
-- 상태: **Hybrid contract/design record. 현재 구현 사실은 Git/source/test와 canonical Foundation records가 우선한다. §F의 Patch 4 exact frame contract는 `DATA-003`에 따라 frozen-and-implemented, §G의 Patch 5 summary/RF lineage contract는 `PROV-005`에 따라 frozen-and-implemented-and-main-integrated (`ae86d58`) 상태다. §H의 Patch 6 selection mechanism과 §I의 selection-manifest layout은 `PROV-006` Design Freeze에 맞춰 frozen / implementation-not-started 상태이며, formal scientific selection policy 자체는 여전히 별도 decision이 필요하다.**
+- Patch 6 clarification amendment: **2026-10-05 — `PROV-007`이 동일 logical slot `(dataset_role, subject, round)`의 selection history를 single-terminal linear supersession chain으로 명확화하고, canonical `round` representation을 `^[1-9][0-9]*$`로 확정한다. leading zero는 허용하지 않으며 기존 historical artifact를 rewrite하지 않는다.**
+- Patch 6 implementation closure amendment: **2026-10-05 — Design Freeze commit `432da73`, clarification commit `3235220` 이후 implementation commit `9c5fff9`에서 `selection-event/1.0.0`, `dataset-selection-manifest/1.0.0`, append-only selection ledger, explicit recapture relation, immutable dataset snapshot, exact analysis/run/frames binding, RF `--dataset-manifest`, canonical round capture input을 구현했다. committed-state verification은 Patch 6 targeted 75 PASS / Patch 5 lineage 48 PASS / capture protocol 56 PASS / full suite 330 PASS이며 independent re-audit는 BLOCKER 0 / IMPORTANT 0이다. 이는 formal scientific inclusion policy 확정 또는 Patch 8 D455 validation 완료를 의미하지 않는다.**
+- 상태: **Hybrid contract/design record. 현재 구현 사실은 Git/source/test와 canonical Foundation records가 우선한다. §F의 Patch 4 exact frame contract는 `DATA-003`에 따라 frozen-and-implemented, §G의 Patch 5 summary/RF lineage contract는 `PROV-005`에 따라 frozen-and-implemented-and-main-integrated (`ae86d58`) 상태다. §H의 Patch 6 selection mechanism과 §I의 canonical selection-manifest layout은 `PROV-006` + `PROV-007`에 따라 frozen-and-implemented (`9c5fff9`) 상태이며 documentation closure는 current closure change에서 완료하고 main integration은 아직 pending이다. formal scientific selection policy 자체는 여전히 별도 decision이 필요하다.**
 - 적용 지침: [AGENTS.md](AGENTS.md). 연구 결과는 목표값이 아니라 증거로 취급한다.
 - 2026-09-30 Step 1.5 원작성 범위: 당시 산출물은 이 문서뿐이었으며, 소스·테스트·기존 데이터의 변경, 파일 이동, 모델 다운로드, 성능 실험은 수행하지 않았다.
 
@@ -56,17 +58,18 @@ Patch 4 exact canonical frame contract
 → 252 tests PASS 및 independent READ-ONLY audit BLOCKER 0 / IMPORTANT 0.
 
 §H
-→ `PROV-006` Patch 6 Design Freeze에 따른 selection mechanism contract.
-→ `round`는 planned measurement slot이며 recapture는 explicit relation으로만 기록.
+→ `PROV-006` + `PROV-007` Patch 6 selection mechanism contract.
+→ `round`는 planned measurement slot이며 canonical string은 `^[1-9][0-9]*$`; recapture는 explicit relation으로만 기록.
+→ logical slot별 current terminal `selection_decision`은 최대 하나이며 supersession은 linear chain만 허용.
 → technical evidence와 scientific inclusion decision은 분리.
 → formal scientific selection policy는 별도 `selection_policy_version` decision 전까지 미확정.
-→ implementation은 아직 시작하지 않음.
+→ commit `9c5fff9`에서 selection mechanism implementation 완료; 330 tests PASS 및 independent re-audit BLOCKER 0 / IMPORTANT 0.
 
 §I
-→ mixed-status target layout.
+→ mixed-status data layout.
 → `analysis/<recording_id>/<analysis_run_id>/` 계열은 기존 provenance Foundation에서 사용 중.
 → `results/<experiment_run_id>/` subtree는 Patch 5에서 구현 완료.
-→ Patch 6 canonical selection target은 `manifests/selection_events.jsonl` + `manifests/datasets/<dataset_manifest_id>.json`의 2-layer 구조.
+→ Patch 6 canonical selection authority인 `manifests/selection_events.jsonl` + `manifests/datasets/<dataset_manifest_id>.json` 2-layer 구조는 commit `9c5fff9`에서 구현 완료.
 → 별도 `manifests/recordings.jsonl` authority는 만들지 않음.
 
 §J
@@ -600,11 +603,14 @@ Patch 5 implementation 이후 canonical `summary_steps.csv`는 `summary-schema/1
 - RF 실행은 고유 `experiment_run_id`를 사용하고 `results/<experiment_run_id>/experiment_manifest.json`에 exact input, RF code/environment/options, sample-lineage descriptor, output hashes를 기록한다. schema는 `rf-experiment-provenance/1.0.0`이다.
 - sample lineage schema는 `rf-sample-lineage/1.0.0`이며, canonical frames source와 external table source를 구분한다.
 - 기존 결과 CSV 필드는 유지하고 `experiment_run_id`, `dataset_manifest_sha256`, `lineage_manifest_path`, `lineage_manifest_sha256`을 추가한다. 기존 `root_provenance`는 유지한다.
-- Patch 5 current/pilot 실행에서는 `dataset_manifest` reference fields가 null이며, Patch 6 formal selection artifact를 선행 구현하지 않는다.
+- Patch 5 manual/current 실행에서는 `dataset_manifest` reference fields가 null이다. Patch 6 commit `9c5fff9`에서 `--dataset-manifest` mode가 이 reserved top-level reference를 실제 ID/path/hash로 채우고, `experiment_manifest.inputs.ours`와 sample lineage는 계속 exact resolved source를 기록한다. Patch 6 CLI 추가에 따라 `options`에는 additive `dataset_manifest` key가 포함되며 manual modes에서는 null이다; 이 compatibility amendment는 `rf-experiment-provenance/1.0.0` schema identifier와 RF numeric semantics를 변경하지 않는다.
 - 집계 metric 하나에 여러 recording이 기여하므로 단일 recording_id를 그 metric의 원본처럼 쓰지 않는다. 결과→불변 lineage manifest→sample→frames run→recording으로 역추적한다.
 - paper Dataset.xlsx 등 recording_id가 없는 외부 표 데이터에는 `source_dataset_id + file hash + 1-based physical row identity`를 사용한다. 가짜 recording_id를 만들지 않는다.
 
 ## H. 재촬영 선택 정책
+
+> Patch 6 mechanism status: **IMPLEMENTED / SOFTWARE-VERIFIED / INDEPENDENTLY RE-AUDITED** at commit `9c5fff9`.
+> Design authority is `PROV-006` + `PROV-007`. This status covers selection infrastructure, not the still-deferred scientific contents of a formal `selection_policy_version`.
 
 ### H.1 Patch 6 selection authority
 
@@ -933,11 +939,20 @@ manual `--ours` / `--ours-frames` 동작과 기존 RF numeric semantics는 유�
 
 ## I. 권장 파일/폴더 구조
 
+Patch 6 selection subtree status (2026-10-05):
+
+```text
+manifests/selection_events.jsonl
+manifests/datasets/<dataset_manifest_id>.json
+```
+
+의 contract/writer/validator/RF resolver는 commit `9c5fff9`에서 구현됐다. 실제 repository에 generated selection artifacts가 항상 존재해야 한다는 뜻은 아니며, formal scientific selection execution은 별도 policy decision을 요구한다.
+
 아래는 current target structure다. subtree별 구현 상태는 다르다.
 
 - `analysis/<recording_id>/<analysis_run_id>/`: 기존 provenance Foundation에서 구현·사용 중.
 - `results/<experiment_run_id>/`: Patch 5에서 구현 완료.
-- `manifests/selection_events.jsonl`, `manifests/datasets/<dataset_manifest_id>.json`: Patch 6 Design Freeze target, implementation not started.
+- `manifests/selection_events.jsonl`, `manifests/datasets/<dataset_manifest_id>.json`: Patch 6 commit `9c5fff9`에서 contract/writer/validator/RF resolver 구현 완료; generated artifacts 자체는 selection 실행 시 생성.
 - `data/pilot|formal|external/<recording_id>/` 전체 재배치: target architecture이며 Patch 6가 강제 이동하지 않는다.
 - 별도 `manifests/recordings.jsonl` authority는 사용하지 않는다.
 
@@ -1086,11 +1101,12 @@ formal experiment 전에 별도 validation으로 다음을 확인한다.
 4. **Validity / missing / boolean:** hip는 geometric in-frame validity와 depth validity를 분리하고, shoulder에는 `lsh_valid/rsh_valid`를 신규 상태로 추가한다. missing measurement는 CSV empty/JSON null, canonical boolean은 lowercase `true/false`, unknown은 empty다. numeric sentinel이나 임의 보간으로 raw missing을 채우지 않는다.
 5. **P01/P02 compatibility:** 기존 pilot 원본·CSV·수치·legacy ID mapping을 유지한다. 새 field를 기존 scalar에서 추정 생성하지 않는다. legacy unknown은 `unknown_legacy` 또는 null로 남긴다. raw를 새 analysis run으로 재분석할 수 있으나 별도 provenance와 당시 실제 coverage가 전제다.
 6. **Patch 4 구현 상태:** commit `110cce6`에서 `analyze_d455.py`의 canonical frame writer/reader, exact 60-field header, source enums, boolean/missing parsing, shoulder validity, hip extraction/depth validity와 전용 regression test를 구현했다. Post-hardening 기준 171 tests와 독립 software audit를 통과했다. `capture_d455.py`에 새 shoulder/hip/arm coverage acceptance gate는 추가하지 않았다.
-7. **Patch 5 lineage 구현 상태:** Design Freeze `d4dc23f` / implementation `dd0464e`. `summary-schema/1.0.0` exact 52 fields, raw SHA identity conflict rejection, immutable RF input resolution, `rf-sample-lineage/1.0.0`, `rf-experiment-provenance/1.0.0`을 구현했다. Baseline 204 + 신규 48 = 252 tests PASS이며 independent READ-ONLY audit은 PASS WITH MINOR FINDINGS, BLOCKER 0 / IMPORTANT 0이다. 이는 §H selection policy 완료를 의미하지 않는다.
-8. **F1/F2 미확정 범위:** calibration-free 2D upper-body skeletal/body-relative geometry와 RGB-D·metric 3D/sagittal candidate family라는 방향만 유지한다. exact landmark graph·수식·feature 개수·trunk-axis/angle·projection·normalization·selection·threshold·성능은 `OPEN-002/OPEN-003`이며 Patch 4 raw contract에서 결정하지 않는다.
-9. **후속 연구자 결정 사항:** formal/external exact protocol과 framing/coverage 절차는 `OPEN-005`, D455 exact 거리 grid·반복·landmark/depth/3D-repeatability/RGB-depth coupling/distance-stability metric·허용 기준은 `OPEN-006`이다. `rank_weights` p>6 정책은 `OPEN-004`다. bbox-vs-contour/oval exact error metric과 최종 연구 채택 여부도 deferred 상태다.
-10. **Coverage 한계:** 현재 capture가 hip/elbow/wrist의 in-frame/depth coverage를 보증하지 않는다는 점은 Patch 4 schema가 해결하지 않는다. `frames-schema/1.0.0`은 관측/결측 상태를 표현하고, 실제 formal framing 및 hardware stability는 후속 protocol/validation에서 확인한다.
-11. **기존 provenance 유지:** recording_id, analysis_run_id, dataset_role, protocol_version, git/file/model hash, selection manifest·이력, legacy pilot mapping, raw→frames→summary 및 raw→frames→RF traceability를 삭제·단순화하지 않는다.
+7. **Patch 5 lineage 구현 상태:** Design Freeze `d4dc23f` / implementation `dd0464e`. `summary-schema/1.0.0` exact 52 fields, raw SHA identity conflict rejection, immutable RF input resolution, `rf-sample-lineage/1.0.0`, `rf-experiment-provenance/1.0.0`을 구현했다. Baseline 204 + 신규 48 = 252 tests PASS이며 independent READ-ONLY audit은 PASS WITH MINOR FINDINGS, BLOCKER 0 / IMPORTANT 0이다.
+8. **Patch 6 selection 구현 상태:** Design Freeze `432da73` / clarification `3235220` / implementation `9c5fff9`. `selection-event/1.0.0`, `dataset-selection-manifest/1.0.0`, per-slot single-terminal linear supersession, canonical round, exact source pinning, RF `--dataset-manifest` linkage를 구현했다. committed-state full suite 330 tests PASS이며 independent re-audit은 PASS WITH MINOR FINDINGS, BLOCKER 0 / IMPORTANT 0이다. formal scientific selection policy는 계속 별도 decision이다.
+9. **F1/F2 미확정 범위:** calibration-free 2D upper-body skeletal/body-relative geometry와 RGB-D·metric 3D/sagittal candidate family라는 방향만 유지한다. exact landmark graph·수식·feature 개수·trunk-axis/angle·projection·normalization·selection·threshold·성능은 `OPEN-002/OPEN-003`이며 Patch 4 raw contract에서 결정하지 않는다.
+10. **후속 연구자 결정 사항:** formal/external exact protocol과 framing/coverage 절차는 `OPEN-005`, D455 exact 거리 grid·반복·landmark/depth/3D-repeatability/RGB-depth coupling/distance-stability metric·허용 기준은 `OPEN-006`이다. `rank_weights` p>6 정책은 `OPEN-004`다. bbox-vs-contour/oval exact error metric과 최종 연구 채택 여부도 deferred 상태다.
+11. **Coverage 한계:** 현재 capture가 hip/elbow/wrist의 in-frame/depth coverage를 보증하지 않는다는 점은 Patch 4 schema가 해결하지 않는다. `frames-schema/1.0.0`은 관측/결측 상태를 표현하고, 실제 formal framing 및 hardware stability는 후속 protocol/validation에서 확인한다.
+12. **기존 provenance 유지:** recording_id, analysis_run_id, dataset_role, protocol_version, git/file/model hash, selection manifest·이력, legacy pilot mapping, raw→frames→summary 및 raw→frames→RF traceability를 삭제·단순화하지 않는다.
 
 2026-09-30 Step 1.5 원작성 당시 수정 대상은 `RESEARCH_DATA_SCHEMA.md` 한 파일이었다. 당시 Python 소스·테스트·데이터 변경, 새 파일 생성, F1/F2 구현, RF 실험, commit/push는 수행하지 않았다.
 2026-10-01 canonicalization amendment는 GOV-005/OPEN-001 status/authority 정합화였으며 field/data contract를 freeze하지 않았다.
