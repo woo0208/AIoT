@@ -1,6 +1,6 @@
 # Research Decision Log
 
-- 문서 버전: `v1.5`
+- 문서 버전: `v1.6`
 - 기준일: `2026-10-05`
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
@@ -3898,3 +3898,359 @@ Supersedes:
 Resolves:
 - Patch 6 audit `I-1`
 - Patch 6 audit `OA-1`
+
+---
+
+## PROV-008 — Patch 7 Integrity Checker / Hardening Design Freeze
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-05
+**Decision timing:** Patch 7 READ-ONLY investigation / gap analysis / exact contract 확정 후, implementation 이전
+
+### Decision
+
+Patch 7은 **Patch 1~6에서 이미 고정된 research artifact authority를 repository-wide하게 독립 검증하는 read-only integrity checker / hardening layer**로 고정한다.
+
+Patch 1~6은 artifact 생성·소비 시점의 local/fail-closed validation을 제공하지만, repository 전체를 한 번에 순회하여 다음을 검증하는 general integrity layer는 없다.
+
+```text
+inventory
+ownership / identity
+stored SHA-256 ↔ actual bytes
+missing / mixed / structural orphan
+malformed / torn authority
+cross-layer lineage consistency
+```
+
+Patch 7은 이 gap을 해결한다.
+
+상세 normative contract는 다음 문서를 단일 상세 authority로 사용한다.
+
+```text
+docs/foundation/PATCH_07_integrity_checker_hardening.md
+```
+
+본 entry는 그 문서의 DF 항목·Acceptance Criteria·Test Matrix를 반복하지 않고, 변경 불가한 핵심 결정과 경계만 기록한다.
+
+---
+
+### Core decisions
+
+#### A. Read-only / non-destructive
+
+checker가 허용되는 동작:
+
+```text
+discover / inventory / parse / validate / hash / cross-reference / classify / report
+```
+
+금지되는 동작:
+
+```text
+artifact 수정/삭제/이동
+JSON/JSONL rewrite 또는 truncate
+selection history rewrite
+automatic repair / selection / exclusion / retake
+legacy provenance inference/backfill
+model download / camera access / experiment rerun
+```
+
+즉 Patch 7은 **detect / classify / report** 계층이며 repair/migration 계층이 아니다.
+
+#### B. Severity / success
+
+finding severity:
+
+```text
+ERROR
+WARNING
+INFO
+```
+
+`ERROR`는 frozen authority와 actual repository 사이의 **증명된 contradiction**에만 사용한다.
+
+대표 예:
+
+```text
+stored SHA != actual SHA
+recorded required artifact missing
+recording_id / analysis_run_id mismatch
+owner mismatch
+canonical schema/serialization violation
+selection graph violation
+malformed/torn canonical authority
+completed RF output hash mismatch
+```
+
+`WARNING`은 corruption이라고 단정할 수 없는 incomplete/unverifiable state에 사용한다.
+
+repository integrity success condition:
+
+```text
+ERROR == 0
+```
+
+#### C. Incomplete state != corruption
+
+다음 상태 자체는 ERROR가 아니다.
+
+```text
+failed/running capture-analysis-RF state
+selection되지 않은 capture
+selection되지 않은 completed analysis
+historical immutable dataset manifest
+```
+
+핵심 구분:
+
+```text
+partial / incomplete / unused state != corruption
+already-declared authority fact와 actual bytes/identity의 contradiction = corruption
+```
+
+별도 timeout authority가 없으므로 오래된 `running`을 자동 `failed`로 재분류하지 않는다.
+
+#### D. Missing / orphan
+
+`missing`:
+
+> frozen authority가 존재한다고 요구하거나 path/hash fact로 이미 기록한 artifact가 현재 없는 상태
+
+`structural orphan`:
+
+> managed canonical namespace에 존재하지만 자신의 frozen ownership relation을 만족하는 authority를 찾을 수 없는 artifact
+
+따라서 단순히 아직 selection/RF에 사용되지 않았다는 이유만으로 orphan으로 판정하지 않는다.
+
+#### E. Existing authority reuse
+
+Patch 7은 다음 existing authority를 재사용하며 재정의하지 않는다.
+
+```text
+capture-provenance/1.0.0
+analysis-provenance/1.0.0
+frames-schema/1.0.0
+summary-schema/1.0.0
+mediapipe-model-lock/1.0.0
+rf-sample-lineage/1.0.0
+rf-experiment-provenance/1.0.0
+selection-event/1.0.0
+dataset-selection-manifest/1.0.0
+```
+
+특히 다음은 그대로 유지한다.
+
+```text
+frames-schema/1.0.0 exact 60 fields
+Patch 5 actual-byte lineage semantics
+Patch 6 append-only selection history
+Patch 6 immutable dataset snapshot semantics
+PROV-007 canonical round / linear supersession semantics
+```
+
+#### F. Repository-wide validation families
+
+managed scope:
+
+```text
+data/**
+analysis/**
+manifests/selection_events.jsonl
+manifests/datasets/*.json
+results/**
+mediapipe_model_lock.json
+locally present locked model artifact
+```
+
+최소 validation family:
+
+```text
+Capture
+- recording identity
+- declared raw/sidecar relation
+- existing sidecar identity consistency
+
+Analysis
+- directory ↔ manifest identity
+- recorded input/output path/hash
+- canonical frames owner/schema/hash
+- raw identity collision
+- batch/run relation
+
+Selection
+- whole-ledger parse/serialization
+- event identity/hash
+- supersession/recapture graph
+- evidence path/hash/identity
+
+Dataset manifest
+- immutable manifest identity/serialization
+- pinned event existence/hash
+- selected source path/hash/ownership
+
+RF
+- experiment directory ↔ manifest identity
+- input/dataset-manifest binding
+- sample lineage identity/hash
+- completed output existence/hash
+```
+
+정확한 field-level rule은 Foundation Patch 7 문서를 따른다.
+
+#### G. Evidence-kind hardening
+
+Patch 6 audit에서 남은 evidence-kind semantic hardening을 포함한다.
+
+단, frozen exact schema가 없는 artifact에 새로운 scientific schema를 발명하지 않는다.
+
+`quality` evidence의 minimum integrity requirement:
+
+```text
+valid JSON object
+recording_id 존재/일치
+pinned exact bytes SHA-256 일치
+```
+
+다음은 Patch 7이 판단하지 않는다.
+
+```text
+quality verdict의 scientific acceptability
+ok_with_warnings formal inclusion policy
+retake/exclude scientific policy
+```
+
+`kind == other` 역시 path/hash/path-safety 범위를 넘어 의미를 추론하지 않는다.
+
+#### H. Torn/crash detection, no repair
+
+최소 탐지 대상:
+
+```text
+selection ledger torn final line
+partial/malformed canonical dataset manifest
+malformed canonical JSON/JSONL authority
+recognized temporary publication residue
+```
+
+canonical final authority 자체가 malformed/partial이면 ERROR다.
+
+checker는 tail truncate, line removal, manifest/hash rewrite, file delete/rename 같은 recovery를 자동 수행하지 않는다.
+
+#### I. External input
+
+repository 밖의 resolved absolute path는:
+
+```text
+accessible → exact bytes SHA 재검증; mismatch = ERROR
+inaccessible → EXTERNAL_UNVERIFIABLE / WARNING
+```
+
+유사한 local artifact로 자동 substitute하지 않는다.
+
+#### J. No new self-hash authority in Patch 7 v1
+
+Patch 7 v1에서는 다음을 도입하지 않는다.
+
+```text
+global manifest hash registry
+integrity catalog
+Merkle/root hash
+cryptographic signing authority
+```
+
+Patch 7 v1은 existing authority 내부의 identity / ownership / stored-hash / serialization / cross-reference consistency에 집중한다.
+
+외부 cryptographic anchor가 없는 authority graph 전체의 일관된 adversarial rewrite를 완전히 증명하지 못할 수 있다는 limitation은 acceptance한다.
+
+#### K. Scientific/hardware semantics unchanged
+
+Patch 7은 다음을 변경하거나 새로 결정하지 않는다.
+
+```text
+F1/F2 / RF numeric semantics
+Tree / Forest / weighting / λ / seed
+LOSO / first-upright / missing-value semantics
+label/class definitions
+formal participant/round count
+scientific inclusion/exclusion / retake policy
+Patch 8 D455 hardware validation
+raw recording semantic quality
+```
+
+Patch 7 전후 invariant:
+
+```text
+same research bytes
+same numerical outputs
+same sample inclusion
+same evaluation behavior
+same selection history
+same frozen schemas
+```
+
+---
+
+### Implementation boundary
+
+Patch 7 implementation은 본 `PROV-008`과:
+
+```text
+docs/foundation/PATCH_07_integrity_checker_hardening.md
+```
+
+가 동일 Design Freeze commit으로 고정된 뒤에만 시작한다.
+
+Design Freeze commit은 authority documentation만 포함하며 Python source/test를 수정하지 않는다.
+
+implementation은 existing validator를 가능한 한 재사용한다. Pure validation logic을 노출하기 위한 refactor는 허용하지만 producer behavior와 기존 regression을 변경해서는 안 된다.
+
+closure 전 요구사항:
+
+```text
+targeted Patch 7 tests PASS
+full regression PASS
+independent READ-ONLY implementation audit
+BLOCKER 0
+IMPORTANT 0
+```
+
+`AGENTS.md`, `CLAUDE.md`, `RESEARCH_DATA_SCHEMA.md`, `AIoT_RESEARCH_MASTER.md`의 완료 status sync는 implementation/test/audit/closure 이후 수행한다.
+
+---
+
+### Evidence / Source
+
+- Patch 7 pre-implementation READ-ONLY repository investigation
+- current `capture_d455.py`, `analyze_d455.py`, `rf_experiment.py`, `selection_manifest.py`
+- current Patch 1~6 committed tests
+- `PROV-004` ~ `PROV-007`
+- `docs/foundation/PATCH_05_end_to_end_lineage_hardening.md`
+- `docs/foundation/PATCH_06_selection_manifest_recapture_inclusion.md`
+- `RESEARCH_DATA_SCHEMA.md`
+- `AIoT_RESEARCH_MASTER.md`
+- Patch 6 main-integrated baseline:
+  - branch `main`
+  - HEAD / origin/main `6e6f577`
+  - full regression `330 PASS`
+  - independent re-audit `BLOCKER 0 / IMPORTANT 0`
+  - working tree clean
+
+---
+
+### Impact
+
+- Patch 7의 역할을 repository-wide **read-only integrity audit**로 고정한다.
+- Patch 1~6 local validator와 scientific semantics는 유지한다.
+- exact MUST/MUST NOT, artifact rule, acceptance criteria, test matrix, Definition of Done은 `docs/foundation/PATCH_07_integrity_checker_hardening.md`가 상세 authority다.
+- 본 `PROV-008`은 implementation/test/audit/closure/main integration 완료를 의미하지 않는다.
+- Patch 8 real D455 formal hardware validation을 선행 구현하지 않는다.
+
+Supersedes:
+
+Resolves:
+- Patch 3 general repository integrity checker handoff
+- Patch 5 all-companion inventory / missing / orphan / repository-wide hash audit handoff
+- Patch 6 audit M-2 evidence-kind deep semantic validation gap
+- Patch 6 audit M-3 torn/crash artifact integrity-diagnostics gap
+
+---
