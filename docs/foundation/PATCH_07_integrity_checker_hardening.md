@@ -2182,3 +2182,82 @@ Real D455 formal hardware validation remains:
 ```text
 Patch 8 scope
 ```
+
+
+---
+
+# Post-Freeze Clarification — PROV-009
+
+Status: CONFIRMED
+Logged: 2026-10-05
+
+This addendum clarifies the historical CSV-mode compatibility-input
+semantics identified during the independent Patch 7 implementation audit.
+
+## C-1. Mutable flat compatibility publication
+
+The following paths are mutable compatibility publications, not persistent
+historical byte anchors:
+
+analysis/<recording_id>_frames.csv
+analysis/<recording_id>_frames.csv.provenance.json
+
+A later legitimate raw re-analysis of the same recording may replace these
+files.
+
+Therefore:
+
+historical CSV-mode stored flat-input SHA
+!=
+current flat compatibility publication SHA
+
+MUST NOT by itself produce an integrity ERROR.
+
+## C-2. Historical CSV-mode authority
+
+Historical CSV-mode source integrity MUST instead be verified through:
+
+historical CSV-mode run
+→ archived source_frames
+→ parent analysis identity
+→ parent analysis_manifest
+→ parent canonical frames/output hash
+
+Missing, corrupted, hash-mismatched, or identity-inconsistent immutable
+artifacts in this chain remain ERROR conditions.
+
+## C-3. Scope
+
+This clarification applies only to historical CSV-mode references to the
+mutable flat compatibility publication.
+
+It does NOT weaken stored-hash verification for:
+
+- run-scoped archived analysis artifacts
+- canonical analysis outputs
+- selection evidence
+- dataset-manifest sources
+- RF inputs
+- sample lineage
+- RF outputs
+- other immutable authoritative artifacts
+
+No latest/newest/mtime heuristic becomes provenance authority.
+
+The checker remains READ-ONLY.
+
+## C-4. Required regression
+
+Patch 7 tests MUST demonstrate:
+
+1. raw A → CSV B → later raw re-analysis C
+   → B remains valid when its immutable archived lineage is intact.
+
+2. Same scenario with archived source_frames corruption
+   → ERROR.
+
+3. Same scenario with authoritative parent source missing/corrupt
+   → ERROR.
+
+Authority:
+PROV-009 — Patch 7 Mutable Compatibility Input Integrity Clarification

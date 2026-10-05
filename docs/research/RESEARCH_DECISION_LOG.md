@@ -1,6 +1,6 @@
 # Research Decision Log
 
-- 문서 버전: `v1.6`
+- 문서 버전: `v1.7`
 - 기준일: `2026-10-05`
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
@@ -1397,6 +1397,8 @@ final-test 결과를 본 parameter 변경
 | `v1.3` | 2026-10-04 | `PROV-005`를 append하여 Patch 5 End-to-End Lineage Hardening의 raw SHA identity collision, `summary-schema/1.0.0`, immutable RF input resolution, `rf-sample-lineage/1.0.0`, `rf-experiment-provenance/1.0.0`, Patch 6 selection boundary를 Design Freeze |
 | `v1.4` | 2026-10-04 | `PROV-006` Design Freeze 후보를 append하여 Patch 6 Selection Manifest / Recapture Inclusion의 planned measurement-slot semantics, explicit recapture relation, append-only selection ledger, immutable dataset manifest, exact analysis/run/frames pinning, dataset-role guard, RF `--dataset-manifest` interface를 동결 제안 |
 | `v1.5` | 2026-10-05 | Patch 6 independent READ-ONLY implementation audit의 I-1/OA-1을 반영하여 `PROV-007`을 append. 동일 logical slot의 selection decision을 single-terminal linear supersession chain으로 제한하고, `round` canonical form을 `^[1-9][0-9]*$`로 확정 |
+| `v1.6` | 2026-10-05 | `PROV-008`을 append하여 Patch 7 Integrity Checker / Hardening의 repository-wide read-only integrity audit 역할, severity/success semantics, existing-authority reuse, missing/orphan/torn/external 처리 및 implementation boundary를 Design Freeze |
+| `v1.7` | 2026-10-05 | Patch 7 independent READ-ONLY implementation audit의 I-2를 반영하여 `PROV-009`를 append. historical CSV-mode input이 참조한 mutable flat compatibility publication의 교체를 corruption으로 보지 않고 immutable `source_frames` + parent analysis lineage로 historical integrity를 검증하도록 authority boundary를 명확화 |
 
 ---
 
@@ -4252,5 +4254,511 @@ Resolves:
 - Patch 5 all-companion inventory / missing / orphan / repository-wide hash audit handoff
 - Patch 6 audit M-2 evidence-kind deep semantic validation gap
 - Patch 6 audit M-3 torn/crash artifact integrity-diagnostics gap
+
+---
+
+## PROV-009 — Patch 7 Mutable Compatibility Input Integrity Clarification
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-05
+**Decision timing:** Patch 7 initial implementation 후 independent READ-ONLY audit에서 historical CSV-mode analysis와 mutable flat compatibility copy 사이의 authority ambiguity가 재현된 후
+
+### Context
+
+Patch 7 independent READ-ONLY audit에서 다음 정상 workflow가 repository integrity ERROR를 발생시키는 문제가 확인되었다.
+
+```text
+1. recording R에 대해 raw analysis A 수행
+2. canonical archived frames 생성
+3. flat compatibility copies publication
+
+   analysis/<R>_frames.csv
+   analysis/<R>_frames.csv.provenance.json
+
+4. 위 flat compatibility copy를 입력으로 CSV-mode analysis B 수행
+5. 이후 동일 recording R에 대해 legitimate raw re-analysis C 수행
+6. producer가 current compatibility publication을 C의 결과로 교체
+7. historical CSV-mode run B의 input record에 저장된 SHA와
+   현재 flat compatibility copy SHA가 달라짐
+8. Patch 7 checker가 historical run B를 HASH_MISMATCH ERROR로 판정
+```
+
+이 상태는 independent audit에서 실제 producer path를 사용하여 재현되었다.
+
+문제의 원인은 기존 authority의 다음 두 원칙을 문자 그대로 동시에 적용할 경우 발생한다.
+
+```text
+A. Recorded complete SHA-256 facts should be verified against actual bytes.
+
+B. Flat compatibility artifacts are non-canonical publication copies
+   and may legitimately be replaced by a later analysis of the same recording.
+```
+
+따라서 mutable compatibility publication과 immutable historical lineage의 authority boundary를 명확히 한다.
+
+---
+
+### Decision
+
+다음 원칙을 freeze한다.
+
+> **Mutable flat compatibility artifacts referenced by a historical CSV-mode analysis are not persistent authoritative byte anchors. A later legitimate replacement of those flat compatibility copies shall not, by itself, invalidate the historical analysis run. Historical CSV-mode source integrity shall instead be established through the immutable archived `source_frames` artifact and its corresponding parent analysis-manifest lineage.**
+
+즉 다음 파일:
+
+```text
+analysis/<recording_id>_frames.csv
+analysis/<recording_id>_frames.csv.provenance.json
+```
+
+은 current/latest compatibility publication이다.
+
+이 경로의 bytes는 동일 recording의 이후 legitimate raw analysis에 의해 교체될 수 있다.
+
+따라서 historical CSV-mode analysis manifest가 이 flat compatibility path와 당시 SHA-256을 input metadata로 보존하고 있더라도,
+
+```text
+historical stored SHA
+!=
+current flat compatibility bytes SHA
+```
+
+라는 사실만으로 historical run을 repository corruption으로 판정해서는 안 된다.
+
+---
+
+### 1. Authority distinction
+
+Patch 7은 다음 두 종류를 구분한다.
+
+#### A. Immutable authoritative lineage artifact
+
+예:
+
+```text
+analysis/<recording_id>/<analysis_run_id>/...
+```
+
+아래에 보존되는 run-scoped archived artifact와 해당 owner manifest.
+
+이 artifact에 대해 authority가 stored path/hash를 기록했다면:
+
+```text
+stored SHA-256
+==
+actual bytes SHA-256
+```
+
+가 계속 성립해야 한다.
+
+불일치 또는 missing은 기존 Patch 7 원칙에 따라 ERROR다.
+
+#### B. Mutable flat compatibility publication
+
+예:
+
+```text
+analysis/<recording_id>_frames.csv
+analysis/<recording_id>_frames.csv.provenance.json
+```
+
+이 파일은 convenience / compatibility publication이며 immutable historical authority가 아니다.
+
+동일 recording의 이후 successful raw analysis가 이 publication을 정상적으로 교체할 수 있다.
+
+따라서 historical run이 과거 시점의 flat compatibility SHA를 기록하고 있다는 이유만으로 현재 publication과 exact-byte equality를 영구 요구하지 않는다.
+
+---
+
+### 2. Historical CSV-mode integrity
+
+historical CSV-mode analysis의 source integrity는 flat compatibility copy의 현재 bytes가 아니라 다음 authoritative chain으로 검증한다.
+
+```text
+historical CSV-mode analysis run
+        ↓
+archived source_frames
+        ↓
+parent analysis identity
+        ↓
+parent analysis_manifest
+        ↓
+parent canonical frames/output hash
+```
+
+구체적으로 Patch 7은 historical CSV-mode run에 대해 기존 frozen authority가 제공하는 범위에서 다음을 검증한다.
+
+```text
+CSV run identity
+recording_id
+analysis_run_id
+
+archived source_frames existence
+archived source_frames SHA-256
+archived source_frames identity/schema
+
+parent analysis reference
+parent recording_id / analysis_run_id
+
+parent analysis_manifest existence
+parent analysis_manifest identity
+
+parent manifest ↔ parent canonical frames ownership
+parent stored hash ↔ authoritative archived bytes
+```
+
+이 immutable chain이 온전하면, 현재 flat compatibility publication이 이후 정상적으로 교체되었다는 이유만으로 historical CSV-mode run은 invalid가 아니다.
+
+---
+
+### 3. Flat compatibility input record semantics
+
+CSV-mode analysis manifest에 기록된 flat compatibility input:
+
+```text
+inputs.frames
+inputs.frames_provenance
+```
+
+의 historical path/hash는:
+
+```text
+"이 run이 실행될 당시 사용한 compatibility publication"
+```
+
+을 나타내는 provenance fact로 해석한다.
+
+이는:
+
+```text
+"이 path가 영구적으로 해당 bytes를 유지해야 한다"
+```
+
+는 persistent byte-anchor contract가 아니다.
+
+따라서 이후 legitimate replacement가 확인되는 정상 compatibility publication에 대해:
+
+```text
+current SHA != historical input SHA
+```
+
+만으로:
+
+```text
+HASH_MISMATCH ERROR
+```
+
+를 발생시키지 않는다.
+
+---
+
+### 4. What remains an ERROR
+
+본 clarification은 compatibility path 전체의 검증을 포기하는 결정이 아니다.
+
+다음은 계속 ERROR 대상이다.
+
+```text
+archived source_frames missing
+
+archived source_frames stored SHA mismatch
+
+archived source_frames identity/schema mismatch
+
+parent analysis manifest missing
+
+parent recording_id mismatch
+
+parent analysis_run_id mismatch
+
+parent canonical output ownership mismatch
+
+parent authoritative output SHA mismatch
+
+historical CSV run이 존재하지 않는 parent/run을 claim
+
+flat compatibility provenance가 current canonical owner를
+명시적으로 claim하면서 그 claim이 현재 authority와 모순됨
+```
+
+즉:
+
+```text
+mutable publication replacement
+```
+
+만 허용되는 것이며,
+
+```text
+immutable lineage corruption
+```
+
+은 허용되지 않는다.
+
+---
+
+### 5. What is NOT an ERROR
+
+다음 상태는 그 자체로 ERROR가 아니다.
+
+```text
+Raw run A
+→ CSV-mode run B
+→ same recording raw re-analysis C
+→ flat compatibility copy replaced by C
+```
+
+그리고 그 결과:
+
+```text
+B.inputs.frames.sha256
+!=
+current analysis/<R>_frames.csv SHA-256
+```
+
+가 되어도,
+
+B의 immutable archived source와 parent lineage가 온전하면 historical B는 valid historical analysis state다.
+
+---
+
+### 6. Scope limitation
+
+본 clarification은 다음 mutable flat compatibility artifacts와 그 historical CSV-mode input interpretation에 한정한다.
+
+```text
+analysis/<recording_id>_frames.csv
+analysis/<recording_id>_frames.csv.provenance.json
+```
+
+본 결정은 일반적인 stored-hash verification 규칙을 약화하지 않는다.
+
+다음 artifact의 기존 hash integrity는 그대로 유지한다.
+
+```text
+run-scoped archived analysis artifacts
+canonical analysis outputs
+selection evidence
+selection event bytes
+dataset manifest sources
+RF inputs
+sample lineage
+RF outputs
+other immutable authority artifacts
+```
+
+즉 일반 원칙은 여전히:
+
+```text
+immutable authoritative artifact
++
+stored complete SHA
+→ actual bytes must match
+```
+
+이다.
+
+---
+
+### 7. No latest/newest authority inference
+
+flat compatibility copy가 현재 어떤 analysis run의 publication인지 판단할 때:
+
+```text
+mtime
+ctime
+directory order
+lexical latest
+newest run ID
+```
+
+같은 heuristic을 authority로 사용하지 않는다.
+
+필요한 current compatibility ownership 판단은 existing provenance sidecar와 frozen explicit identity/hash 관계만 사용한다.
+
+---
+
+### 8. Patch 7 checker behavior
+
+Patch 7 implementation은 historical CSV-mode run의 flat compatibility input record를 검사할 때:
+
+```text
+historical flat SHA
+vs
+current mutable flat bytes
+```
+
+의 equality를 persistent ERROR condition으로 사용하지 않는다.
+
+대신 immutable archived source / parent lineage를 검증한다.
+
+이 clarification 때문에:
+
+```text
+historical run manifest rewrite
+stored historical SHA rewrite
+flat file restoration
+old compatibility copy regeneration
+```
+
+을 수행하지 않는다.
+
+Checker는 계속 READ-ONLY다.
+
+---
+
+### 9. Regression requirement
+
+Patch 7 tests에 최소 다음 regression scenario를 추가한다.
+
+```text
+1. raw analysis A
+2. CSV-mode analysis B using A compatibility publication
+3. B audit PASS
+4. same recording raw re-analysis C
+5. current flat compatibility publication replaced by C
+6. historical B archived source / parent lineage remains intact
+7. repository audit must NOT produce ERROR solely because:
+      B historical flat-input SHA
+      !=
+      current flat-copy SHA
+```
+
+추가 negative test도 포함한다.
+
+```text
+같은 상태에서 B의 archived source_frames bytes를 변조
+→ ERROR
+
+같은 상태에서 B의 parent authoritative source를 삭제
+→ ERROR
+```
+
+즉 false-positive 제거가 false-negative 증가로 이어져서는 안 된다.
+
+---
+
+### 10. Relationship to PROV-008
+
+본 결정은:
+
+```text
+PROV-008 — Patch 7 Integrity Checker / Hardening Design Freeze
+```
+
+를 폐기하거나 전체 supersede하지 않는다.
+
+`PROV-008`은 계속 Patch 7의 주 authority다.
+
+본 `PROV-009`는 구현 중 independent audit에서 발견된 다음 ambiguity만 명시적으로 해소한다.
+
+```text
+stored-hash audit
+vs
+mutable compatibility publication lifecycle
+```
+
+충돌 시 이 특정 항목에 대해서는 `PROV-009` interpretation이 우선한다.
+
+---
+
+### Invariants
+
+```text
+1. Flat compatibility copies remain non-canonical.
+
+2. Flat compatibility copies may be legitimately replaced.
+
+3. Historical analysis validity must not depend on a mutable publication
+   retaining historical bytes forever.
+
+4. Historical CSV-mode source integrity is anchored by immutable archived
+   source_frames + parent analysis lineage.
+
+5. Immutable archived artifacts remain subject to exact stored-hash audit.
+
+6. No historical manifest is rewritten.
+
+7. No flat compatibility artifact is restored or regenerated by Patch 7.
+
+8. No latest/newest heuristic becomes provenance authority.
+
+9. Patch 7 remains READ-ONLY.
+
+10. Scientific/numerical behavior is unchanged.
+
+11. Existing Patch 1–6 schema versions are unchanged.
+
+12. This clarification must remove the reproduced false-positive without
+    weakening detection of actual archived-source corruption.
+```
+
+---
+
+### Evidence / Source
+
+- Patch 7 initial implementation based on Design Freeze `fd6d90c`
+- independent READ-ONLY audit:
+  - `BLOCKER 0`
+  - `IMPORTANT 2`
+  - `MINOR 5`
+- reproduced normal workflow:
+  - raw analysis
+  - CSV-mode analysis
+  - later raw re-analysis of the same recording
+  - legitimate flat compatibility replacement
+  - false `HASH_MISMATCH` on historical CSV-mode inputs
+- current producer behavior in `analyze_d455.py`
+  - flat compatibility copies are republished/overwritten on later raw analysis
+- current Patch 7 Design Freeze:
+  - immutable stored-hash audit requirement
+  - flat compatibility artifacts are non-authoritative
+  - historical legal state must not be classified as corruption
+
+---
+
+### Impact
+
+Patch 7 implementation must be corrected so that:
+
+```text
+legitimate later compatibility publication replacement
+```
+
+does not invalidate a historical CSV-mode run.
+
+Patch 7 must instead rely on:
+
+```text
+archived source_frames
++
+parent analysis-manifest lineage
+```
+
+for persistent historical integrity.
+
+The implementation correction must add regression tests for:
+
+```text
+normal replacement → no ERROR
+
+archived source corruption → ERROR
+
+authoritative parent loss/corruption → ERROR
+```
+
+This clarification does not authorize any other weakening of repository-wide hash verification.
+
+Patch 7 implementation remains uncommitted until the independent audit findings are corrected and re-audited.
+
+Supersedes:
+- None.
+
+Clarifies:
+- `PROV-008` stored-hash semantics for historical CSV-mode inputs that reference mutable flat compatibility publications.
+
+Resolves:
+- Patch 7 independent audit finding I-2:
+  historical CSV-mode analysis falsely becoming permanent repository ERROR after legitimate re-analysis of the same recording.
 
 ---
