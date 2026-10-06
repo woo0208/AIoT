@@ -1,7 +1,7 @@
 # Research Decision Log
 
-- 문서 버전: `v1.8`
-- 기준일: `2026-10-05`
+- 문서 버전: `v1.9`
+- 기준일: `2026-10-06`
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
 - 역할: 현재 Research Master에 반영된 중요한 연구·데이터·실험·거버넌스 결정을 **왜 그렇게 결정했는지** 기록
@@ -1400,6 +1400,7 @@ final-test 결과를 본 parameter 변경
 | `v1.6` | 2026-10-05 | `PROV-008`을 append하여 Patch 7 Integrity Checker / Hardening의 repository-wide read-only integrity audit 역할, severity/success semantics, existing-authority reuse, missing/orphan/torn/external 처리 및 implementation boundary를 Design Freeze |
 | `v1.7` | 2026-10-05 | Patch 7 independent READ-ONLY implementation audit의 I-2를 반영하여 `PROV-009`를 append. historical CSV-mode input이 참조한 mutable flat compatibility publication의 교체를 corruption으로 보지 않고 immutable `source_frames` + parent analysis lineage로 historical integrity를 검증하도록 authority boundary를 명확화 |
 | `v1.8` | 2026-10-05 | Patch 7 Round 2 independent READ-ONLY re-audit의 N-1/N-2를 반영하여 `PROV-010`을 append. mutable compatibility publication을 explicit parent `compatibility_path` relation으로 식별하여 legacy-pilot naming까지 동일 semantics로 포함하고, exclude evidence와 include-selected canonical source의 completed-owner requirement를 역할별로 구분하도록 명확화 |
+| `v1.9` | 2026-10-06 | Patch 7 Round 3 independent READ-ONLY re-audit의 remaining IMPORTANT finding을 반영하여 `PROV-011`을 append. selection event의 `include`/`exclude`/`recapture` action 자체가 아니라 각 artifact reference의 실제 role(`historical evidence` vs `selected/consumed canonical source`)에 따라 completed-owner requirement를 적용하도록 명확화 |
 
 ---
 
@@ -5375,5 +5376,744 @@ Clarifies:
 Resolves:
 - Patch 7 Round 2 re-audit `N-1`
 - Patch 7 Round 2 re-audit `N-2`
+
+---
+
+## PROV-011 — Patch 7 Selection Evidence Role Semantics Clarification
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-06
+**Decision timing:** Patch 7 Round 3 independent READ-ONLY re-audit에서 PROV-010의 exclude-specific implementation이 `recapture` 및 `include` event의 historical evidence role까지 충분히 일반화하지 못해 정상 append-only selection history가 permanent false ERROR가 되는 경로가 재현된 후
+
+### Context
+
+Patch 7 Round 3 independent READ-ONLY re-audit에서 다음 상태가 확인되었다.
+
+기존 Round 3 구현은:
+
+```text
+exclude event
+→ historical evidence
+→ non-completed analysis evidence 허용
+```
+
+경로에서는 PROV-010을 올바르게 적용했다.
+
+그러나 동일한 historical evidence role이:
+
+```text
+recapture event
+include event
+```
+
+안에 존재하는 경우에는 event action 때문에 다시 canonical-consumer completion semantics가 적용될 수 있었다.
+
+그 결과 repository authority와 bytes가 정상임에도:
+
+```text
+status != completed
+```
+
+라는 이유만으로 historical evidence가 permanent `OWNER_MISMATCH` / integrity ERROR가 될 수 있었다.
+
+이는 append-only selection history에서 정상 과거 event를 사후 rewrite하지 않고는 제거할 수 없는 false positive다.
+
+---
+
+### Decision
+
+Patch 7 selection-evidence validation에서 completed-owner requirement는:
+
+```text
+event action
+(include / exclude / recapture)
+```
+
+자체로 결정하지 않는다.
+
+반드시 각 artifact reference가 수행하는 frozen role에 따라 결정한다.
+
+핵심 구분:
+
+```text
+A. historical decision evidence
+B. selected / consumed canonical source
+```
+
+이다.
+
+---
+
+# 1. Event action and artifact role are independent dimensions
+
+Selection event의 action:
+
+```text
+include
+exclude
+recapture
+```
+
+은 그 event 내부 모든 artifact reference의 completion semantics를 일괄 결정하지 않는다.
+
+하나의 event에는 서로 다른 역할의 reference가 동시에 존재할 수 있다.
+
+대표적으로:
+
+```text
+include event
+├─ analysis_selection
+│  → downstream에서 실제 선택·소비되는 canonical source
+│
+└─ evidence[]
+   → 해당 결정을 뒷받침하는 historical decision evidence
+```
+
+따라서:
+
+```text
+include event
+```
+
+라는 이유만으로 `evidence[]`의 모든 analysis artifact에 completed-owner requirement를 적용해서는 안 된다.
+
+동일하게:
+
+```text
+recapture event
+```
+
+의 evidence는 재촬영 판단의 historical evidence일 수 있으며,
+failed/running/incomplete status 자체가 corruption을 의미하지 않는다.
+
+---
+
+# 2. Historical evidence role
+
+다음 selection action 모두에서:
+
+```text
+include
+exclude
+recapture
+```
+
+artifact가 오직:
+
+```text
+evidence[]
+```
+
+또는 동등한 frozen historical-evidence reference로 사용되는 경우,
+그 artifact는 historical decision evidence role로 검증한다.
+
+Historical evidence validation은:
+
+```text
+status == completed
+```
+
+를 status 자체만으로 요구하지 않는다.
+
+즉 다음 상태는 그 자체로 ERROR가 아니다.
+
+```text
+failed analysis used only as evidence
+running analysis used only as evidence
+incomplete analysis used only as evidence
+```
+
+단, Patch 6 frozen contract가 해당 evidence reference 자체를 허용하는 경우에 한한다.
+
+PROV-011은 Patch 6에서 허용하지 않은 새로운 evidence kind나 reference 형태를 만들지 않는다.
+
+---
+
+# 3. Historical evidence integrity remains strict
+
+Non-completed historical evidence라도 applicable integrity facts는 계속 검증한다.
+
+최소 기존 frozen authority가 요구하는 범위에서:
+
+```text
+evidence artifact existence
+manifest parseability
+evidence kind / reference validity
+recording_id
+analysis_run_id
+artifact path
+stored SHA
+actual-byte SHA
+frames header / exact schema
+row recording_id
+row analysis_run_id
+owner/output relationship
+selection-event evidence reference
+other frozen identity / lineage fields
+```
+
+를 검증한다.
+
+따라서 다음은 계속 ERROR다.
+
+```text
+evidence missing
+
+evidence stored SHA mismatch
+
+evidence actual bytes corrupted
+
+evidence schema invalid
+
+evidence recording_id mismatch
+
+evidence analysis_run_id mismatch
+
+evidence owner/output relation invalid
+
+selection event references nonexistent or contradictory evidence
+
+malformed evidence authority that contradicts frozen schema
+```
+
+PROV-011은 evidence integrity validation을 약화하지 않는다.
+
+완화되는 것은 오직:
+
+```text
+historical evidence role에 대해
+status != completed 라는 사실만으로 ERROR를 만드는 것
+```
+
+이다.
+
+---
+
+# 4. Selected / consumed canonical source role
+
+실제로 downstream에서 선택·소비되는 canonical source에는 기존 completed-owner requirement를 그대로 적용한다.
+
+대표적 역할:
+
+```text
+analysis_selection
+
+dataset-selection manifest의 selected/canonical analysis source
+
+RF canonical input
+
+기타 Patch 5/6 frozen consumer가 completed owner를 요구하는 source
+```
+
+이 역할에서는:
+
+```text
+status == completed
+```
+
+가 계속 필수다.
+
+따라서:
+
+```text
+include event
++
+analysis_selection points to non-completed analysis
+```
+
+는 계속 ERROR다.
+
+PROV-011은 include-selected source의 completion requirement를 완화하지 않는다.
+
+---
+
+# 5. Same artifact in multiple roles
+
+동일한 analysis artifact가 하나의 selection state에서 동시에:
+
+```text
+historical evidence
++
+selected / consumed canonical source
+```
+
+두 역할을 수행한다면,
+각 reference edge는 자신의 frozen role에 따라 검증한다.
+
+해당 artifact는 전체 repository state가 valid하려면
+모든 applicable role requirement를 충족해야 한다.
+
+따라서 동일 artifact가 selected canonical source 역할도 가진다면:
+
+```text
+completed-owner requirement
+```
+
+를 만족해야 한다.
+
+Historical evidence role이 존재한다는 이유로
+selected-source requirement를 우회할 수 없다.
+
+즉:
+
+```text
+same non-completed analysis
+├─ evidence role
+└─ analysis_selection role
+```
+
+이면 evidence reference 자체는 status-only corruption이 아니지만,
+selected-source role이 completion requirement를 위반하므로 repository result는 ERROR다.
+
+---
+
+# 6. Action-specific examples
+
+## 6.1 Exclude
+
+```text
+exclude event
+└─ failed analysis_manifest in evidence[]
+```
+
+해당 evidence의 bytes/hash/schema/identity가 정상이라면:
+
+```text
+status == failed
+```
+
+라는 이유만으로 ERROR를 만들지 않는다.
+
+---
+
+## 6.2 Recapture
+
+```text
+recapture event
+└─ failed analysis_manifest / canonical_frames in evidence[]
+```
+
+재촬영 판단의 historical evidence로서 frozen reference가 유효하고
+bytes/hash/schema/identity가 정상이라면:
+
+```text
+status != completed
+```
+
+라는 이유만으로 ERROR를 만들지 않는다.
+
+---
+
+## 6.3 Include with separate auxiliary evidence
+
+```text
+include event
+├─ analysis_selection
+│  → completed analysis A
+│
+└─ evidence[]
+   → failed analysis B
+```
+
+이 경우:
+
+```text
+analysis A
+→ selected canonical source
+→ completed REQUIRED
+
+analysis B
+→ historical evidence only
+→ completed NOT required solely by status
+```
+
+둘의 각 role-specific integrity requirement가 모두 충족되면
+전체 event는 status semantics 때문에 실패해서는 안 된다.
+
+---
+
+## 6.4 Include selecting a non-completed source
+
+```text
+include event
+├─ analysis_selection
+│  → failed analysis A
+│
+└─ evidence[]
+   → any valid evidence
+```
+
+결과:
+
+```text
+ERROR
+```
+
+이다.
+
+이유는 event action이 include이기 때문이 아니라:
+
+```text
+analysis A가 selected / consumed canonical source role에서
+completed-owner requirement를 위반했기 때문
+```
+
+이다.
+
+---
+
+# 7. Relationship to PROV-010
+
+본 `PROV-011`은 `PROV-010`을 폐기하거나 전체 supersede하지 않는다.
+
+`PROV-010`의 핵심 원칙:
+
+```text
+historical evidence role
+!=
+selected consumable canonical source role
+```
+
+은 그대로 유지한다.
+
+다만 `PROV-010`의 설명과 initial implementation이:
+
+```text
+exclude evidence
+vs
+include selected source
+```
+
+구도로 좁게 해석될 수 있었던 ambiguity를 다음과 같이 명확화한다.
+
+정확한 authority boundary는:
+
+```text
+event action 기준이 아니라
+artifact reference role 기준
+```
+
+이다.
+
+이 특정 selection-evidence completion ambiguity에서는
+본 `PROV-011` interpretation이 우선한다.
+
+---
+
+# 8. No new selection/scientific semantics
+
+본 clarification은 다음을 새로 결정하거나 변경하지 않는다.
+
+```text
+which recordings should scientifically be included
+
+which recordings should be excluded
+
+when a recapture should scientifically occur
+
+participant count
+
+round count
+
+retake maximum
+
+quality threshold
+
+outlier policy
+
+F1/F2 definition
+
+RF numerical behavior
+
+Patch 8 hardware criteria
+```
+
+또한 selection event의 frozen schema, action vocabulary, append-only history를 변경하지 않는다.
+
+Patch 7은 계속 기존 selection authority를:
+
+```text
+read
+validate
+cross-reference
+report
+```
+
+할 뿐이다.
+
+---
+
+# 9. Required regression tests
+
+Patch 7 implementation commit 전에 최소 다음 regression을 요구한다.
+
+## R-1 — exclude historical evidence
+
+```text
+failed analysis
++
+valid exclude event
++
+analysis used only as evidence
+```
+
+Expected:
+
+```text
+NO ERROR solely because status != completed
+```
+
+기존 regression을 유지한다.
+
+---
+
+## R-2 — recapture historical evidence
+
+```text
+failed or running analysis
++
+Patch 6-valid recapture event
++
+analysis_manifest and/or canonical_frames used only as evidence
+```
+
+Expected:
+
+```text
+NO ERROR solely because status != completed
+```
+
+---
+
+## R-3 — include event with separate failed evidence
+
+```text
+include event
++
+completed selected analysis A
++
+separate failed analysis B used only as evidence
+```
+
+Expected:
+
+```text
+NO ERROR solely because evidence B is non-completed
+```
+
+Selected source A는 기존 completion requirement를 충족해야 한다.
+
+---
+
+## R-4 — selected non-completed analysis remains invalid
+
+```text
+include event
++
+analysis_selection → failed/running analysis
+```
+
+Expected:
+
+```text
+ERROR
+```
+
+Historical evidence rules로 이 failure를 우회할 수 없다.
+
+---
+
+## R-5 — recapture evidence corruption
+
+```text
+valid recapture evidence role
++
+evidence hash/schema/identity corruption
+```
+
+Expected:
+
+```text
+ERROR
+```
+
+---
+
+## R-6 — include auxiliary evidence corruption
+
+```text
+completed selected source
++
+separate historical evidence
++
+evidence hash/schema/identity corruption
+```
+
+Expected:
+
+```text
+ERROR
+```
+
+---
+
+## R-7 — same artifact occupies both roles
+
+```text
+include event
++
+same non-completed analysis referenced as evidence
++
+same analysis selected through analysis_selection
+```
+
+Expected:
+
+```text
+ERROR
+```
+
+because selected-source completion semantics remain applicable.
+
+---
+
+# 10. Implementation constraint
+
+Patch 7 checker는 다음과 같은 action-wide bypass를 구현해서는 안 된다.
+
+```text
+if action == exclude:
+    completion_not_required_for_everything
+
+if action == recapture:
+    completion_not_required_for_everything
+
+if action == include:
+    completion_required_for_everything
+```
+
+대신 reference의 role을 명시적으로 구분해야 한다.
+
+Conceptually:
+
+```text
+historical evidence reference
+→ evidence integrity validation
+→ completion not required by status alone
+
+selected / consumed source reference
+→ canonical consumer validation
+→ completion required where frozen authority says so
+```
+
+기존 Patch 3/5/6 validator를 가능한 한 재사용하며,
+새 scientific inference를 추가하지 않는다.
+
+---
+
+# 11. Invariants
+
+```text
+1. Event action alone does not determine evidence completion semantics.
+
+2. Historical evidence role may occur in include, exclude, or recapture events.
+
+3. Non-completed status alone is not corruption for a legal historical evidence role.
+
+4. Historical evidence hash/schema/identity/ownership corruption remains ERROR.
+
+5. Selected / consumed canonical sources retain completed-owner enforcement.
+
+6. An artifact occupying multiple roles must satisfy every applicable role requirement.
+
+7. Evidence-role semantics cannot be used to bypass selected-source completion requirements.
+
+8. Patch 6 selection schema and append-only history remain unchanged.
+
+9. Patch 7 does not rewrite selection events or historical authority.
+
+10. Patch 7 remains READ-ONLY.
+
+11. Scientific/numerical behavior remains unchanged.
+
+12. PROV-009 and PROV-010 remain in force except for the specific ambiguity clarified here.
+```
+
+---
+
+### Evidence / Source
+
+- Patch 7 Round 3 independent READ-ONLY re-audit
+  - `BLOCKER 0`
+  - `IMPORTANT 1`
+  - previous `I-1`, `I-2`, `N-1` confirmed resolved
+  - `N-2` confirmed resolved for exclude evidence but incomplete for equivalent historical evidence roles under recapture/include actions
+- reproduced legal append-only selection-history states where valid historical evidence could receive permanent false completed-owner ERROR
+- `PROV-008`
+- `PROV-009`
+- `PROV-010`
+- Patch 6 Selection Manifest / Recapture Inclusion frozen authority
+- `docs/foundation/PATCH_07_integrity_checker_hardening.md`
+
+---
+
+### Impact
+
+Patch 7 implementation must be corrected so that:
+
+```text
+completion requirement
+```
+
+is determined by:
+
+```text
+artifact reference role
+```
+
+rather than:
+
+```text
+event action
+```
+
+Specifically:
+
+```text
+include / exclude / recapture historical evidence
+→ no completed-owner requirement solely from evidence status
+
+selected / consumed canonical source
+→ existing completed-owner requirement preserved
+```
+
+The correction must remove the reproduced false positive without weakening
+hash/schema/identity/ownership validation or canonical-consumer completion enforcement.
+
+Patch 7 implementation remains uncommitted until:
+
+```text
+focused implementation repair
+→ targeted regression
+→ full regression
+→ independent READ-ONLY re-audit
+```
+
+confirms:
+
+```text
+BLOCKER == 0
+IMPORTANT == 0
+```
+
+Supersedes:
+- None.
+
+Clarifies:
+- `PROV-010` selection-evidence completion semantics: the controlling boundary is artifact reference role, not selection event action.
+- `PROV-008` / Patch 7 evidence validation where historical evidence can appear under `include`, `exclude`, or `recapture` events.
+
+Resolves:
+- Patch 7 Round 3 independent READ-ONLY re-audit remaining IMPORTANT finding: legal `recapture` and `include` historical evidence can otherwise receive a permanent false completed-owner ERROR.
 
 ---

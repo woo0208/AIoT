@@ -2526,3 +2526,349 @@ Patch 7 implementation remains uncommitted until the focused Round 3 repair:
 
 BLOCKER == 0
 IMPORTANT == 0
+
+---
+
+# Post-Freeze Clarification — PROV-011
+
+Status: CONFIRMED
+Logged: 2026-10-06
+
+This addendum clarifies the remaining Patch 7 selection-evidence completion
+ambiguity identified by the Round 3 independent READ-ONLY re-audit.
+
+Authority:
+PROV-011 — Patch 7 Selection Evidence Role Semantics Clarification
+
+## E-1. Completion semantics are role-based, not action-based
+
+Patch 7 MUST NOT determine completed-owner requirements solely from the
+selection event action:
+
+```text
+include
+exclude
+recapture
+```
+
+The controlling boundary is the role of each artifact reference:
+
+```text
+historical decision evidence
+vs
+selected / consumed canonical source
+```
+
+An event may contain references with different roles at the same time.
+
+For example:
+
+```text
+include event
+├─ analysis_selection
+│  → selected / consumed canonical source
+│  → completion required
+│
+└─ evidence[]
+   → historical decision evidence
+   → completion not required solely because of status
+```
+
+## E-2. Historical evidence may occur under every selection action
+
+A legal historical evidence reference may appear under:
+
+```text
+include
+exclude
+recapture
+```
+
+When an analysis artifact is used only as historical decision evidence,
+`failed`, `running`, or otherwise non-completed status is NOT corruption by
+itself.
+
+This applies only where the Patch 6 frozen contract already permits that
+evidence reference.
+
+PROV-011 does not create a new evidence kind or selection schema.
+
+## E-3. Historical evidence integrity remains strict
+
+Non-completed historical evidence remains subject to all applicable frozen
+integrity checks, including:
+
+```text
+artifact existence
+manifest parseability
+evidence kind/reference validity
+recording_id
+analysis_run_id
+artifact path
+stored SHA
+actual-byte SHA
+frames schema/header
+row recording_id
+row analysis_run_id
+owner/output relation
+selection-event evidence reference
+other frozen identity/lineage relations
+```
+
+Therefore the following remain ERROR conditions:
+
+```text
+missing evidence
+
+stored-hash mismatch
+
+actual-byte corruption
+
+schema corruption
+
+recording_id mismatch
+
+analysis_run_id mismatch
+
+owner/output contradiction
+
+selection event references nonexistent or contradictory evidence
+```
+
+The only prohibited false positive is:
+
+```text
+historical evidence role
++
+status != completed
+→ ERROR solely because of status
+```
+
+## E-4. Selected / consumed canonical sources remain strict
+
+Where an artifact is actually selected or consumed as a canonical source,
+existing completed-owner requirements remain unchanged.
+
+Applicable roles include:
+
+```text
+analysis_selection
+
+dataset-selection manifest selected/canonical source
+
+RF canonical input
+
+other Patch 5/6 consumers that require completed ownership
+```
+
+Thus:
+
+```text
+include event
++
+analysis_selection → failed/running analysis
+```
+
+remains ERROR.
+
+Historical-evidence semantics MUST NOT bypass a canonical-consumer completion
+requirement.
+
+## E-5. Same artifact in multiple roles
+
+The same artifact may be referenced through more than one role.
+
+If one analysis artifact is both:
+
+```text
+historical evidence
++
+selected / consumed canonical source
+```
+
+then each reference edge is validated according to its role.
+
+The repository is valid only if all applicable role requirements are satisfied.
+
+Therefore:
+
+```text
+same non-completed analysis
+├─ evidence[]
+└─ analysis_selection
+```
+
+remains ERROR because the selected-source role still requires completion.
+
+## E-6. Action examples
+
+### Exclude
+
+```text
+exclude event
+└─ failed analysis used only as evidence
+```
+
+If its bytes/hash/schema/identity are valid:
+
+```text
+NO ERROR solely because status == failed
+```
+
+### Recapture
+
+```text
+recapture event
+└─ failed/running analysis used only as evidence
+```
+
+If the frozen evidence reference and all integrity facts are valid:
+
+```text
+NO ERROR solely because status != completed
+```
+
+### Include with separate historical evidence
+
+```text
+include event
+├─ analysis_selection → completed analysis A
+└─ evidence[]         → failed analysis B
+```
+
+Expected semantics:
+
+```text
+analysis A
+→ selected canonical source
+→ completed required
+
+analysis B
+→ historical evidence only
+→ completed not required solely because of status
+```
+
+If all role-specific integrity requirements are satisfied, the event MUST NOT
+fail because evidence B is non-completed.
+
+### Include selecting a non-completed source
+
+```text
+include event
+└─ analysis_selection → failed/running analysis
+```
+
+Expected:
+
+```text
+ERROR
+```
+
+The reason is the selected-source role, not the action name by itself.
+
+## E-7. No action-wide bypass
+
+Patch 7 MUST NOT implement broad action-wide rules equivalent to:
+
+```text
+if action == exclude:
+    disable completion checks globally
+
+if action == recapture:
+    disable completion checks globally
+
+if action == include:
+    require completion for all evidence
+```
+
+Validation must follow the explicit reference role.
+
+Conceptually:
+
+```text
+historical evidence reference
+→ evidence integrity validation
+→ completion not required by status alone
+
+selected / consumed source reference
+→ canonical consumer validation
+→ completion required where frozen authority requires it
+```
+
+## E-8. Required regressions
+
+Before Patch 7 implementation commit, targeted tests MUST demonstrate at least:
+
+1. failed analysis + valid exclude evidence
+   → NO ERROR solely because status != completed.
+
+2. failed/running analysis + valid recapture evidence
+   → NO ERROR solely because status != completed.
+
+3. include event + completed selected source A + separate failed evidence B
+   → NO ERROR solely because evidence B is non-completed.
+
+4. include event selecting failed/running analysis
+   → ERROR.
+
+5. valid recapture evidence + hash/schema/identity corruption
+   → ERROR.
+
+6. valid include auxiliary evidence + hash/schema/identity corruption
+   → ERROR.
+
+7. same non-completed artifact used as both evidence and analysis_selection
+   → ERROR because selected-source completion still applies.
+
+## E-9. Scope / invariants
+
+This clarification does NOT change:
+
+```text
+selection-event schema
+selection action vocabulary
+append-only selection history
+dataset-selection-manifest schema
+frames-schema/1.0.0
+RF experiment schema
+sample-lineage schema
+scientific inclusion/exclusion policy
+recapture scientific policy
+F1/F2 definitions
+Patch 8 hardware-validation criteria
+```
+
+The following invariants remain mandatory:
+
+1. Event action alone does not determine evidence completion semantics.
+2. Historical evidence role may occur under include, exclude, or recapture.
+3. Non-completed status alone is not corruption for legal historical evidence.
+4. Evidence hash/schema/identity/ownership corruption remains ERROR.
+5. Selected / consumed canonical sources retain completed-owner enforcement.
+6. An artifact occupying multiple roles must satisfy every applicable role.
+7. Evidence semantics cannot bypass selected-source completion requirements.
+8. Patch 6 selection schema and append-only history remain unchanged.
+9. Patch 7 does not rewrite selection history.
+10. Patch 7 remains READ-ONLY.
+11. Scientific/numerical behavior remains unchanged.
+12. PROV-009 and PROV-010 remain in force except for the specific ambiguity
+    clarified here.
+
+## E-10. Round 4 commit gate
+
+Patch 7 implementation remains uncommitted until the focused Round 4 repair:
+
+```text
+resolves the Round 3 remaining IMPORTANT finding
+→ adds the required role-based regressions
+→ preserves completed-owner enforcement for selected consumers
+→ passes targeted and full regression
+→ passes an independent READ-ONLY re-audit
+```
+
+with:
+
+```text
+BLOCKER == 0
+IMPORTANT == 0
+```
