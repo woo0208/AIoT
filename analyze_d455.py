@@ -301,10 +301,11 @@ def legacy_recording_id(path, artifact, from_csv):
     return candidate
 
 
-def validate_raw_identity(raw_sha256, recording_id):
+def validate_raw_identity(raw_sha256, recording_id, analysis_dir=None):
     """DF-1: all recorded raw identity evidence, including failed/running runs."""
     index = {}
-    for path in glob.glob(os.path.join(OUT_DIR, "*", "ar_*", "analysis_manifest.json")):
+    root = OUT_DIR if analysis_dir is None else analysis_dir
+    for path in sorted(glob.glob(os.path.join(root, "*", "ar_*", "analysis_manifest.json"))):
         manifest = read_json(path)
         digest = (manifest.get("inputs", {}).get("recording") or {}).get("sha256")
         identity = manifest.get("recording_id")
@@ -516,7 +517,7 @@ def finish_analysis_run(directory, manifest, error=None, ended_at=None):
 
 
 # ---------------------------------------------------------------- 준비
-def load_model_lock():
+def load_model_lock(path=None):
     """Validate the tracked artifact contract before raw inference/provisioning."""
     def unique_object(pairs):
         result = {}
@@ -526,11 +527,12 @@ def load_model_lock():
             result[key] = value
         return result
 
+    path = MODEL_LOCK_PATH if path is None else path
     try:
-        with open(MODEL_LOCK_PATH, encoding="utf-8") as source:
+        with open(path, encoding="utf-8") as source:
             value = json.load(source, object_pairs_hook=unique_object)
     except (OSError, ValueError) as error:
-        raise ValueError(f"cannot load model lock {MODEL_LOCK_PATH}: {error}") from error
+        raise ValueError(f"cannot load model lock {path}: {error}") from error
     if not isinstance(value, dict) or set(value) != {"lock_schema_version", "artifacts"}:
         raise ValueError("invalid model lock top-level structure")
     if value["lock_schema_version"] != "mediapipe-model-lock/1.0.0":
