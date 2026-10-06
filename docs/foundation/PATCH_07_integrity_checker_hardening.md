@@ -2,11 +2,11 @@
 
 ## Current implementation status — 2026-10-06
 
-**IMPLEMENTATION COMPLETE ON BRANCH / MAIN INTEGRATION PENDING**
+**COMPLETE / MAIN-INTEGRATED**
 
-Implementation `cc39b7d` is committed and pushed on `patch7/integrity-checker-hardening`.
+Implementation `cc39b7d` and documentation closure `98a8917` are integrated into `main` at merge commit `1e99e06`.
 Final independent READ-ONLY implementation audit: **PASS WITH MINOR FINDINGS — BLOCKER 0 / IMPORTANT 0 / MINOR 6**.
-Closure documentation is synchronized in this change; main integration and post-merge regression remain pending.
+Independent documentation-closure audit passed; main integration, origin/main synchronization at `1e99e06`, and immediate post-merge regression are complete: pytest **454 passed / 1571 subtests**, unittest **454 tests / OK**.
 Final verification evidence, resolved findings and the six non-blocking MINOR dispositions are recorded in [§52 Implementation Closure](#52-implementation-closure).
 
 The Design Freeze baseline, §§0–51 and post-freeze PROV-009/010/011 addenda below are preserved as historical authority.
@@ -2894,14 +2894,15 @@ IMPORTANT == 0
 
 Recorded: `2026-10-06`
 
-This section records completed implementation and its final verification/audit evidence.
+This section records completed implementation, documentation closure/audit, main integration and the separate pre-merge verification and post-merge regression evidence.
 It introduces no new authority decision and does not revise the Design Freeze or PROV addenda.
 
 ```text
 Implementation status:                 COMPLETE
 Implementation commit:                 cc39b7d
 Commit subject:                        feat: implement Patch 7 repository integrity checker
-Branch:                                patch7/integrity-checker-hardening
+Implementation branch:                 patch7/integrity-checker-hardening
+Current branch:                        main
 Implementation push:                   COMPLETE
 Final independent implementation audit: PASS WITH MINOR FINDINGS
 Audit mode:                            READ-ONLY
@@ -2910,10 +2911,15 @@ IMPORTANT:                             0
 MINOR:                                 6
 Implementation audit recommendation:   SAFE TO COMMIT IMPLEMENTATION
 Implementation gate:                   BLOCKER == 0 / IMPORTANT == 0 SATISFIED
-Closure documentation:                 SYNCHRONIZED IN THIS CHANGE
-Main integration:                      PENDING
-Post-merge regression:                 PENDING
-Next Foundation after branch closure / main integration: Patch 8
+Documentation closure:                 COMPLETE — 98a8917
+Documentation-closure audit:           PASS WITH MINOR FINDINGS — BLOCKER 0 / IMPORTANT 0 / MINOR 1
+Documentation-closure recommendation:  SAFE TO MERGE PATCH 7 TO MAIN
+Main integration:                      COMPLETE
+Main merge commit:                     1e99e06
+origin/main sync:                      COMPLETE — 1e99e06
+Post-merge regression:                 COMPLETE
+Patch 7 state:                         COMPLETE / MAIN-INTEGRATED
+Next Foundation:                       Patch 8
 ```
 
 ## 52.1 Implemented scope and preserved semantics
@@ -2941,7 +2947,7 @@ An artifact in both roles must satisfy both references; historical-evidence vali
 Mutable compatibility identity requires the explicit parent provenance / `compatibility_path` relationship for both modern and legacy raw-stem naming.
 No filename wildcard, basename guess, latest/newest or mtime/ctime inference establishes that relationship.
 
-## 52.2 Final implementation verification evidence
+## 52.2 Pre-merge implementation verification evidence
 
 Python baseline: **3.12.2**.
 
@@ -2983,9 +2989,27 @@ N-5 is the intentional strict/fail-closed behavior required when a legacy CSV ru
 `PROV-010` does not authorize a mutable-publication exemption without that relation. N-5 is not a defect requiring Patch 7 repair or an implementation blocker.
 Previously resolved M-3 and M-5 are not counted among these final six MINOR findings.
 
-## 52.5 Integration boundary
+## 52.5 Main integration and post-merge regression
 
-Implementation is complete on `patch7/integrity-checker-hardening`; closure documentation is synchronized.
-Patch 7 has **not** been merged into `main`, and no Patch 7 post-merge regression has been completed.
-The remaining integration steps in §48.4 are pending. After branch closure / main integration,
-the next planned Foundation step is Patch 8 under its existing scope; no Patch 8 implementation, hardware-validation result or new criterion is claimed here.
+Documentation closure commit `98a8917` passed its independent Documentation Closure READ-ONLY audit:
+**PASS WITH MINOR FINDINGS — BLOCKER 0 / IMPORTANT 0 / MINOR 1**, with **SAFE TO MERGE PATCH 7 TO MAIN** recommendation.
+Its single MINOR concerned the Master's stale current-HEAD wording; this final sync records `main` / `1e99e06` as the current baseline and resolves that note.
+This documentation finding is separate from the six implementation MINOR findings in §52.4; N-5 remains an intentional strict residual.
+
+Merge commit `1e99e06` (`merge: integrate Patch 7 repository integrity checker`) integrates implementation `cc39b7d` and documentation closure `98a8917` into `main`.
+Immediate post-merge regression ran on `main` after this merge:
+
+| Command | Result |
+|---|---|
+| `PYTHONDONTWRITEBYTECODE=1 python3 -B -m pytest -q -p no:cacheprovider` | 454 passed / 1571 subtests passed |
+| `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest -q` | Ran 454 tests / OK |
+
+The unittest warnings referencing temporary fixture paths such as
+`/private/var/folders/.../T/tmp.../data/P01_r1_original_quality.json` were expected test-fixture warnings, not regression failures.
+These post-merge results are distinct from the pre-merge implementation verification in §52.2.
+They are recorded from the completed regression; no tests were rerun for this documentation status sync.
+
+Push to `origin/main` is complete at `1e99e06`. Implementation, implementation audit, documentation closure,
+documentation-closure audit, main merge, origin/main synchronization and post-merge regression are complete.
+Patch 7 is **COMPLETE / MAIN-INTEGRATED**. The next required Foundation is Patch 8 under its existing scope;
+no Patch 8 implementation, hardware-validation result or new criterion is claimed here.
