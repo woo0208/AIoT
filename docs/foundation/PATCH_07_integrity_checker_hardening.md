@@ -1,5 +1,19 @@
 # PATCH_07 — Integrity Checker / Hardening
 
+## Current implementation status — 2026-10-06
+
+**IMPLEMENTATION COMPLETE ON BRANCH / MAIN INTEGRATION PENDING**
+
+Implementation `cc39b7d` is committed and pushed on `patch7/integrity-checker-hardening`.
+Final independent READ-ONLY implementation audit: **PASS WITH MINOR FINDINGS — BLOCKER 0 / IMPORTANT 0 / MINOR 6**.
+Closure documentation is synchronized in this change; main integration and post-merge regression remain pending.
+Final verification evidence, resolved findings and the six non-blocking MINOR dispositions are recorded in [§52 Implementation Closure](#52-implementation-closure).
+
+The Design Freeze baseline, §§0–51 and post-freeze PROV-009/010/011 addenda below are preserved as historical authority.
+Their pre-implementation status and commit-gate wording describe those earlier boundaries; current implementation status is recorded here and in §52.
+
+## Historical Design Freeze baseline — 2026-10-05
+
 - 문서 상태: **DESIGN FREEZE CONTRACT — READY TO COMMIT / IMPLEMENTATION NOT STARTED**
 - 기준일: `2026-10-05`
 - 기준 branch: `main`
@@ -2872,3 +2886,106 @@ with:
 BLOCKER == 0
 IMPORTANT == 0
 ```
+
+
+---
+
+# 52. Implementation Closure
+
+Recorded: `2026-10-06`
+
+This section records completed implementation and its final verification/audit evidence.
+It introduces no new authority decision and does not revise the Design Freeze or PROV addenda.
+
+```text
+Implementation status:                 COMPLETE
+Implementation commit:                 cc39b7d
+Commit subject:                        feat: implement Patch 7 repository integrity checker
+Branch:                                patch7/integrity-checker-hardening
+Implementation push:                   COMPLETE
+Final independent implementation audit: PASS WITH MINOR FINDINGS
+Audit mode:                            READ-ONLY
+BLOCKER:                               0
+IMPORTANT:                             0
+MINOR:                                 6
+Implementation audit recommendation:   SAFE TO COMMIT IMPLEMENTATION
+Implementation gate:                   BLOCKER == 0 / IMPORTANT == 0 SATISFIED
+Closure documentation:                 SYNCHRONIZED IN THIS CHANGE
+Main integration:                      PENDING
+Post-merge regression:                 PENDING
+Next Foundation after branch closure / main integration: Patch 8
+```
+
+## 52.1 Implemented scope and preserved semantics
+
+Patch 7 provides a repository-wide READ-ONLY integrity verification layer over frozen Patch 1–6 artifacts:
+
+- managed artifact inventory; ownership / identity; stored SHA-256 versus actual bytes;
+- schema / structural validation; missing artifacts; mixed / contradictory authority; structural orphans; malformed / torn authority;
+- cross-layer lineage consistency; historical CSV lineage; mutable compatibility publications;
+- selection-ledger integrity; role-based historical evidence; dataset manifest integrity;
+- RF input / output authority; sample lineage; external-input semantics; model-lock integrity;
+- repository-changed-during-check detection.
+
+The checker remains READ-ONLY, non-destructive, network-independent, D455-independent and science-neutral.
+It does not repair artifacts, rewrite manifests or selection history, select/exclude data, infer missing provenance,
+download models, access camera hardware, rerun inference/RF experiments, or change scientific/numerical semantics.
+Patch 7 introduces no new scientific data schema.
+
+`PROV-011`: completion requirements follow **artifact reference role**, not merely include / exclude / recapture action.
+Historical decision evidence does not require completed status solely because of that role; applicable hash/schema/identity/ownership checks remain strict.
+Selected / consumed canonical sources retain their existing completed-owner requirement.
+An artifact in both roles must satisfy both references; historical-evidence validation cannot exempt its selected-source role.
+
+`PROV-009` / `PROV-010`: historical CSV integrity is validated through immutable archived `source_frames` plus explicit parent analysis lineage.
+Mutable compatibility identity requires the explicit parent provenance / `compatibility_path` relationship for both modern and legacy raw-stem naming.
+No filename wildcard, basename guess, latest/newest or mtime/ctime inference establishes that relationship.
+
+## 52.2 Final implementation verification evidence
+
+Python baseline: **3.12.2**.
+
+| Verification | Result | Subtests | Skipped |
+|---|---:|---:|---:|
+| `python3 -m pytest -q test_patch7_integrity.py` | 124 passed | 139 | 0 |
+| Affected suites: analysis provenance, model artifact lock, Patch 5 lineage, Patch 6 selection, Patch 7 integrity | 332 passed | 529 | 0 |
+| `python3 -m pytest -q` | 454 passed | 1571 | 0 |
+| `python3 -B -m unittest -q` | 454 tests / OK | Not separately reported | 0 |
+
+These are the final implementation verification results confirmed by the independent READ-ONLY re-audit after Round 4,
+recorded here for documentation closure. They are not a new test run or a post-merge regression.
+Synthetic structural/unit tests do not constitute research-data results or real D455 validation.
+
+## 52.3 Resolved implementation findings
+
+| Finding | Final disposition |
+|---|---|
+| I-1 | RESOLVED — non-completed historical analysis output no longer fails solely on status |
+| I-2 | RESOLVED — modern A→B→C CSV lifecycle preserves valid immutable historical lineage |
+| N-1 | RESOLVED — explicit legacy compatibility provenance receives the same historical semantics |
+| N-2 exclude-path issue | RESOLVED — valid non-completed exclude evidence remains historical evidence |
+| PROV-011 role-semantics issue | RESOLVED — completion follows reference role across include / exclude / recapture evidence |
+
+## 52.4 Final six non-blocking MINOR findings
+
+All six are non-blocking MINOR findings for the implementation commit gate; none is an unresolved BLOCKER or IMPORTANT.
+
+| Finding | Remaining behavior / disposition |
+|---|---|
+| M-1 | Diagnostic/error-category classification partly depends on message substrings; non-blocking diagnostic limitation |
+| M-2 | First failure for an artifact/check can suppress later secondary diagnostics; non-blocking diagnostic limitation |
+| M-4 | Crash-residue / operator-documentation semantics; non-blocking documentation follow-up remains |
+| N-3 | Some malformed nested authority can fail closed with exit 2 instead of exit 1; non-blocking exit-classification limitation |
+| N-4 | Concurrent-writer failed-CSV edge case; non-blocking residual |
+| N-5 | Legacy CSV run without recorded parent provenance remains strictly pinned; later mutable flat republication may produce HASH_MISMATCH |
+
+N-5 is the intentional strict/fail-closed behavior required when a legacy CSV run lacks an explicit recorded parent provenance relation.
+`PROV-010` does not authorize a mutable-publication exemption without that relation. N-5 is not a defect requiring Patch 7 repair or an implementation blocker.
+Previously resolved M-3 and M-5 are not counted among these final six MINOR findings.
+
+## 52.5 Integration boundary
+
+Implementation is complete on `patch7/integrity-checker-hardening`; closure documentation is synchronized.
+Patch 7 has **not** been merged into `main`, and no Patch 7 post-merge regression has been completed.
+The remaining integration steps in §48.4 are pending. After branch closure / main integration,
+the next planned Foundation step is Patch 8 under its existing scope; no Patch 8 implementation, hardware-validation result or new criterion is claimed here.
