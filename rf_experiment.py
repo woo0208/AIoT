@@ -103,6 +103,12 @@ def read_pinned_json(path):
 
 
 def canonical_input(path, analysis_dir):
+    """Consumable canonical input: ownership must be completed."""
+    return validate_frames_output(path, analysis_dir, require_completed=True)
+
+
+def validate_frames_output(path, analysis_dir, *, require_completed):
+    """Pure recorded-output validation; historical audits may omit completion only."""
     from analyze_d455 import FRAME_FIELDS, FRAME_SCHEMA_VERSION
     path, root = Path(path).resolve(strict=True), Path(analysis_dir).resolve()
     if (path.parent.parent.parent != root or not path.parent.name.startswith("ar_") or
@@ -111,7 +117,7 @@ def canonical_input(path, analysis_dir):
     artifact = file_identity(path)
     owner_path = path.parent / "analysis_manifest.json"
     owner, owner_artifact = read_pinned_json(owner_path)
-    if owner.get("status") != "completed":
+    if require_completed and owner.get("status") != "completed":
         raise ValueError("frames owner analysis manifest must be completed")
     identity, labels = None, {}
     with path.open(encoding="utf-8-sig", newline="") as stream:
@@ -231,40 +237,45 @@ def lineage_rows(sources, experiment_id, track, mode, reference_steps=None):
     return rows
 
 
+def validate_sample_lineage_row(row, keys):
+    """Pure row validation; keys holds the already validated sample identities."""
+    if set(row) != set(LINEAGE_FIELDS):
+        raise ValueError("invalid sample lineage fields")
+    if (row["schema_version"] != LINEAGE_SCHEMA or
+            row["dataset_track"] not in ("paper_loso", "ours_external", "multiposture_loso") or
+            row["feature_mode"] not in FEATURE_SETS or
+            (row["dataset_track"] == "multiposture_loso" and row["feature_mode"] != "all")):
+        raise ValueError("invalid sample lineage schema/track/mode")
+    canonical = ("recording_id", "analysis_run_id", "frames_path", "frames_sha256")
+    external = ("source_dataset_id", "source_file_path", "source_file_sha256", "source_row_number")
+    if row["source_kind"] == "canonical_frames":
+        required, absent = canonical + ("subject", "round", "step", "label"), external
+        for ref, src in (("reference_recording_id", "recording_id"),
+                         ("reference_analysis_run_id", "analysis_run_id")):
+            if row[ref] is not None and row[ref] != row[src]:
+                raise ValueError("cross-recording/run RF reference")
+    elif row["source_kind"] == "external_table":
+        required, absent = external, canonical + ("reference_recording_id", "reference_analysis_run_id")
+        if row["source_dataset_id"] not in ("paper_dataset", "multiposture_dataset"):
+            raise ValueError("invalid external dataset ID")
+        if not isinstance(row["source_row_number"], int) or row["source_row_number"] < 2:
+            raise ValueError("invalid physical source row number")
+    else:
+        raise ValueError("invalid lineage source kind")
+    if any(row[k] is None for k in required) or any(row[k] is not None for k in absent):
+        raise ValueError("invalid sample source lineage")
+    key = tuple(row[k] for k in ("experiment_run_id", "dataset_track", "feature_mode", "sample_index"))
+    if key in keys:
+        raise ValueError("duplicate sample lineage key")
+    keys.add(key)
+
+
 def write_sample_lineage(directory, rows):
     keys = set()
     path = Path(directory) / "sample_lineage.jsonl"
     with path.open("x", encoding="utf-8", newline="\n") as stream:
         for row in rows:
-            if set(row) != set(LINEAGE_FIELDS):
-                raise ValueError("invalid sample lineage fields")
-            if (row["schema_version"] != LINEAGE_SCHEMA or
-                    row["dataset_track"] not in ("paper_loso", "ours_external", "multiposture_loso") or
-                    row["feature_mode"] not in FEATURE_SETS or
-                    (row["dataset_track"] == "multiposture_loso" and row["feature_mode"] != "all")):
-                raise ValueError("invalid sample lineage schema/track/mode")
-            canonical = ("recording_id", "analysis_run_id", "frames_path", "frames_sha256")
-            external = ("source_dataset_id", "source_file_path", "source_file_sha256", "source_row_number")
-            if row["source_kind"] == "canonical_frames":
-                required, absent = canonical + ("subject", "round", "step", "label"), external
-                for ref, src in (("reference_recording_id", "recording_id"),
-                                 ("reference_analysis_run_id", "analysis_run_id")):
-                    if row[ref] is not None and row[ref] != row[src]:
-                        raise ValueError("cross-recording/run RF reference")
-            elif row["source_kind"] == "external_table":
-                required, absent = external, canonical + ("reference_recording_id", "reference_analysis_run_id")
-                if row["source_dataset_id"] not in ("paper_dataset", "multiposture_dataset"):
-                    raise ValueError("invalid external dataset ID")
-                if not isinstance(row["source_row_number"], int) or row["source_row_number"] < 2:
-                    raise ValueError("invalid physical source row number")
-            else:
-                raise ValueError("invalid lineage source kind")
-            if any(row[k] is None for k in required) or any(row[k] is not None for k in absent):
-                raise ValueError("invalid sample source lineage")
-            key = tuple(row[k] for k in ("experiment_run_id", "dataset_track", "feature_mode", "sample_index"))
-            if key in keys:
-                raise ValueError("duplicate sample lineage key")
-            keys.add(key)
+            validate_sample_lineage_row(row, keys)
             stream.write(json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
     return dict(schema_version=LINEAGE_SCHEMA, path=path.name,
                 sha256=file_identity(path)["sha256"], row_count=len(rows))
