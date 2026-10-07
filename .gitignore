@@ -7,6 +7,9 @@ data/
 analysis/
 results/
 
+# Patch 8 validation runtime / governance outputs (CAP-005 §23)
+validation/
+
 # Local MediaPipe runtime artifacts (contract: mediapipe_model_lock.json)
 models/
 
