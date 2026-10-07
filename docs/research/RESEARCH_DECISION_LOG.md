@@ -1,6 +1,6 @@
 # Research Decision Log
 
-- 문서 버전: `v1.10`
+- 문서 버전: `v1.11`
 - 기준일: `2026-10-07`
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
@@ -1402,6 +1402,7 @@ final-test 결과를 본 parameter 변경
 | `v1.8` | 2026-10-05 | Patch 7 Round 2 independent READ-ONLY re-audit의 N-1/N-2를 반영하여 `PROV-010`을 append. mutable compatibility publication을 explicit parent `compatibility_path` relation으로 식별하여 legacy-pilot naming까지 동일 semantics로 포함하고, exclude evidence와 include-selected canonical source의 completed-owner requirement를 역할별로 구분하도록 명확화 |
 | `v1.9` | 2026-10-06 | Patch 7 Round 3 independent READ-ONLY re-audit의 remaining IMPORTANT finding을 반영하여 `PROV-011`을 append. selection event의 `include`/`exclude`/`recapture` action 자체가 아니라 각 artifact reference의 실제 role(`historical evidence` vs `selected/consumed canonical source`)에 따라 completed-owner requirement를 적용하도록 명확화 |
 | `v1.10` | 2026-10-07 | `CAP-005`를 append하여 Foundation Patch 8 D455 Measurement-Quality and End-to-End Validation을 Design Freeze하고 `OPEN-006`을 해소. candidate-range derivation, 0.60–1.00 m static grid와 mandatory 0.70/0.80 anchors, physical setup, execution governance, single-shot/retry/result firewall, static/production protocol identity, closed pre-lock classification, static/3D/distance-stability metrics, exact five-series depth temporal-SD rule, forward availability population, body-only-negative semantics, exact slot-131 predicate, reconciliation, integrity closure를 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`에 고정했다. Patch 8은 DESIGN-FROZEN이며 implementation / implementation audit / execution registration / hardware execution은 pending이다. `OPEN-002`~`OPEN-005`는 계속 DEFERRED이고 Patch 4/4.5/5/6/7 authority는 변경하지 않는다 |
+| `v1.11` | 2026-10-07 | Patch 8 implementation 중 확인된 pre-execution design-authority gap `P8-I1`을 반영하여 `CAP-006`을 append (Clarifies `CAP-005`, Supersedes None). CAP-005가 capture sequence를 명시하지 않았던 forward validation rounds 101–103 / 111–113이 `SEQ_CORE`를 사용함을 명확화하고, 121 = `SEQ_CORE` (§80) / 131 = `SEQ_FULL` (§81)은 그대로 유지한다. formal Patch 8 execution, `execution_id` 발급, Patch 8 결과 관찰은 없었다. production forward gate, `capture-forward-face-v2.0.0`, SEQ_CORE/SEQ_FULL 정의, §75/§76/§79/§80/§81, schema, threshold, `OPEN-002`~`OPEN-005`는 변경하지 않는다 |
 
 ---
 
@@ -6445,5 +6446,129 @@ Supersedes:
 
 Resolves:
 - `OPEN-006`
+
+---
+
+## CAP-006 — Patch 8 Forward Validation Slot Sequence Clarification
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-07
+**Decision timing:** Pre-execution clarification — Patch 8 implementation(uncommitted working tree) 중 implementation gap `P8-I1`이 확인된 직후, implementation commit / independent implementation audit / execution authorization·registration / formal Patch 8 D455 hardware execution **이전**
+
+### Context
+
+`CAP-005`와 그 상세 authority `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`는 production validation slot에 대해 다음을 이미 freeze했다.
+
+```text
+§33  101–103  forward_head  below / pass / above
+     111–113  body_forward  below / pass / above
+     121      body-only negative, designated phase = body_forward
+     131      full-posture E2E
+§41  101–113 / 121 / 131 → capture_d455.py child process
+§75  forward availability population (101–103 forward_head only,
+     111–113 body_forward only, 121 excluded, 131 both phases separately)
+§76  validation bands
+§78  forward slots
+§79  forward-slot attempt / retry semantics
+§80  round 121: sequence = SEQ_CORE
+§81  round 131: sequence = SEQ_FULL
+```
+
+그러나 rounds 101–113의 capture sequence identity (`SEQ_CORE` vs `SEQ_FULL`)는 CAP-005 어디에도 명시되지 않았다.
+`sequence =` 지정은 §80 (121)과 §81 (131)에만 존재한다.
+
+Patch 8 implementation 중 이 누락이 implementation gap `P8-I1`로 확인됐다.
+구현은 값을 임의로 선택하지 않고 101–113의 production capture launch를 fail-closed로 차단한 상태에서 본 clarification을 요청했다.
+101–113의 evaluation logic (§75 / §76 / §79)은 sequence 선택과 무관하게 designated phase만 평가한다.
+
+Chronology:
+
+```text
+CAP-005 Design Freeze (commit d47a9ed)
+→ Patch 8 implementation (uncommitted working tree) discovers P8-I1
+→ 본 pre-execution clarification: rounds 101–113 = SEQ_CORE
+→ (next) implementation applies the clarified mapping
+→ regression tests → independent implementation audit
+→ execution authorization / registration → formal hardware execution
+```
+
+본 clarification 시점의 상태:
+
+```text
+formal Patch 8 hardware execution performed     NO
+formal execution_id created                     NO
+execution registry created                      NO
+Patch 8 result (formal or partial) observed     NO
+Patch 8 implementation committed / audited      NO
+```
+
+따라서 본 entry는 결과 관찰 후의 protocol 변경 (CAP-005 Foundation §3.1 `POST-HOC PROTOCOL CHANGE`)이 아니며 `Supersedes: CAP-005`를 사용하지 않는다.
+CAP-005 본문과 Foundation 문서가 101–113의 sequence를 원래 지정했던 것처럼 소급 기술하지 않는다.
+
+### Decision
+
+Patch 8 production validation slot의 capture sequence identity를 다음으로 명확화한다.
+
+```text
+round  designated phase              purpose                        capture sequence
+101    forward_head                  below                          SEQ_CORE
+102    forward_head                  pass                           SEQ_CORE
+103    forward_head                  above                          SEQ_CORE
+111    body_forward                  below                          SEQ_CORE
+112    body_forward                  pass                           SEQ_CORE
+113    body_forward                  above                          SEQ_CORE
+121    body_forward                  body-only negative             SEQ_CORE  (unchanged, §80)
+131    forward_head + body_forward   full-posture E2E               SEQ_FULL  (unchanged, §81)
+```
+
+`SEQ_CORE` / `SEQ_FULL`은 existing production `capture_d455.py` 정의 그대로이며, 본 entry는 그 자세 순서·유지 시간·prep 시간을 변경하지 않는다.
+101–113은 production protocol `capture-forward-face-v2.0.0`의 existing `core` capture mode로 수행한다.
+
+본 entry는 rounds 101–113의 capture sequence identity만 고정한다.
+Designated phase, band, population, retry, body-only-negative, E2E semantics를 포함한 다른 slot semantics는 변경하지 않는다.
+
+### Rationale
+
+- CAP-005는 designated phase, §75 forward availability population, §76 validation bands, §79 retry semantics, §80 body-only-negative slot, §81 E2E slot을 freeze했으나 rounds 101–113의 capture sequence identity를 누락했다. 본 entry는 그 implementation ambiguity만 닫는다.
+- 101–113은 production forward gate의 below / pass / above 판정을 검증하는 targeted forward-phase validation slot이며 full-posture E2E validation slot이 아니다. Full-posture E2E validation은 `SEQ_FULL`을 사용하는 dedicated slot 131이 담당한다.
+- Repository fact: `capture_d455.py`에서 `SEQ_FULL = SEQ_CORE + [lean_back, lean_left, lean_right, upright]`이다. 따라서 `SEQ_CORE`는 두 designated forward phase와 각 phase의 production-gate reference인 직전 upright hold를 `SEQ_FULL`과 동일한 순서·유지 시간으로 포함하며, forward-gate validation 대상이 아닌 lean phase만 제외한다.
+- §75의 "101–103의 non-designated `body_forward` / 111–113의 non-designated `forward_head`는 population이 아니다" 문구는 `SEQ_CORE`에도 두 forward phase가 모두 존재하므로 그대로 성립한다.
+
+### Alternatives / Rejected / Deferred
+
+```text
+101–113 = SEQ_FULL                                   REJECTED  101–113은 full-posture E2E가 아님; E2E는 slot 131 전용
+slot별 / attempt별 operator의 sequence 선택           REJECTED  사전 고정되지 않은 protocol 선택 경로를 만들지 않음
+production CLI 기본값(SEQ_FULL)을 구현이 암묵 채택    REJECTED  미명시 authority를 구현에서 임의 결정하지 않음
+CAP-005 본문 / Foundation §33·§78 소급 수정           REJECTED  append-only 원칙
+Supersedes: CAP-005 / POST-HOC PROTOCOL CHANGE        NOT APPLICABLE  formal execution 및 결과 관찰 이전의 clarification
+```
+
+### Evidence / Source
+
+- `CAP-005` entry 및 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md` §33, §41, §75, §76, §78, §79, §80 (`sequence = SEQ_CORE`), §81 (`sequence = SEQ_FULL`): rounds 101–113의 sequence 명시 없음
+- `capture_d455.py` `SEQ_CORE` / `SEQ_FULL` 정의 및 existing `core` capture mode (변경 없음)
+- Patch 8 implementation working-tree report on baseline `d47a9ed` (repository artifact 아님): implementation gap `P8-I1`, rounds 101–113 production launch fail-closed
+- 연구 책임자의 명시적 pre-execution 결정 (2026-10-07)
+
+Agreement between AI agents는 experimental evidence가 아니다. 본 entry는 D455 hardware 결과를 포함하지 않는다.
+
+### Impact
+
+- Rounds 101–113의 capture sequence identity = `SEQ_CORE`가 authority로 확정된다. 본 entry는 `CAP-005`와 함께 읽으며, 이 항목에 대해서만 CAP-005보다 더 구체적인 authority다. CAP-005와 Foundation 문서의 다른 모든 rule은 그대로 유효하다.
+- Foundation 문서 본문은 수정하지 않는다 (Design Freeze 기록 보존). §33 / §41 / §78을 적용할 때 본 entry를 함께 적용한다.
+- 다음은 변경하지 않는다: production protocol `capture-forward-face-v2.0.0`, production forward gate `0.08–0.12 m inclusive` / `face_only` / body-only·mixed source cannot PASS, §75 availability population, §76 validation bands, §79 forward-slot retry semantics, §80 slot-121 body-only-negative semantics, §81 slot-131 E2E predicate, `SEQ_CORE` / `SEQ_FULL` semantics, `frames-schema/1.0.0`, `summary-schema/1.0.0`, Patch 5 lineage, Patch 6 selection, Patch 7 integrity, 모든 threshold 및 scientific metric.
+- `OPEN-006`은 RESOLVED BY CAP-005 그대로이며 `OPEN-002`, `OPEN-003`, `OPEN-004`, `OPEN-005`는 계속 DEFERRED다.
+- Patch 8 implementation은 아직 uncommitted / unaudited다. 다음 단계에서 본 authority에 맞춰 101–113 mapping을 적용하고 targeted / full regression 후 independent READ-ONLY implementation audit를 받는다.
+- 본 entry는 Patch 8 implementation 완료, implementation audit 통과, execution authorization, formal hardware execution, 또는 Patch 8 PASS를 의미하지 않는다. Patch 8은 DESIGN-FROZEN이며 implementation / implementation audit / execution registration / hardware execution은 PENDING이다.
+
+Supersedes:
+- None
+
+Clarifies:
+- `CAP-005` / Foundation §33, §41, §78: production rounds 101–103 및 111–113의 capture sequence identity (`SEQ_CORE`). §80 (121 = `SEQ_CORE`)와 §81 (131 = `SEQ_FULL`)은 변경 없이 재확인한다.
+
+Resolves:
+- Patch 8 implementation gap `P8-I1`: pre-execution design-authority gap — `SEQ_CORE` vs `SEQ_FULL` unspecified for rounds 101–113
 
 ---
