@@ -45,7 +45,8 @@ This read order is not a single precedence chain. Route conflicts by authority:
 - Patch 5 lineage contracts → `PROV-005` + `docs/foundation/PATCH_05_end_to_end_lineage_hardening.md`; implemented at commit `dd0464e` and main-integrated at merge commit `ae86d58` as `summary-schema/1.0.0`, `rf-sample-lineage/1.0.0`, and `rf-experiment-provenance/1.0.0`, with 252 tests PASS both pre-merge final and post-merge regression, and independent audit BLOCKER 0 / IMPORTANT 0
 - Patch 6 selection contracts → `PROV-006` + `PROV-007` + `docs/foundation/PATCH_06_selection_manifest_recapture_inclusion.md`; implemented at commit `9c5fff9` as `selection-event/1.0.0` and `dataset-selection-manifest/1.0.0`, with single-terminal per-slot linear supersession, canonical `round` (`^[1-9][0-9]*$`), RF `--dataset-manifest` linkage, documentation closure commit `950d2ce`, main merge `2058db1`, 330 tests PASS both committed-state and immediate post-merge regression, and independent re-audit BLOCKER 0 / IMPORTANT 0; Patch 6 is COMPLETE / MAIN-INTEGRATED
 - Patch 7 integrity contract → `PROV-008` with `PROV-009` / `PROV-010` / `PROV-011` + `docs/foundation/PATCH_07_integrity_checker_hardening.md`; repository-wide READ-ONLY integrity checker / hardening implemented at `cc39b7d`, documentation-closed at `98a8917`, main-integrated at `1e99e06`; final independent READ-ONLY implementation audit PASS WITH MINOR FINDINGS, BLOCKER 0 / IMPORTANT 0 / MINOR 6; Patch 7 is COMPLETE / MAIN-INTEGRATED
-- other unimplemented/future schema designs, including Patch 8 formal D455 validation details → confirm their status in `RESEARCH_DECISION_LOG.md` before treating them as implemented or frozen contracts
+- Patch 8 D455 measurement-quality / end-to-end validation design → `CAP-005` + `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`; CAP-005 is CONFIRMED and resolves `OPEN-006`; Patch 8 is DESIGN-FROZEN, with implementation, implementation audit, execution registration, and formal D455 hardware execution all PENDING (no formal Patch 8 hardware execution has been performed); future Patch 8 implementation must use that Foundation document as the frozen design authority
+- other unimplemented/future schema designs → confirm their status in `RESEARCH_DECISION_LOG.md` before treating them as implemented or frozen contracts
 
 The Step 1.5 Patch 4 field details were pre-freeze proposals. After `DATA-003`
 resolved `OPEN-001`, Schema §F is the exact frozen Patch 4 frame contract. Do not
@@ -349,8 +350,18 @@ categories include:
 - RGB-landmark + aligned-depth combination stability,
 - distance-dependent feature stability.
 
-Exact distance grids, repetitions, metrics, thresholds, and validation protocol
-remain research decisions rather than defaults in this file. These measurements
+Current status: `CAP-005` is CONFIRMED and resolves `OPEN-006`. Patch 8 is
+DESIGN-FROZEN; Patch 8 implementation, implementation audit, execution
+registration, and formal D455 hardware execution are PENDING. Actual D455
+formal validation has not been performed and has not passed.
+
+The exact distance grid, repetitions, metrics, thresholds, and validation
+protocol are frozen research decisions recorded in `CAP-005` and
+`docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`, which is the
+frozen Patch 8 design authority for future implementation work. They are not
+duplicated or redefined in this file; do not change them during
+implementation or tune them toward observed results (a post-hoc change requires
+a new Decision Log entry with `Supersedes: CAP-005`). These measurements
 characterize the camera/system and do not constitute participant-specific
 posture calibration.
 
@@ -529,10 +540,11 @@ At the current canonical state:
 - Patch 6 documentation closure is `950d2ce`, main integration is `2058db1`, and immediate post-merge full regression is 330 PASS; Patch 6 is COMPLETE / MAIN-INTEGRATED,
 - Patch 7 repository-wide READ-ONLY integrity checker / hardening is COMPLETE / MAIN-INTEGRATED: implementation `cc39b7d`, documentation closure `98a8917`, main merge `1e99e06`; final independent READ-ONLY implementation audit is PASS WITH MINOR FINDINGS, BLOCKER 0 / IMPORTANT 0 / MINOR 6, with SAFE TO COMMIT IMPLEMENTATION recommendation,
 - Patch 7 pre-merge implementation verification on Python 3.12.2 is targeted 124 passed / 139 subtests / 0 skipped, affected suites 332 passed / 529 subtests / 0 skipped, full pytest 454 passed / 1571 subtests / 0 skipped, and unittest 454 tests / OK,
-- Patch 7 independent documentation-closure READ-ONLY audit passed with BLOCKER 0 / IMPORTANT 0 / MINOR 1 and SAFE TO MERGE PATCH 7 TO MAIN recommendation; its stale-HEAD note is resolved by this final status sync and is separate from the six implementation MINOR findings,
+- Patch 7 independent documentation-closure READ-ONLY audit passed with BLOCKER 0 / IMPORTANT 0 / MINOR 1 and SAFE TO MERGE PATCH 7 TO MAIN recommendation; its stale-HEAD note is resolved by the Patch 7 final status sync `b2e090f` and is separate from the six implementation MINOR findings,
 - Patch 7 main integration and origin/main synchronization at `1e99e06` are complete; immediate post-merge regression passed: pytest 454 passed / 1571 subtests, unittest 454 tests / OK; the next required Foundation scope is Patch 8,
-- real D455 formal hardware validation remains Patch 8 scope, `OPEN-002` through `OPEN-006` remain unresolved, and formal collection has not started,
-- do not reopen `OPEN-001`, `DATA-003`, `PROV-004`, `PROV-005`, `PROV-006`, or `PROV-007`, and do not alter frozen contracts implicitly in later work.
+- Foundation Patch 8 Design Freeze is recorded by `CAP-005` (CONFIRMED; resolves `OPEN-006`; supersedes none) with `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md` as the frozen Patch 8 design authority; Patch 8 is DESIGN-FROZEN, and Patch 8 implementation, implementation audit, execution registration, and formal D455 hardware execution are PENDING,
+- real D455 formal hardware validation remains Patch 8 scope and has not been performed, `OPEN-006` is RESOLVED BY CAP-005, `OPEN-002` through `OPEN-005` remain DEFERRED, and formal collection has not started,
+- do not reopen `OPEN-001`, `DATA-003`, `PROV-004`, `PROV-005`, `PROV-006`, `PROV-007`, or `CAP-005`, and do not alter frozen contracts implicitly in later work.
 
 Only perform the currently requested scope.
 

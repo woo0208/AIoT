@@ -12,7 +12,8 @@
 - Patch 6 implementation closure amendment: **2026-10-05 — Design Freeze commit `432da73`, clarification commit `3235220` 이후 implementation commit `9c5fff9`에서 `selection-event/1.0.0`, `dataset-selection-manifest/1.0.0`, append-only selection ledger, explicit recapture relation, immutable dataset snapshot, exact analysis/run/frames binding, RF `--dataset-manifest`, canonical round capture input을 구현했다. committed-state verification은 Patch 6 targeted 75 PASS / Patch 5 lineage 48 PASS / capture protocol 56 PASS / full suite 330 PASS이며 independent re-audit는 BLOCKER 0 / IMPORTANT 0이다. 이는 formal scientific inclusion policy 확정 또는 Patch 8 D455 validation 완료를 의미하지 않는다.**
 - Patch 6 main-integration sync amendment: **2026-10-05 — documentation closure commit `950d2ce` 이후 merge commit `2058db1` (`merge: integrate Patch 6 selection manifest`)에서 Patch 6를 `main`에 통합했고, merge 직후 `python -X utf8 -m unittest -q` 전체 regression `330 tests PASS`를 재확인했다. 따라서 §H/§I selection mechanism은 implementation/audit/documentation closure/main integration까지 완료 상태이며, 다음 required Foundation scope는 Patch 7 Integrity Checker / Hardening이다. 이 status sync는 schema contract, scientific selection policy, 또는 Patch 8 D455 validation criteria를 변경하지 않는다.**
 - Patch 7 implementation closure amendment: **2026-10-06 — `PROV-008` 및 `PROV-009` / `PROV-010` / `PROV-011`에 따른 repository-wide READ-ONLY integrity checker / hardening을 commit `cc39b7d`에서 구현했다. Patch 7은 새 scientific data schema를 도입하지 않고 frozen schemas, identities, hashes, lineage relations를 repository-wide하게 검증한다. Final independent READ-ONLY implementation audit은 PASS WITH MINOR FINDINGS, BLOCKER 0 / IMPORTANT 0 / MINOR 6이다. Documentation closure `98a8917` 및 독립 documentation-closure audit 이후 main merge `1e99e06`에서 통합했고 origin/main 동기화를 완료했다. Immediate post-merge regression은 pytest 454 passed / 1571 subtests, unittest 454 tests / OK이며 Patch 7은 COMPLETE / MAIN-INTEGRATED 상태다. 이번 status sync는 scientific schema를 변경하지 않는다. 다음 required Foundation은 Patch 8이다. 상세 검증 evidence와 MINOR disposition은 `docs/foundation/PATCH_07_integrity_checker_hardening.md` §52를 따른다.**
-- 상태: **Hybrid contract/design record. 현재 구현 사실은 Git/source/test와 canonical Foundation records가 우선한다. §F의 Patch 4 exact frame contract는 `DATA-003`에 따라 frozen-and-implemented, §G의 Patch 5 summary/RF lineage contract는 `PROV-005`에 따라 frozen-and-implemented-and-main-integrated (`ae86d58`) 상태다. §H의 Patch 6 selection mechanism과 §I의 canonical selection-manifest layout은 `PROV-006` + `PROV-007`에 따라 frozen-and-implemented-and-main-integrated (`9c5fff9` / merge `2058db1`) 상태이며 documentation closure는 `950d2ce`, immediate post-merge full regression은 330 PASS다. formal scientific selection policy 자체는 여전히 별도 decision이 필요하다.**
+- Patch 8 Design Freeze status-sync amendment: **2026-10-07 — `CAP-005`가 Foundation Patch 8 D455 Measurement-Quality and End-to-End Validation protocol을 Design Freeze하고 `OPEN-006`을 해소했다 (`OPEN-006` RESOLVED BY CAP-005). 상세 authority는 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`다. Design Freeze가 정의하는 identity는 static validation `protocol_version` = `patch8-d455-static-validation-v1.0.0`, production protocol 유지 = `capture-forward-face-v2.0.0`, operational ledger = `patch8-validation-control/1.0.0`이다. `patch8-validation-control/1.0.0`은 operational governance ledger이며 `frames-schema/1.0.0`, `summary-schema/1.0.0`, `selection-event/1.0.0`, `dataset-selection-manifest/1.0.0`의 대체물이나 새 version이 아니다. 이 status sync는 schema field를 추가·삭제·재정렬하지 않고 어떤 schema version도 올리지 않으며 `target_range_m` / `start_distance`를 repurpose하지 않는다. Patch 8은 DESIGN-FROZEN이고 implementation / hardware execution은 pending이다.**
+- 상태: **Hybrid contract/design record. 현재 구현 사실은 Git/source/test와 canonical Foundation records가 우선한다. §F의 Patch 4 exact frame contract는 `DATA-003`에 따라 frozen-and-implemented, §G의 Patch 5 summary/RF lineage contract는 `PROV-005`에 따라 frozen-and-implemented-and-main-integrated (`ae86d58`) 상태다. §H의 Patch 6 selection mechanism과 §I의 canonical selection-manifest layout은 `PROV-006` + `PROV-007`에 따라 frozen-and-implemented-and-main-integrated (`9c5fff9` / merge `2058db1`) 상태이며 documentation closure는 `950d2ce`, immediate post-merge full regression은 330 PASS다. formal scientific selection policy 자체는 여전히 별도 decision이 필요하다. §M의 D455 validation 방향은 `CAP-005` Patch 8 Design Freeze로 exact protocol이 확정됐으며 (`OPEN-006` RESOLVED BY CAP-005) implementation / hardware execution은 pending이다.**
 - 적용 지침: [AGENTS.md](AGENTS.md). 연구 결과는 목표값이 아니라 증거로 취급한다.
 - 2026-09-30 Step 1.5 원작성 범위: 당시 산출물은 이 문서뿐이었으며, 소스·테스트·기존 데이터의 변경, 파일 이동, 모델 다운로드, 성능 실험은 수행하지 않았다.
 
@@ -83,6 +84,7 @@ Patch 4 exact canonical frame contract
 
 §L~N
 → 현재 confirmed/open 경계와 validation 방향 요약. Research Master/Decision Log의 현재 status가 우선.
+→ §M의 D455 validation exact protocol은 `CAP-005` + `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`가 authority (DESIGN-FROZEN; implementation / hardware execution pending).
 ```
 
 ## 0. 현재 구현과 변경 금지 경계
@@ -241,6 +243,8 @@ P03_r1_20261001_143025_123456_c7b4802066714dbdaf621f54d1dd0a6e
 | `provenance_unknown_reasons` | 확인 불가 필드와 이유의 mapping | 추가 |
 
 `protocol_version`은 schema 버전과 다르다. JSON 필드 추가만으로 연구 프로토콜을 변경한 것으로 취급하지 않는다. 반대로 실제 gate나 안내가 변경되면 protocol version을 별도 검토한다. 기존 P01/P02에는 이 신규 protocol ID를 소급 부여하지 않는다.
+
+2026-10-07 `CAP-005` Patch 8 Design Freeze status (구현 pending): Patch 8 dedicated static validation path (static slots 1–15)는 existing `capture-provenance/1.0.0` 구조와 existing `protocol_version` field를 사용하여 `patch8-d455-static-validation-v1.0.0`을 기록한다. Patch 8 production slots와 기존 production capture는 `capture-forward-face-v2.0.0`을 유지한다. Static capture는 `target_range_m` / `start_distance`를 새 의미로 repurpose하지 않으며, schema상 optional이면 omit하고 필수 representation이 필요하면 current schema가 허용하는 neutral/null representation만 사용한다. Patch 8 nominal distance, repetition index, attempt index, `execution_id`는 `patch8-validation-control/1.0.0` operational governance ledger authority이며 capture provenance의 scientific field에 재사용하지 않는다. 이 문단은 위 표의 field를 추가·삭제·재정의하지 않는다. 상세 rule은 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md` §26–§28 / §35–§37을 따른다.
 
 git commit만으로 dirty 실행 코드를 식별할 수 없으므로 file hash를 함께 기록한다. hash/버전 획득은 촬영 설정이나 모델 동작을 바꾸지 않는다. 환경을 조회할 수 없으면 그 사실을 보존한다.
 
@@ -1055,13 +1059,27 @@ fixed raw writer의 exact version/header/field/missing/arm 계약은 `DATA-003`�
 1. **F1/F2의 구체적 수식·입력 차원·missing 처리·derived geometry 계약**. F0의 기존 baseline과 F_cal의 relative 비교 역할은 보존한다. 현재 all/invariant/relative를 이름만 바꿔 F1/F2로 간주하지 않는다. 6개 초과 weight 정책도 별도 연구 결정이다.
 2. formal/external의 모집·조건·반복측정 단위와 허용 촬영 회수, `ok_with_warnings`의 eligibility, 기술적 예외 승인자. §H의 Patch 6 selection mechanism과 별개로, formal 수집 전에 scientific `selection_policy_version`을 별도 Research Decision으로 확정한다.
 3. 실제 고정할 MediaPipe 모델 artifact/hash 및 환경 조합. 현재 로컬에 없거나 확인하지 않은 파일의 버전을 추정하지 않는다.
-4. face/head·shoulder·hip를 F1/F2에 필요한 핵심 observation 방향으로 유지한다. Patch 4에서는 hip 12-field exact contract를 §F.4처럼 사용하고, elbow/wrist는 `exclude-and-version-later`로 freeze되었다. 그 밖의 전체 landmark·3D·IR 저장 필요성은 자동 확장하지 않는다. elbow/wrist formal coverage 보증은 이 exclusion에서 도출하지 않으며 OPEN-005/OPEN-006의 후속 protocol/validation 경계를 따른다.
+4. face/head·shoulder·hip를 F1/F2에 필요한 핵심 observation 방향으로 유지한다. Patch 4에서는 hip 12-field exact contract를 §F.4처럼 사용하고, elbow/wrist는 `exclude-and-version-later`로 freeze되었다. 그 밖의 전체 landmark·3D·IR 저장 필요성은 자동 확장하지 않는다. elbow/wrist formal coverage 보증은 이 exclusion에서 도출하지 않으며 OPEN-005/OPEN-006의 후속 protocol/validation 경계를 따른다. (2026-10-07: `OPEN-006`은 `CAP-005`로 해소됐으며 CAP-005 Patch 8 validation은 elbow/wrist coverage acceptance를 정의하지 않는다. formal framing/coverage는 계속 `OPEN-005`다.)
 5. F1/F2의 개인 사전 calibration 불필요 원칙은 확정 방향이다. 현재 capture/summary의 직전 upright와 기존 RF의 첫 upright 정책은 비교 경로에서 보존하며 통일하지 않는다. 연구자는 최종 feature 경로에 reference 의존성이 없는지 검증할 계획을 정한다.
-6. M절 장비 validation의 거리·반복 수·landmark/depth/3D geometry 안정성 metric·오차/변동 산출법·허용 기준, hip를 관측할 실제 구도. 실제 결과 없이 범위 적합성이나 fallback 필요성을 확정하지 않는다.
+6. M절 장비 validation의 거리·반복 수·landmark/depth/3D geometry 안정성 metric·오차/변동 산출법·허용 기준, hip를 관측할 실제 구도. 실제 결과 없이 범위 적합성이나 fallback 필요성을 확정하지 않는다. (2026-10-07 status: Patch 8 validation의 거리 grid·반복 수·metric·변동 산출법·허용 기준과 validation setup의 hip observability는 `CAP-005`로 확정됐다 — `OPEN-006` RESOLVED BY CAP-005. 구현자는 이 값을 변경하지 않는다. formal experiment framing은 계속 `OPEN-005`이며 실제 Patch 8 결과는 아직 없다.)
 
 이 명세는 기존 데이터나 성능 결과를 재해석하는 승인이 아니다. 이후 구현에서도 소스 변경 범위와 검증 결과를 보고하며 자동 commit/push는 하지 않는다.
 
 ## M. D455 operating range와 장비 validation
+
+> **2026-10-07 CAP-005 status:** 본 §M은 Step 1.5 당시의 D455 validation 방향 기록이다. 이후 `CAP-005`가 Patch 8 validation exact protocol을 Design Freeze하고 `OPEN-006`을 해소했다 (`OPEN-006` RESOLVED BY CAP-005). 아래 §M.1 / §M.2의 "아직 확정하지 않는다" 류 문구와 `70 / 80 / 90 cm` 후보는 그 당시 상태이며, 현재 exact protocol은 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`가 단일 상세 authority다 (frozen static grid `0.60 / 0.70 / 0.80 / 0.90 / 1.00 m`, mandatory anchors `0.70 / 0.80 m`).
+>
+> Protocol / ledger identity:
+>
+> ```text
+> static validation protocol_version   patch8-d455-static-validation-v1.0.0
+> production protocol (unchanged)      capture-forward-face-v2.0.0
+> operational ledger                   patch8-validation-control/1.0.0
+> ```
+>
+> `patch8-validation-control/1.0.0`은 operational governance ledger이며 `frames-schema/1.0.0`, `summary-schema/1.0.0`, `selection-event/1.0.0`, `dataset-selection-manifest/1.0.0`의 대체물이나 새 version이 아니다. 기존 scientific schema authority와 field contract는 변경하지 않는다.
+>
+> Patch 8은 DESIGN-FROZEN이며 implementation / implementation audit / execution registration / formal D455 hardware execution은 pending이다. 실제 D455 validation 결과는 아직 없다. 8~12 cm face-only forward gate, 일반 body fallback, depth 계산, shoulder/hip hard gate 미도입은 그대로 유지한다.
 
 ### M.1 실제 protocol 조건에서 확인할 항목
 
@@ -1106,7 +1124,7 @@ formal experiment 전에 별도 validation으로 다음을 확인한다.
 7. **Patch 5 lineage 구현 상태:** Design Freeze `d4dc23f` / implementation `dd0464e`. `summary-schema/1.0.0` exact 52 fields, raw SHA identity conflict rejection, immutable RF input resolution, `rf-sample-lineage/1.0.0`, `rf-experiment-provenance/1.0.0`을 구현했다. Baseline 204 + 신규 48 = 252 tests PASS이며 independent READ-ONLY audit은 PASS WITH MINOR FINDINGS, BLOCKER 0 / IMPORTANT 0이다.
 8. **Patch 6 selection 구현 상태:** Design Freeze `432da73` / clarification `3235220` / implementation `9c5fff9` / documentation closure `950d2ce` / main merge `2058db1`. `selection-event/1.0.0`, `dataset-selection-manifest/1.0.0`, per-slot single-terminal linear supersession, canonical round, exact source pinning, RF `--dataset-manifest` linkage를 구현했다. committed-state와 immediate post-merge full suite 모두 330 tests PASS이며 independent re-audit은 PASS WITH MINOR FINDINGS, BLOCKER 0 / IMPORTANT 0이다. Patch 6는 COMPLETE / MAIN-INTEGRATED 상태이고 formal scientific selection policy는 계속 별도 decision이다.
 9. **F1/F2 미확정 범위:** calibration-free 2D upper-body skeletal/body-relative geometry와 RGB-D·metric 3D/sagittal candidate family라는 방향만 유지한다. exact landmark graph·수식·feature 개수·trunk-axis/angle·projection·normalization·selection·threshold·성능은 `OPEN-002/OPEN-003`이며 Patch 4 raw contract에서 결정하지 않는다.
-10. **후속 연구자 결정 사항:** formal/external exact protocol과 framing/coverage 절차는 `OPEN-005`, D455 exact 거리 grid·반복·landmark/depth/3D-repeatability/RGB-depth coupling/distance-stability metric·허용 기준은 `OPEN-006`이다. `rank_weights` p>6 정책은 `OPEN-004`다. bbox-vs-contour/oval exact error metric과 최종 연구 채택 여부도 deferred 상태다.
+10. **후속 연구자 결정 사항:** formal/external exact protocol과 framing/coverage 절차는 `OPEN-005`, D455 exact 거리 grid·반복·landmark/depth/3D-repeatability/RGB-depth coupling/distance-stability metric·허용 기준은 `OPEN-006`이었으며 2026-10-07 `CAP-005` Design Freeze로 확정됐다 (`OPEN-006` RESOLVED BY CAP-005; Patch 8 implementation / hardware execution pending). `rank_weights` p>6 정책은 `OPEN-004`다. bbox-vs-contour/oval exact error metric과 최종 연구 채택 여부도 deferred 상태다.
 11. **Coverage 한계:** 현재 capture가 hip/elbow/wrist의 in-frame/depth coverage를 보증하지 않는다는 점은 Patch 4 schema가 해결하지 않는다. `frames-schema/1.0.0`은 관측/결측 상태를 표현하고, 실제 formal framing 및 hardware stability는 후속 protocol/validation에서 확인한다.
 12. **기존 provenance 유지:** recording_id, analysis_run_id, dataset_role, protocol_version, git/file/model hash, selection manifest·이력, legacy pilot mapping, raw→frames→summary 및 raw→frames→RF traceability를 삭제·단순화하지 않는다.
 

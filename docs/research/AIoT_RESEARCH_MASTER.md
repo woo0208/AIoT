@@ -1,7 +1,7 @@
 # AIoT Research Master
 
-- 문서 버전: `v1.10`
-- 기준일: `2026-10-06`
+- 문서 버전: `v1.11`
+- 기준일: `2026-10-07`
 - 상태: **CURRENT / Living Document**
 - 권장 위치: `docs/research/AIoT_RESEARCH_MASTER.md`
 - 역할: **현재 연구 방향·범위·용어·로드맵의 Single Source of Truth**
@@ -20,7 +20,7 @@
 
 질문:
 
-> **“2026-10-06 현재 이 연구는 무엇을 연구하고 있으며, 무엇이 확정되어 있고, 무엇이 아직 미확정인가?”**
+> **“2026-10-07 현재 이 연구는 무엇을 연구하고 있으며, 무엇이 확정되어 있고, 무엇이 아직 미확정인가?”**
 
 에 답하는 문서다.
 
@@ -95,6 +95,12 @@ committed-state verification은 Patch 6 targeted `75 PASS`, Patch 5 lineage `48 
 independent READ-ONLY re-audit는 `PASS WITH MINOR FINDINGS`, `BLOCKER 0 / IMPORTANT 0 / MINOR 1`, implementation commit recommendation `YES`였다.
 Patch 6 documentation closure는 commit `950d2ce`에서 완료했고, merge commit `2058db1`에서 `main` 통합 후 immediate post-merge full suite `330 tests PASS`를 재확인했다. Patch 6는 COMPLETE / MAIN-INTEGRATED 상태다.
 
+2026-10-07 `CAP-005`에서 Foundation Patch 8 D455 Measurement-Quality and End-to-End Validation을 Design Freeze했고 `OPEN-006`을 해소했다 (`OPEN-006` RESOLVED BY CAP-005).
+V5.1.1 Design Freeze draft는 independent READ-ONLY audit에서 `BLOCKER 0 / IMPORTANT 0 / MINOR 1`을 받았고, 상세 authority는
+`docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`다.
+Patch 8은 **DESIGN-FROZEN**이며 implementation, implementation audit, execution registration, formal D455 hardware execution은 모두 PENDING이다.
+Design Freeze는 actual D455 validation 수행·PASS 또는 Patch 8 COMPLETE를 의미하지 않는다.
+
 이미 구현·검증된 Patch 1~5 provenance/schema/model-lock/lineage 동작은 그대로 유지한다.
 Patch 6는 selection mechanism을 구현했지만 formal scientific selection policy의 내용 자체를 임의로 확정하지 않는다.
 그 밖의 future/unimplemented schema section은 현재 구현 완료를 뜻하지 않으며,
@@ -106,11 +112,12 @@ Patch 6는 selection mechanism을 구현했지만 formal scientific selection po
 
 ## 1.1 Repository 기준
 
-본 v1.10 / Patch 7 final post-merge status-sync alignment의 **canonical baseline**:
+본 v1.11 / Patch 8 CAP-005 Design Freeze integration의 **canonical baseline**:
 
 ```text
 current branch: main
-HEAD / origin/main: 1e99e06
+HEAD / origin/main: b2e090f = docs: finalize Patch 7 post-merge status
+Patch 7 main merge baseline: 1e99e06 = merge: integrate Patch 7 repository integrity checker
 Patch 6 main merge baseline: 2058db1 = merge: integrate Patch 6 selection manifest
 Patch 4.5 main integration baseline: 15128ff
 Patch 4 main merge: d923b23 = merge: complete Patch 4 frame schema foundation
@@ -177,8 +184,20 @@ Patch 7 documentation-closure recommendation: SAFE TO MERGE PATCH 7 TO MAIN
 Patch 7 main merge: COMPLETE — 1e99e06
 Patch 7 origin/main sync: COMPLETE — 1e99e06
 Patch 7 immediate post-merge regression: COMPLETE — pytest 454 passed / 1571 subtests; unittest 454 tests / OK
-Patch 7 final status sync: CURRENT CHANGE
+Patch 7 final status sync: COMPLETE — b2e090f
 Patch 7 state: COMPLETE / MAIN-INTEGRATED
+
+Patch 8 Design Freeze authority: CAP-005 — CONFIRMED / Resolves OPEN-006 / Supersedes None
+Patch 8 Design Freeze baseline: main / b2e090f / working tree clean
+Patch 8 Design Freeze semantic source: V5.1.1 audited draft
+Patch 8 Design Freeze audit: BLOCKER 0 / IMPORTANT 0 / MINOR 1 (wording; folded into Foundation §62)
+Patch 8 Foundation document: docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md
+Patch 8 Design Freeze commit: CURRENT CHANGE (documentation-only)
+Patch 8 state: DESIGN-FROZEN
+Patch 8 implementation: PENDING
+Patch 8 implementation audit: PENDING
+Patch 8 execution authorization / registration: PENDING — execution registry / execution_id not created
+Patch 8 hardware execution: PENDING — formal D455 validation not performed
 ```
 
 `110cce6`은 Patch 4 software implementation의 기준점이고,
@@ -239,7 +258,8 @@ formal scientific selection policy 자체는 여전히 별도 decision이며, Pa
 
 Patch 7 repository-wide READ-ONLY integrity checker / hardening은 `cc39b7d`에서 구현·push 완료됐다. Final independent READ-ONLY implementation audit은 `PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0 / MINOR 6`이다. Documentation closure `98a8917` 및 독립 documentation-closure audit 이후 main merge `1e99e06`, immediate post-merge pytest 454 passed / 1571 subtests 및 unittest 454 tests / OK, origin/main 동기화를 완료했다. Patch 7은 COMPLETE / MAIN-INTEGRATED이며 다음 required Foundation scope는 Patch 8이다.
 
-Patch 8의 formal D455 hardware end-to-end validation은 아직 완료하지 않았다.
+Patch 8은 2026-10-07 `CAP-005` Design Freeze로 DESIGN-FROZEN 상태다 (`OPEN-006` RESOLVED BY CAP-005).
+Patch 8 implementation, implementation audit, execution registration, formal D455 hardware end-to-end validation은 아직 수행하지 않았다.
 다만 2026-10-02 실제 D455로 Early Hardware Preflight를 수행했으며,
 이는 non-formal engineering evidence로만 유지하고 Patch 8 또는 formal research evidence로 승격하지 않는다.
 
@@ -279,7 +299,10 @@ merge 직후 full regression `330 tests PASS`를 재확인했다. Patch 6는 COM
 
 Patch 1–7은 COMPLETE / MAIN-INTEGRATED 상태다. Patch 7 implementation `cc39b7d`, documentation closure `98a8917`, main merge `1e99e06`을 완료했다. Final independent READ-ONLY implementation audit은 `PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0 / MINOR 6`이며 documentation-closure audit도 통과했다. Immediate post-merge pytest 454 passed / 1571 subtests, unittest 454 tests / OK 및 origin/main 동기화를 확인했다. 다음 required Foundation은 Patch 8이다.
 
-아직 F1/F2 핵심 수식을 구현하는 단계가 아니며 real D455 formal validation은 Patch 8 범위다.
+Patch 8은 2026-10-07 `CAP-005`로 Design Freeze되어 DESIGN-FROZEN 상태이며 `OPEN-006`은 RESOLVED BY CAP-005다.
+다음 Patch 8 단계는 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`를 따르는 implementation → regression tests → independent implementation audit → execution authorization / registration → formal D455 hardware execution 순서이며, 모두 PENDING이다.
+
+아직 F1/F2 핵심 수식을 구현하는 단계가 아니며 real D455 formal validation은 Patch 8 범위로서 아직 수행되지 않았다.
 
 ---
 
@@ -713,7 +736,8 @@ arm-up/down을 새 posture class로 자동 추가하지 않음
 `DATA-003`에 따라 `frames-schema/1.0.0`에서는 elbow/wrist를 **exclude-and-version-later**로 freeze했다.
 빈 예약 열도 두지 않으며, 향후 필요성이 확인되면 explicit frame-schema version update로 추가한다.
 이 결정은 elbow/wrist가 formal 촬영에서 항상 RGB/depth coverage를 가진다는 보장이 아니며,
-formal framing/coverage 위험은 `OPEN-005` / `OPEN-006`의 protocol·hardware-validation 경로에서 별도로 다룬다.
+formal framing/coverage 위험은 `OPEN-005`의 formal protocol 경로에서 별도로 다룬다.
+(`OPEN-006`은 2026-10-07 `CAP-005`로 해소됐으며, CAP-005 Patch 8 validation은 elbow/wrist coverage acceptance를 정의하지 않는다.)
 
 Elbow/wrist를 향후 저장하더라도 F1/F2 또는 primary classifier에 반드시 사용한다는 뜻은 아니다.
 
@@ -1193,7 +1217,8 @@ hardware validation    = pending / Patch 8
 
 Patch 4에서 F1/F2 derived geometry·feature formula를 구현하지 않고,
 `capture_d455.py`에 새 shoulder/hip/arm coverage acceptance gate를 추가하지 않는다.
-formal framing/coverage와 D455 hardware stability는 `OPEN-005` / `OPEN-006`의 후속 범위다.
+formal framing/coverage는 `OPEN-005`, D455 hardware stability validation은 Patch 8의 후속 범위다.
+Patch 8 validation protocol은 `CAP-005`로 Design Freeze되었고 (`OPEN-006` RESOLVED BY CAP-005) implementation / hardware execution은 pending이다.
 
 ---
 
@@ -1239,6 +1264,7 @@ threshold / protocol decision 도출 근거
 ```
 
 이 preflight는 Patch 4.5~8의 canonical 순서를 재배치하거나 `OPEN-006`을 해소하지 않는다.
+`OPEN-006`은 이후 `CAP-005` Design Freeze로 해소됐으며, CAP-005 §3에 따라 이 preflight는 Patch 8 protocol 값·acceptance threshold의 선택 근거로도 사용하지 않는다.
 
 ---
 
@@ -1544,10 +1570,23 @@ N-5는 explicit recorded parent provenance가 없는 legacy CSV run에 대해 `P
 
 ---
 
-## Patch 8
+## Patch 8 — DESIGN-FROZEN / IMPLEMENTATION PENDING / HARDWARE EXECUTION PENDING
 
 ```text
 Actual D455 End-to-End Smoke / Validation
+```
+
+```text
+Authority                       CAP-005 — CONFIRMED / Resolves OPEN-006 / Supersedes None
+Foundation document             docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md
+Design Freeze baseline          main / b2e090f
+Design Freeze audit             BLOCKER 0 / IMPORTANT 0 / MINOR 1 (wording; folded)
+Patch 8 state                   DESIGN-FROZEN
+implementation                  PENDING
+implementation audit            PENDING
+execution registration          PENDING — registry / execution_id not created
+hardware execution              PENDING — not performed
+Patch 8 result                  NOT DETERMINED
 ```
 
 software unit test와 구분한다.
@@ -1570,7 +1609,29 @@ F. 1명 full posture end-to-end recording
 G. raw→provenance→analysis→frames→summary 연결
 ```
 
-특정 거리(예: 70~90cm), 반복 수, exact metric, tolerance는 아직 확정하지 않는다.
+위 scope의 exact protocol은 `CAP-005`로 Design Freeze되었다. 상세 normative rule은 Foundation document가 단일 authority이며 본 Master는 핵심 값만 요약한다.
+
+```text
+candidate region       0.60–1.00 m = max(D455 ideal lower 0.60, ergonomic lower 0.50) .. ergonomic upper 1.00
+static grid            0.60 / 0.70 / 0.80 / 0.90 / 1.00 m; mandatory anchors 0.70 / 0.80 m
+static protocol        3 repetitions × 10.0 s hold; window 1.0 <= t < 9.5; coverage >= 0.85
+static acceptance      landmark / conditional depth >= 0.95; complete RGB-D >= 0.90; minimum n 30
+depth temporal SD      exactly z_face_m / z_lsh_m / z_rsh_m / left_hip_depth_m / right_hip_depth_m;
+                       per take, window ∩ series validity mask only; ddof = 1; <= 10 mm
+3D geometry            within-take CV / between-take spread <= 3% for shoulder_width_3d / hip_width_3d / trunk_length_3d
+distance stability     <= 5% for ipd_cm / shoulder_width_3d / hip_width_3d / trunk_length_3d vs 0.70+0.80 anchor
+forward gate           production 0.08–0.12 m inclusive face_only unchanged; below / pass / above validation slots
+body-only negative     slot 121 (Foundation §80): current-face-insufficient body-only movement must not yield gate PASS
+E2E                    slot 131 exact predicate (capture verdict ok, both forward phases, analysis, lineage, reconciliation)
+governance             pre-registered single-shot execution_id; sealed results before validity lock; closed pre-lock classification
+protocol identity      static patch8-d455-static-validation-v1.0.0; production capture-forward-face-v2.0.0
+ledger                 patch8-validation-control/1.0.0 (operational governance ledger; not a scientific schema)
+integrity              pre-hardware and closure integrity_check.py: exit 0 / PASS / ERROR 0
+```
+
+Formal initial seating range는 Patch 8 전체 PASS 후 `0.70–0.80 m`로 freeze하며, validated static measurement envelope가 더 넓더라도 자동 확대하지 않는다.
+2026-10-02 Early Hardware Preflight는 위 값의 선택 근거가 아니다.
+위 values / validation-only 3D quantities는 `OPEN-002` / `OPEN-003` / `OPEN-005`를 해결하지 않는다.
 checkerboard/cross/known geometric target은 교수 피드백에서 도출된 requirement가 아니며 Patch 8의 필수 요소로 두지 않는다.
 measurement-quality validation은 D455-derived body geometry를 실제 자세 연구의 측정값으로 안정적으로 사용할 수 있는지를 확인하는 단계다.
 
@@ -1751,6 +1812,8 @@ runtime/FPS를 새 핵심 연구축으로 승격
 23. `DATA-003`에 따라 Patch 4 exact canonical raw frame contract는 `frames-schema/1.0.0`으로 freeze되었다. 총 60 fields이며 legacy 31 ordered prefix + metadata/state 17 + bilateral hip 12 구조다. 해당 contract의 Python 구현은 commit `110cce6`에서 완료됐지만 F1/F2 feature 확정을 의미하지 않는다.
 
 24. `PROV-004`에 따라 Patch 4.5 MediaPipe model artifact contract는 `mediapipe-model-lock/1.0.0`으로 freeze되었고 commit `aef7f34`에서 구현 완료됐다. raw inference는 locked artifact verification을 통과해야 하며, `--from-csv` historical reprocessing에는 current model lock/provisioning을 강제하지 않는다.
+
+25. `CAP-005`에 따라 Patch 8 D455 measurement-quality / end-to-end validation protocol은 Design Freeze되었고 `OPEN-006`을 해소했다. 상세 authority는 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`다. Patch 8은 DESIGN-FROZEN이며 implementation / implementation audit / execution registration / hardware execution은 pending이다. 이는 actual D455 validation PASS나 F1/F2 feature 확정을 의미하지 않는다.
 ```
 
 ---
@@ -1786,18 +1849,15 @@ exact seed list
 exact λ search grid
 formal metric set
 
-D455 candidate range의 exact literature/ergonomics/D455 evidence basis
-D455 validation exact distance grid
-repetition count
-landmark acquisition / depth-valid / jitter / 3D-repeatability / RGB-depth coupling / distance-stability의 exact metric
-acceptance criterion
-
 bbox-vs-contour/oval exact area-error formula
 bbox-vs-contour/oval exact evaluation metric
 bbox-vs-contour/oval의 F1/F2 feature 포함 여부 및 최종 논문 채택 여부
 ```
 
 실험 전에 필요한 시점에 하나씩 Design Freeze한다.
+
+D455 validation의 candidate-range evidence 절차, exact distance grid, repetition count, landmark acquisition / depth-valid / jitter / 3D-repeatability / RGB-depth coupling / distance-stability metric, acceptance criterion은 2026-10-07 `CAP-005`로 확정되어 위 목록에서 제거했다 (`OPEN-006` RESOLVED BY CAP-005).
+실제 Patch 8 hardware 결과는 아직 없으며, 구현자는 CAP-005 값을 변경하지 않는다.
 
 ---
 
@@ -1812,7 +1872,7 @@ Patch 5   lineage                       DONE — implementation/audit/closure/ma
 Patch 6   selection mechanism           DONE — implementation/audit/documentation closure/main merge/post-merge regression
 formal selection_policy_version contents PENDING
 Patch 7   integrity                     DONE — implementation/audit/documentation closure/audit/main merge/post-merge regression
-Patch 8   actual D455 E2E validation    PENDING
+Patch 8   actual D455 E2E validation    PENDING — DESIGN-FROZEN (CAP-005); implementation / audit / registration / hardware execution PENDING
 EXPERIMENT_PROTOCOL freeze              PENDING
 ```
 
@@ -2082,15 +2142,34 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
    → immediate post-merge pytest 454 passed / 1571 subtests; unittest 454 tests / OK
    → origin/main synchronized at 1e99e06; final status sync in this v1.10 change
 
-30. Patch 8 Actual D455 End-to-End Smoke / Validation                            NEXT FOUNDATION
-   → existing scope unchanged; implementation / formal D455 validation not yet complete
+30. Patch 8 Actual D455 End-to-End Validation Design Freeze                      DONE — DESIGN-FROZEN
+   → CAP-005 CONFIRMED / Resolves OPEN-006 / Supersedes None
+   → V5.1.1 independent Design Freeze audit: BLOCKER 0 / IMPORTANT 0 / MINOR 1 (wording; folded into §62)
+   → docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md
+   → documentation-only Design Freeze integration in this v1.11 change
+   → OPEN-002 ~ OPEN-005 remain DEFERRED; Patch 4 / 4.5 / 5 / 6 / 7 authority unchanged
+
+31. Patch 8 implementation                                                        PENDING
+   → CAP-005 Foundation §90 implementation scope / §91 MUST NOT
+
+32. Patch 8 regression tests                                                      PENDING
+
+33. Patch 8 independent READ-ONLY implementation audit                           PENDING
+   → required: BLOCKER 0 / IMPORTANT 0 before hardware execution
+
+34. Patch 8 execution authorization / registration                               PENDING
+   → execution registry / execution_id not yet created
+
+35. Patch 8 formal D455 hardware execution                                        PENDING — NOT PERFORMED
+
+36. Patch 8 Foundation Record closure / main integration                          PENDING
 ```
 
 ---
 
 # 22. Source Basis
 
-본 v1.10은 다음을 통합한 **현재 기준 문서**다.
+본 v1.11은 다음을 통합한 **현재 기준 문서**다.
 
 ```text
 - 실제 현재 repository / Git history
@@ -2132,6 +2211,10 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 - Patch 7 documentation closure `98a8917` / independent documentation-closure audit: PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0 / MINOR 1
 - Patch 7 main merge `1e99e06` / origin/main synchronization / immediate post-merge pytest 454 passed (1571 subtests), unittest 454 tests OK
 - `docs/foundation/PATCH_07_integrity_checker_hardening.md` §52 Implementation Closure
+- Patch 7 final post-merge status sync `b2e090f`
+- Patch 8 `CAP-005` Design Freeze and `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md` (V5.1.1 semantic source; independent Design Freeze audit BLOCKER 0 / IMPORTANT 0 / MINOR 1)
+- RealSense D455 official product specification / product page (Ideal Range 0.6 m to 6 m), https://www.realsenseai.com/products/real-sense-depth-camera-d455f/, accessed 2026-10-07
+- OSHA eTools: Computer Workstations — Monitors (preferred viewing distance 20–40 inches / approximately 50–100 cm; ergonomic evidence only, not D455 accuracy), https://www.osha.gov/etools/computer-workstations/components/monitors/, accessed 2026-10-07
 - 2026-10-02 actual D455 Early Hardware Preflight의 local engineering evidence (formal research data 아님)
 - 바른자세 알고리즘개량 연구마스터 v6.1
 - 현재까지 진행상황 인계요약
@@ -2163,3 +2246,4 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 | `v1.8` | 2026-10-05 | Patch 6 documentation closure commit `950d2ce` 이후 merge commit `2058db1` (`merge: integrate Patch 6 selection manifest`)에서 `main` 통합을 완료했다. merge 직후 `python -X utf8 -m unittest -q` 전체 regression `330 tests PASS`를 재확인했다. Patch 6를 COMPLETE / MAIN-INTEGRATED 상태로 동기화하고, 다음 required Foundation milestone을 Patch 7 Integrity Checker / Hardening으로 전환했다. formal scientific selection policy와 Patch 8 D455 formal validation은 계속 별도/pending 범위다. |
 | `v1.9` | 2026-10-06 | Patch 7 implementation `cc39b7d` 및 final independent READ-ONLY implementation audit `PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0 / MINOR 6`을 반영. Python 3.12.2에서 targeted 124 / affected 332 / full pytest 454 passed (1571 subtests, 0 skipped), unittest 454 tests OK evidence를 기록하고 closure documentation을 동기화했다. Patch 1–7 implementation은 완료됐으며 Patch 7 main integration / post-merge regression은 pending이다. 이후 다음 Foundation은 기존 scope의 Patch 8이다. |
 | `v1.10` | 2026-10-06 | Patch 7 documentation closure `98a8917` 및 독립 documentation-closure audit 이후 main merge `1e99e06`, origin/main 동기화, immediate post-merge pytest 454 passed / 1571 subtests 및 unittest 454 tests OK를 반영했다. Current baseline을 `main` / `1e99e06`으로 갱신하고 Patch 7을 COMPLETE / MAIN-INTEGRATED로 동기화했다. Implementation audit 0/0/6과 documentation-closure audit 0/0/1을 구분하며 stale current-HEAD 문구를 해소했다. 다음 required Foundation은 기존 scope의 Patch 8이다. |
+| `v1.11` | 2026-10-07 | `CAP-005` Foundation Patch 8 D455 Measurement-Quality and End-to-End Validation Design Freeze integration을 반영했다. V5.1.1 Design Freeze draft의 independent READ-ONLY audit `BLOCKER 0 / IMPORTANT 0 / MINOR 1` 이후 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`를 canonical Foundation document로 추가하고 단일 MINOR(E2-R1 wording)를 §62 clarification으로 반영했다. `OPEN-006`은 RESOLVED BY CAP-005이며 D455 validation exact protocol 항목을 미확정 목록에서 제거했다. Current baseline을 `main` / `b2e090f`로 갱신했다. Patch 8은 DESIGN-FROZEN이고 implementation / implementation audit / execution registration / hardware execution은 PENDING이다. `OPEN-002`~`OPEN-005`는 DEFERRED이며 Patch 4/4.5/5/6/7 authority는 변경하지 않았다. Patch 8 COMPLETE가 아니다. |

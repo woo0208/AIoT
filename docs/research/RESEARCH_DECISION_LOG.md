@@ -1,7 +1,7 @@
 # Research Decision Log
 
-- 문서 버전: `v1.9`
-- 기준일: `2026-10-06`
+- 문서 버전: `v1.10`
+- 기준일: `2026-10-07`
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
 - 역할: 현재 Research Master에 반영된 중요한 연구·데이터·실험·거버넌스 결정을 **왜 그렇게 결정했는지** 기록
@@ -1401,6 +1401,7 @@ final-test 결과를 본 parameter 변경
 | `v1.7` | 2026-10-05 | Patch 7 independent READ-ONLY implementation audit의 I-2를 반영하여 `PROV-009`를 append. historical CSV-mode input이 참조한 mutable flat compatibility publication의 교체를 corruption으로 보지 않고 immutable `source_frames` + parent analysis lineage로 historical integrity를 검증하도록 authority boundary를 명확화 |
 | `v1.8` | 2026-10-05 | Patch 7 Round 2 independent READ-ONLY re-audit의 N-1/N-2를 반영하여 `PROV-010`을 append. mutable compatibility publication을 explicit parent `compatibility_path` relation으로 식별하여 legacy-pilot naming까지 동일 semantics로 포함하고, exclude evidence와 include-selected canonical source의 completed-owner requirement를 역할별로 구분하도록 명확화 |
 | `v1.9` | 2026-10-06 | Patch 7 Round 3 independent READ-ONLY re-audit의 remaining IMPORTANT finding을 반영하여 `PROV-011`을 append. selection event의 `include`/`exclude`/`recapture` action 자체가 아니라 각 artifact reference의 실제 role(`historical evidence` vs `selected/consumed canonical source`)에 따라 completed-owner requirement를 적용하도록 명확화 |
+| `v1.10` | 2026-10-07 | `CAP-005`를 append하여 Foundation Patch 8 D455 Measurement-Quality and End-to-End Validation을 Design Freeze하고 `OPEN-006`을 해소. candidate-range derivation, 0.60–1.00 m static grid와 mandatory 0.70/0.80 anchors, physical setup, execution governance, single-shot/retry/result firewall, static/production protocol identity, closed pre-lock classification, static/3D/distance-stability metrics, exact five-series depth temporal-SD rule, forward availability population, body-only-negative semantics, exact slot-131 predicate, reconciliation, integrity closure를 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`에 고정했다. Patch 8은 DESIGN-FROZEN이며 implementation / implementation audit / execution registration / hardware execution은 pending이다. `OPEN-002`~`OPEN-005`는 계속 DEFERRED이고 Patch 4/4.5/5/6/7 authority는 변경하지 않는다 |
 
 ---
 
@@ -6115,5 +6116,334 @@ Clarifies:
 
 Resolves:
 - Patch 7 Round 3 independent READ-ONLY re-audit remaining IMPORTANT finding: legal `recapture` and `include` historical evidence can otherwise receive a permanent false completed-owner ERROR.
+
+---
+
+## CAP-005 — Foundation Patch 8 D455 Measurement-Quality and End-to-End Validation Design Freeze
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-07
+**Decision timing:** Pre-implementation / pre-formal-hardware-execution Design Freeze — V5.1.1 independent READ-ONLY audit `BLOCKER 0 / IMPORTANT 0` 이후, Patch 8 implementation 및 formal D455 hardware execution 이전
+
+### Decision
+
+Foundation Patch 8의 actual Intel RealSense D455 measurement-quality / end-to-end validation protocol을 Design Freeze한다.
+
+상세 normative contract는 다음 문서를 단일 상세 authority로 사용한다.
+
+```text
+docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md
+```
+
+본 entry는 그 문서의 section 전체를 반복하지 않고, 변경 불가한 핵심 결정과 경계만 기록한다. 본 entry와 Foundation document 사이에 표현 차이가 보이면 Foundation document의 exact rule을 따르며, 임의 해석 대신 충돌로 보고한다.
+
+---
+
+### Core decisions
+
+#### A. Candidate-range derivation / static grid / anchors
+
+```text
+lower bound
+= max(D455 ideal lower bound 0.60 m, ergonomic lower region 0.50 m)
+= 0.60 m
+
+upper bound
+= ergonomic upper region 1.00 m
+
+static candidate region = 0.60–1.00 m
+spacing                 = 0.10 m
+frozen static grid      = 0.60 / 0.70 / 0.80 / 0.90 / 1.00 m
+mandatory anchors       = 0.70 / 0.80 m (existing repository seating target)
+```
+
+특정 논문 한 편의 거리를 그대로 채택하지 않는다 (`CAP-003`).
+
+Range concepts는 분리한다.
+
+```text
+formal initial seating range (Patch 8 전체 PASS 후) = 0.70–0.80 m
+validated static measurement envelope              = 별도 산출
+```
+
+Envelope가 더 넓더라도 initial seating range를 자동 확대하지 않는다.
+
+#### B. Pre-data declaration
+
+Patch 8 결과를 보기 전에 다음을 고정한다.
+
+```text
+static grid                    0.60 / 0.70 / 0.80 / 0.90 / 1.00 m
+static repetitions             3
+static hold                    10.0 s
+frame coverage                 >= 0.85
+landmark / conditional depth   >= 0.95
+complete RGB-D geometry        >= 0.90
+depth SD                       <= 10 mm
+within-take geometry CV        <= 3%
+between-take geometry spread   <= 3%
+distance stability             <= 5%
+minimum valid n                30
+production-guide timeout       15 s
+```
+
+2026-10-02 Early Hardware Preflight는 위 값의 선택 근거가 아니다 (local engineering evidence only).
+
+결과 관찰 후 protocol 변경은 CAP-005를 소급 수정하지 않고 `Supersedes: CAP-005` + `POST-HOC PROTOCOL CHANGE` 표기를 가진 새 append-only entry로만 한다.
+
+#### C. Physical setup
+
+```text
+one adult reserved validation subject, dataset_role = pilot
+rigid camera mount; camera pose fixed after first canonical static take
+camera disturbance after first canonical static take → execution FAIL
+pose re-check: height > 5 mm, pitch/yaw/roll > 1 degree, or witness-mark displacement → FAIL
+face / both shoulders / both hips observable and unobstructed across the static grid
+pre-attempt setup check before attempt_start
+color 1280×720 / depth 848×480 / 15 FPS / depth aligned to color
+warm-up 60 s; settling 10 s after reposition and after objective retry
+independent physical distance reference: static nominal ±0.02 m; production placement 0.75 ±0.02 m
+```
+
+Patch 8 setup은 validation setup only이며 `OPEN-005` formal workstation framing을 해결하지 않는다.
+
+#### D. Execution governance
+
+```text
+Design Freeze commit
+→ implementation commit
+→ regression tests
+→ independent implementation audit (BLOCKER 0 / IMPORTANT 0)
+→ execution authorization / registration commit
+→ formal hardware execution
+```
+
+```text
+execution pre-registration before first formal D455 use
+execution starts at first formal slot attempt_start
+one execution_id per formal execution; session_id per physical session
+no hidden rehearsal reclassification
+single-shot first execution
+audited implementation commit pinned; mid-execution code/environment change → FAIL / terminated
+re-execution only via new append-only authorization entry
+clean execution workspace
+runtime governance outputs under validation/patch8/<execution_id>/
+```
+
+#### E. Protocol identities / ledger
+
+```text
+static slots 1–15                 protocol_version = patch8-d455-static-validation-v1.0.0
+production slots 101–113/121/131  protocol_version = capture-forward-face-v2.0.0
+validation ledger format          patch8-validation-control/1.0.0
+```
+
+Static path는 existing `capture-provenance/1.0.0` 구조를 재사용하며 `target_range_m` / `start_distance` 등 existing production field를 새 의미로 repurpose하지 않는다. `nominal_distance`, `repetition_index`, `attempt_index`, `execution_id`는 ledger authority이며 existing scientific field에 재사용하지 않는다.
+
+`patch8-validation-control/1.0.0`은 operational governance ledger다. `frames-schema/1.0.0`, `summary-schema/1.0.0`, `selection-event/1.0.0`, `dataset-selection-manifest/1.0.0`의 새 version이나 대체물이 아니다. Patch 8 retry bookkeeping은 Patch 6 scientific selection이 아니다.
+
+Ledger는 canonical JSON serialization과 `previous_event_sha256` / `event_sha256` hash chain을 사용하며 기존 line 수정/삭제를 금지한다.
+
+#### F. Retry / result firewall / closed pre-lock classification
+
+```text
+attempt_start → acquisition → capture_finished → recording-stage classification
+→ pre-result structural probes → validity_locked → attempt_end
+→ only after lock: unseal results / analysis / Patch 8 metrics
+```
+
+```text
+acquisition validity is immutable before result inspection
+static operator-visible feedback firewall from settling start until validity_locked
+production child-process stdout/stderr and result-bearing files sealed before lock
+closed pre-lock classification table overrides generic retry rules
+guide q / 15 s guide timeout / s skip → GUIDE_NOT_SATISFIED, canonical FAIL evidence, NO RETRY
+operator q / SIGINT / SIGTERM / kill / manual closure → MANUAL_ABORT, NO RETRY
+POWER_FAILURE requires independent power-loss evidence
+partial frame loss is not machine-invalid
+unclassifiable termination → UNCLASSIFIED_TERMINATION, acquisition-valid, NO RETRY (fail-closed)
+static slot max 3 attempts; production one attempt_start = one child launch
+first completed analysis run is canonical; a non-conforming first completed run is canonical FAIL
+```
+
+#### G. Static metrics
+
+```text
+static analysis window   1.0 <= t < 9.5
+frame coverage           N_static / 127.5 >= 0.85 (N_static >= 109)
+landmark acquisition     face detection / face mesh / pose / bilateral shoulder in-frame / bilateral hip in-frame >= 0.95
+head depth-valid         valid = face_detected && face_depth_valid && face_depth_source == "bbox_roi"; valid / face_detected >= 0.95
+shoulder / hip           count(point_valid && point_depth_valid) / count(point_valid) >= 0.95
+complete RGB-D geometry  complete / N_static >= 0.90
+minimum n                30
+```
+
+Depth temporal repeatability는 정확히 다섯 series에 각각 적용한다.
+
+```text
+z_face_m           face_detected && face_depth_valid && face_depth_source == "bbox_roi" && finite && > 0
+z_lsh_m            lsh_valid && lsh_depth_valid && finite && > 0
+z_rsh_m            rsh_valid && rsh_depth_valid && finite && > 0
+left_hip_depth_m   left_hip_valid && left_hip_depth_valid && finite && > 0
+right_hip_depth_m  right_hip_valid && right_hip_depth_valid && finite && > 0
+```
+
+```text
+sample population = canonical rows of that take within the frozen static window (§55)
+                    INTERSECTED WITH that series' validity mask
+                    (no additional filtering of any kind)
+per canonical take, per series: n >= 30
+temporal_depth_sd_mm = sample_sd(depth_m, ddof = 1) × 1000 <= 10 mm
+all five series PASS → canonical take PASS
+all three canonical takes PASS → static distance point PASS (for this criterion)
+```
+
+3D / IPD / stability:
+
+```text
+P = SDK deproject(color intrinsics, pixel, aligned_depth)
+shoulder_width_3d, hip_width_3d, trunk_length_3d (validation-only)
+IPD valid frame rule; valid_ipd_n >= 30; take metric median(ipd_cm)
+
+within-take CV <= 0.03         exactly: shoulder_width_3d / hip_width_3d / trunk_length_3d
+between-take spread <= 0.03    exactly: shoulder_width_3d / hip_width_3d / trunk_length_3d
+distance stability <= 0.05     exactly: ipd_cm / shoulder_width_3d / hip_width_3d / trunk_length_3d
+                               anchor = 6 take medians at 0.70 m and 0.80 m
+```
+
+Static point PASS는 Foundation document §71의 모든 조건을 요구한다. 0.70 m 또는 0.80 m anchor FAIL이면 range validation FAIL이며 envelope = NONE이다. Anchors PASS이면 envelope는 both anchors를 포함하는 maximal contiguous PASS grid interval이다.
+
+#### H. Forward / body-only / E2E
+
+```text
+forward availability population (no pooling, per designated phase):
+101–103  forward_head
+111–113  body_forward
+121      excluded (body-only negative protocol only)
+131      forward_head AND body_forward, each independently
+
+forward phase window 1.0 < t < phase_duration - 0.5; N_forward >= 109; blocking rates per Foundation §75.3
+
+production forward gate unchanged: 0.08–0.12 m inclusive, face_only
+validation bands: below 0.05–0.07 / pass 0.09–0.11 / above 0.13–0.15 m (closer_m)
+forward slots max 3 attempts; TARGET_MISS bounded retry only for non-null, internally consistent, out-of-band closer_m
+```
+
+Body-only negative slot 121 (`SEQ_CORE`, designated phase `body_forward`)은 reference face sufficient, current face insufficient, valid body-mode samples, `closer_m == null`, `forward_gate_result != pass`, `forward_gate_reasons == ["insufficient_current_face_samples"]`를 요구하며 target condition achieved but gate PASS이면 immediate FAIL이다.
+
+Slot 131 (`SEQ_FULL`, `dataset_role = pilot`) PASS predicate:
+
+```text
+canonical acquisition-valid recording exists
+AND capture verdict == ok
+AND forward_head §75 PASS AND body_forward §75 PASS
+AND forward_head production gate PASS AND body_forward production gate PASS
+AND canonical analysis predicate PASS
+AND artifact/lineage predicate PASS
+AND recording reconciliation PASS AND analysis reconciliation PASS
+```
+
+`capture verdict == ok` requirement는 Patch 8 validation closure 전용이며 formal experiment의 `ok_with_warnings` eligibility (`OPEN-005`)를 결정하지 않는다. Result-based retry는 금지한다.
+
+#### I. Reconciliation / integrity
+
+```text
+every execution-created raw recording ↔ exactly one attempt_start + exactly one capture_finished binding
+every canonical recording ↔ exactly one canonical_analysis_run_id; unlogged completed run → FAIL
+pre-hardware integrity_check.py: exit 0 / PASS / ERROR 0
+closure integrity_check.py:      exit 0 / PASS / ERROR 0; WARNING recorded, not auto-FAIL
+preserved evidence is never deleted to clear ERROR
+```
+
+#### J. Patch 8 PASS / failure semantics
+
+Patch 8 COMPLETE는 Foundation document §92의 A–Y 조건을 모두 요구한다. FAIL은 evidence이며 grid, anchors, thresholds, camera settings, resolution, FPS, ROI, schema, models, production forward gate, body fallback semantics, scientific features를 자동 변경하지 않는다. 재실행은 Foundation document §21 governance를 따른다.
+
+#### K. Explicit non-decisions
+
+```text
+F1 / F2 exact formula; formal scientific feature set
+formal participant count / rounds / inclusion / exclusion
+formal selection_policy_version
+RF λ grid / model-selection rule
+final EXPERIMENT_PROTOCOL
+participant-specific calibration
+new shoulder / hip posture hard gate
+new body fallback capable of forward PASS
+new scientific depth ROI
+frames-schema/1.0.0 field / summary-schema/1.0.0 field
+OPEN-005 formal workstation framing
+```
+
+Head bbox depth, `ipd_cm`, `shoulder_width_3d`, `hip_width_3d`, shoulder/hip midpoint, `trunk_length_3d`는 validation-only quantity이며 `OPEN-002` / `OPEN-003` resolution 또는 F1/F2 definition이 아니다.
+
+---
+
+### Rationale
+
+`CAP-003`은 literature / ergonomics / D455 characteristics로 candidate range를 정한 뒤 actual D455 validation을 거쳐 formal range를 freeze하도록 요구했고, `CAP-004`는 Patch 8에 D455 measurement-quality validation을 포함하도록 했다. 그 exact 절차·grid·반복·metric·acceptance criterion은 `OPEN-006`으로 남아 있었다.
+
+Patch 8 결과를 보기 전에 모든 protocol 값, PASS/FAIL predicate, retry/canonical-selection rule을 고정해야 hardware 결과에 맞춘 threshold tuning, retake cherry-picking, post-hoc canonical selection을 구조적으로 배제할 수 있다. Production forward gate와 Patch 4~7 frozen contract를 그대로 사용해야 validation 대상이 실제 연구 pipeline과 동일하게 유지된다.
+
+### Alternatives / Rejected / Deferred
+
+```text
+특정 논문 한 편의 거리값 채택                              REJECTED (CAP-003)
+<40 cm fallback / 새 거리 보정 선제 도입                     REJECTED (CAP-003)
+Early Hardware Preflight 값을 threshold 근거로 사용         REJECTED
+envelope 결과로 initial seating range 자동 확대               REJECTED
+결과 관찰 후 retry / 더 좋은 run으로 canonical 교체         REJECTED
+checkerboard / cross / known geometric target 필수화         NOT REQUIRED (CAP-004)
+formal framing / ok_with_warnings formal eligibility        DEFERRED (OPEN-005)
+F1 / F2 exact definition                                    DEFERRED (OPEN-002 / OPEN-003)
+rank_weights p > 6 policy                                   DEFERRED (OPEN-004)
+```
+
+### Evidence / Source
+
+Repository evidence:
+
+- existing production seating / start target `0.70–0.80 m` (`capture_d455.py` `target_range_m`; `RESEARCH_DATA_SCHEMA.md` §C.2 / §M.1)
+- `CAP-003` — candidate evidence → actual D455 validation → formal distance/range freeze
+- `CAP-004` — Patch 8 D455 measurement-quality validation scope
+- `CAP-001`, `CAP-002`, `DATA-003`, `PROV-004` ~ `PROV-011` (unchanged frozen authority)
+- Patch 7 main baseline: branch `main`, HEAD / origin/main `b2e090f` (`b2e090ffbbbaf378f4f8243d424bd374e57e1e44`), working tree clean
+
+External evidence:
+
+- RealSense D455 official product specification / product page
+  - URL: https://www.realsenseai.com/products/real-sense-depth-camera-d455f/
+  - relevant fact: Ideal Range 0.6 m to 6 m
+  - access date: 2026-10-07
+- U.S. Occupational Safety and Health Administration (OSHA), eTools: Computer Workstations — Workstation Components — Monitors
+  - URL: https://www.osha.gov/etools/computer-workstations/components/monitors/
+  - relevant fact: preferred viewing distance 20–40 inches (approximately 50–100 cm)
+  - access date: 2026-10-07
+  - OSHA range는 workstation ergonomic evidence일 뿐 D455 sensor-accuracy specification이 아니다
+
+Design Freeze review evidence:
+
+- V5.1.1 Design Freeze draft (`PATCH_08_DESIGN_FREEZE_V5.1.1_AUDIT_DRAFT.md`, SHA-256 `4747c181eee5280151cd332e43ef7ed28b953cb3be004f201c56c2818af5b199`)
+- final independent READ-ONLY Design Freeze audit: `BLOCKER 0 / IMPORTANT 0 / MINOR 1`, READY FOR DESIGN-FREEZE COMMIT; 단일 MINOR(E2-R1 depth temporal-SD sample-population wording)는 Foundation document §62에 clarification-only로 반영
+
+Agreement between AI review passes는 experimental evidence가 아니다. 본 entry는 D455 hardware 결과를 포함하지 않는다.
+
+### Impact
+
+- Foundation Patch 8 Design Freeze를 완료한다. Patch 8 state는 **DESIGN-FROZEN**이다.
+- Patch 8 implementation, implementation audit, execution authorization / registration, formal D455 hardware execution은 모두 **PENDING**이다. 본 entry는 Patch 8 COMPLETE 또는 actual D455 validation PASS를 의미하지 않는다.
+- Patch 8 implementation은 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`의 §90 implementation scope와 §91 MUST NOT을 따른다.
+- 본 entry가 `OPEN-006`을 해소한다. append-only 규칙에 따라 과거 `OPEN-006` entry의 본문과 `Status: DEFERRED`는 수정하지 않는다. 현재 상태는 `OPEN-006` RESOLVED BY CAP-005다.
+- `OPEN-002`, `OPEN-003`, `OPEN-004`, `OPEN-005`는 계속 DEFERRED다.
+- Patch 4 / 4.5 / 5 / 6 / 7 authority (`DATA-003`, `PROV-004` ~ `PROV-011`)와 `CAP-001` ~ `CAP-004`는 변경하지 않는다.
+- `frames-schema/1.0.0`, `summary-schema/1.0.0`, `selection-event/1.0.0`, `dataset-selection-manifest/1.0.0`, `capture-forward-face-v2.0.0` production semantics는 변경하지 않는다.
+- Execution registry (`docs/research/PATCH_08_EXECUTION_REGISTRY.md` 예시)와 `execution_id`는 Design Freeze에서 만들지 않으며 audited implementation 이후 formal hardware execution 전에 등록한다.
+- 대규모 formal participant collection은 Patch 8 PASS 및 기타 formal collection gate 전 시작하지 않는다.
+
+Supersedes:
+- None
+
+Resolves:
+- `OPEN-006`
 
 ---
