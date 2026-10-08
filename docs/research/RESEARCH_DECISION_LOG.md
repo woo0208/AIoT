@@ -6572,3 +6572,23 @@ Resolves:
 - Patch 8 implementation gap `P8-I1`: pre-execution design-authority gap — `SEQ_CORE` vs `SEQ_FULL` unspecified for rounds 101–113
 
 ---
+
+## CAP-007 — Patch 8 Audited Implementation / Execution Deferral Status
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-08
+**Decision timing:** Post-implementation audit; before execution authorization or formal D455 execution
+
+### Status
+
+- Patch 8 implementation is complete at audited implementation HEAD `dc2c5c8520c40c73ff2b008f24f373dced1485bc`.
+- Final independent implementation audit: `BLOCKER 0 / IMPORTANT 0`; Patch 8 software implementation is **READY**.
+- No formal D455 Patch 8 execution has occurred, and no `execution_id` has been created.
+- Formal execution is intentionally deferred before authorization while the posture-decision approach is reconsidered based on new research guidance toward anatomical geometry / relative posture rather than absolute user-camera distance. This entry does not define the new posture algorithm.
+- This does not supersede `CAP-005` or `CAP-006`; Patch 1–7 remain unchanged.
+- Patch 8 status: **IMPLEMENTED / AUDITED / EXECUTION DEFERRED**.
+
+Supersedes:
+- None
+
+---
