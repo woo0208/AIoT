@@ -273,9 +273,9 @@ def open_session(rt, execution_id, session_kind, subject):
         raise ValueError("invalid session kind")
     led = open_ledger(rt.root, execution_id)
     _, state = led.read()
-    environment = prelock.run_probe(["environment"], runner=rt.run, timeout=ENVIRONMENT_TIMEOUT_S)
-    if environment is None or not environment.get("d455_serial"):
-        raise RuntimeError("environment snapshot unavailable or no single D455 enumerated (§9)")
+    environment = prelock.run_probe(["capture-environment"], runner=rt.run, timeout=ENVIRONMENT_TIMEOUT_S)
+    if ledger.capture_environment_identity(environment) is None:
+        raise RuntimeError("capture environment snapshot unavailable or invalid (§9)")
     code = code_state(rt)
     session_id = ledger.new_session_id(rt.now())
     payload = dict(session_kind=session_kind, subject=subject, environment=ledger.json_safe(environment),
@@ -632,6 +632,12 @@ def analyze(rt, execution_id, rnd):
     raw = Path(rt.root) / "data" / str(capture.get("record_file"))
     if capture.get("record_file") not in (rid + ".db3", rid + ".bag") or not raw.is_file():
         raise RuntimeError("canonical raw recording missing")
+    environment = prelock.run_probe(["analysis-environment"], runner=rt.run, timeout=ENVIRONMENT_TIMEOUT_S)
+    environment_error = ledger.analysis_environment_error(state, environment)
+    if environment_error is not None:
+        led.append("execution_failed", _any_session(state), dict(
+            reason_code="ENVIRONMENT_CHANGED", detail=environment_error), rt.now())
+        raise RuntimeError(environment_error)
     runs_dir = Path(rt.root) / "analysis" / rid
     before = {p.name for p in runs_dir.glob("ar_*")}
     index = len((state.analyses.get(rid) or {"invocations": []})["invocations"]) + 1
@@ -658,7 +664,8 @@ def analyze(rt, execution_id, rnd):
         subject=state.subject, round=rnd, attempt_index=attempt.attempt_index, recording_id=rid,
         invocation_index=index, exit_code=code if isinstance(code, int) else None, analysis_runs=runs,
         canonical_analysis_run_id=canonical, logs=dict(stdout=_artifact(directory, out),
-                                                       stderr=_artifact(directory, err))), rt.now())
+                                                       stderr=_artifact(directory, err)),
+        environment=ledger.json_safe(environment)), rt.now())
     return canonical
 
 

@@ -37,7 +37,8 @@ import patch8_protocol as p8
 import patch8_report as report
 import patch8_static_capture as static_capture
 import patch8_validation as validation
-from patch8_test_fixtures import EXECUTION_ID, INTRINSICS, POSE, SERIAL, environment, gate_entry, pinhole_factory
+from patch8_test_fixtures import (EXECUTION_ID, INTRINSICS, POSE, SERIAL, analysis_environment, environment,
+                                  gate_entry, pinhole_factory)
 from test_capture_protocol import load_capture
 
 
@@ -375,6 +376,9 @@ class World:
         self.static_kwargs, self.signal_box = {}, None
         self.raw_probe = dict(exists=True, openable=True, color_frame=True, depth_frame=True)
         self.enumeration = {"probe_ok": True, "devices": [{"serial": SERIAL, "name": "Intel RealSense D455"}]}
+        self.capture_environment = environment()
+        self.analysis_environment = analysis_environment()
+        self.probes = []
 
     # -------------------------------------------------------- subprocess.run stand-in
     def run(self, command, **kwargs):
@@ -385,7 +389,10 @@ class World:
                 return done("c" * 40)
             return done("") if command[1] == "status" else done("", 0)
         if Path(command[1]).name == "patch8_prelock.py":
-            value = {"environment": environment(), "enumerate": self.enumeration}.get(command[2], self.raw_probe)
+            self.probes.append(command[2])
+            value = {"capture-environment": self.capture_environment,
+                     "analysis-environment": self.analysis_environment,
+                     "enumerate": self.enumeration}.get(command[2], self.raw_probe)
             return done(json.dumps(value).encode())
         if Path(command[1]).name == "integrity_check.py":
             buffer = io.StringIO()
@@ -821,6 +828,8 @@ class AttemptLifecycleTests(OrchestrationCase):
         self.attempt("1")
         run = validation.analyze(self.rt, EXECUTION_ID, "1")
         invocation = self.events("analysis_invocation")[-1]
+        self.assertIn("analysis-environment", self.world.probes)
+        self.assertEqual(invocation["environment"], analysis_environment())
         self.assertEqual(invocation["canonical_analysis_run_id"], run)
         self.assertEqual(len(invocation["analysis_runs"]), 1)
         command = self.world.launches[-1]
@@ -834,6 +843,60 @@ class AttemptLifecycleTests(OrchestrationCase):
             validation.analyze(self.rt, EXECUTION_ID, "1")
         with self.assertRaisesRegex(RuntimeError, "ledger-canonical"):
             validation.analyze(self.rt, EXECUTION_ID, "2")
+
+    def test_analysis_environment_probe_is_mandatory_before_child_launch(self):
+        self.session("static-grid")
+        self.attempt("1")
+        self.world.analysis_environment = None
+        launches = list(self.world.launches)
+        with self.assertRaisesRegex(RuntimeError, "analysis environment snapshot"):
+            validation.analyze(self.rt, EXECUTION_ID, "1")
+        self.assertIn("analysis-environment", self.world.probes)
+        self.assertEqual(self.world.launches, launches)
+        self.assertEqual(self.state().execution_failure, "ENVIRONMENT_CHANGED")
+        self.assertFalse(self.events("analysis_invocation"))
+
+    def test_analysis_environment_is_actual_and_pinned_without_forcing_cross_host_equality(self):
+        self.world.analysis_environment = analysis_environment(
+            analysis_host="remote-analysis-host", os="remote-os", python="3.13",
+            packages=dict(analysis_environment()["packages"], mediapipe="remote-mediapipe"))
+        self.session("static-grid")
+        self.attempt("1")
+        run = validation.analyze(self.rt, EXECUTION_ID, "1")
+        self.assertIsNotNone(run)
+        recorded = self.events("analysis_invocation")[-1]["environment"]
+        self.assertEqual(recorded["analysis_host"], "remote-analysis-host")
+        self.assertNotEqual(recorded["analysis_host"], self.events("session_start")[0]["environment"]["capture_host"])
+        self.assertNotIn("analysis_host", self.events("session_start")[0]["environment"])
+        self.attempt("2")
+        self.world.analysis_environment = dict(self.world.analysis_environment,
+                                               analysis_host="changed-analysis-host")
+        launches = list(self.world.launches)
+        with self.assertRaisesRegex(RuntimeError, "analysis environment differs"):
+            validation.analyze(self.rt, EXECUTION_ID, "2")
+        self.assertEqual(self.world.launches, launches)
+
+    def test_same_host_analysis_environment_mismatch_fails_before_analysis(self):
+        self.session("static-grid")
+        self.attempt("1")
+        self.world.analysis_environment = analysis_environment(
+            packages=dict(analysis_environment()["packages"], numpy="different"))
+        launches = list(self.world.launches)
+        with self.assertRaisesRegex(RuntimeError, "same-host analysis environment differs"):
+            validation.analyze(self.rt, EXECUTION_ID, "1")
+        self.assertEqual(self.world.launches, launches)
+        self.assertFalse(self.events("analysis_invocation"))
+
+    def test_analysis_realsense_sdk_mismatch_fails_before_analysis(self):
+        self.session("static-grid")
+        self.attempt("1")
+        self.world.analysis_environment = analysis_environment(
+            analysis_host="remote-analysis-host", realsense_sdk_version="different-sdk")
+        launches = list(self.world.launches)
+        with self.assertRaisesRegex(RuntimeError, "RealSense SDK identity differs"):
+            validation.analyze(self.rt, EXECUTION_ID, "1")
+        self.assertEqual(self.world.launches, launches)
+        self.assertFalse(self.events("analysis_invocation"))
 
     def test_analysis_retry_requires_the_logged_failed_run_manifest(self):
         self.session("static-grid")
@@ -850,7 +913,8 @@ class AttemptLifecycleTests(OrchestrationCase):
             subject="V01", round="1", attempt_index=1, recording_id=rid, invocation_index=1, exit_code=1,
             analysis_runs=[dict(analysis_run_id=run_id, status="failed", manifest_sha256=digest)],
             canonical_analysis_run_id=None, logs={"stdout": {"path": "logs/x", "sha256": "0" * 64},
-                                                  "stderr": {"path": "logs/y", "sha256": "0" * 64}}), self.rt.now())
+                                                  "stderr": {"path": "logs/y", "sha256": "0" * 64}},
+            environment=analysis_environment()), self.rt.now())
         note = validation.execution_dir(self.root, EXECUTION_ID) / "note.txt"
         note.write_text("operator note", encoding="utf-8")
         with self.assertRaisesRegex(RuntimeError, "failed logged run manifest"):

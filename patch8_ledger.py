@@ -54,7 +54,8 @@ PAYLOAD_FIELDS = {
     "attempt_end": ATTEMPT_FIELDS,
     "attempt_outcome": ATTEMPT_FIELDS | {"outcome", "evidence"},
     "analysis_invocation": frozenset(("subject", "round", "attempt_index", "recording_id", "invocation_index",
-                                      "exit_code", "analysis_runs", "canonical_analysis_run_id", "logs")),
+                                      "exit_code", "analysis_runs", "canonical_analysis_run_id", "logs",
+                                      "environment")),
     "analysis_infrastructure_failure": frozenset(("subject", "round", "attempt_index", "recording_id",
                                                   "analysis_run_id", "evidence_ref", "evidence_sha256")),
     "execution_failed": frozenset(("reason_code", "detail")),
@@ -68,10 +69,18 @@ STAGES = ("pre_reservation", "post_reservation")
 DECLARATIONS = ("operator_initiated", "not_operator_initiated", "unknown")
 TERMINATION_FIELDS = frozenset(("exit_code", "signal", "orchestrator_timeout_kill", "operator_signal_observed",
                                 "static_exit_status", "recovered", "reservation_observed_s"))
-PINNED_ENVIRONMENT_KEYS = ("capture_host", "analysis_host", "os", "python", "packages",
-                           "realsense_sdk_version", "d455_serial", "d455_firmware", "usb_type",
-                           "depth_scale_m", "stream_profiles", "device_options")
 REQUIRED_PACKAGE_KEYS = ("mediapipe", "pyrealsense2", "opencv-python", "numpy")
+CAPTURE_ENVIRONMENT_KEYS = ("capture_host", "os", "python", "packages", "realsense_sdk_version",
+                            "d455_serial", "d455_firmware", "usb_type", "depth_scale_m",
+                            "stream_profiles", "device_options")
+ANALYSIS_ENVIRONMENT_KEYS = ("analysis_host", "os", "python", "packages", "realsense_sdk_version")
+REQUIRED_STREAM_PROFILES = {
+    "color": {"width": 1280, "height": 720, "format": "bgr8", "fps": 15},
+    "depth": {"width": 848, "height": 480, "format": "z16", "fps": 15},
+    "align_to": "color",
+}
+REQUIRED_DEVICE_OPTION_KEYS = ("depth.visual_preset", "depth.emitter_enabled", "depth.laser_power",
+                               "depth.enable_auto_exposure")
 # After execution_failed no attempt may start; the in-flight attempt may still be closed
 # (and locked without retry authority) and preserved evidence may still be analyzed.
 AFTER_EXECUTION_FAILURE = frozenset(("session_end", "report_published", "integrity_check", "execution_failed",
@@ -194,6 +203,7 @@ class LedgerState:
         self.sessions = {}
         self.open_session = None
         self.baseline_environment = None
+        self.baseline_analysis_environment = None
         self.baseline_code = None
         self.attempts = {}
         self.execution_failure = None
@@ -303,18 +313,80 @@ def _artifact_ref(value):
             isinstance(value["sha256"], str) and HEX64.fullmatch(value["sha256"]) is not None)
 
 
-def _environment(value):
-    """CAP-005 §9 explicit environment identities and equality-bearing fields."""
-    if not isinstance(value, dict) or not all(k in value for k in PINNED_ENVIRONMENT_KEYS):
+def _identity_text(value):
+    return _text(value) and value.strip().lower() not in {"error", "unknown", "unavailable", "none", "null"}
+
+
+def _packages(value):
+    return (isinstance(value, dict) and
+            all(_identity_text(value.get(key)) for key in REQUIRED_PACKAGE_KEYS))
+
+
+def _stream_profiles(value):
+    if not isinstance(value, dict) or set(value) != set(REQUIRED_STREAM_PROFILES):
         return False
-    packages = value["packages"]
-    return (all(_text(value[k]) for k in ("capture_host", "analysis_host", "os", "python",
-                                           "realsense_sdk_version", "d455_serial", "d455_firmware", "usb_type")) and
-            _finite(value["depth_scale_m"]) and value["depth_scale_m"] > 0 and
-            isinstance(packages, dict) and all(_text(packages.get(k)) for k in REQUIRED_PACKAGE_KEYS) and
-            isinstance(value["stream_profiles"], dict) and bool(value["stream_profiles"]) and
-            isinstance(value["device_options"], dict) and bool(value["device_options"]) and
-            "error" not in value["device_options"])
+    for name in ("color", "depth"):
+        profile, required = value.get(name), REQUIRED_STREAM_PROFILES[name]
+        if not isinstance(profile, dict) or set(profile) != set(required):
+            return False
+        if any(type(profile[key]) is not type(expected) or profile[key] != expected
+               for key, expected in required.items()):
+            return False
+    return value.get("align_to") == REQUIRED_STREAM_PROFILES["align_to"]
+
+
+def _device_options(value):
+    return (isinstance(value, dict) and "error" not in value and
+            all(_finite(value.get(key)) for key in REQUIRED_DEVICE_OPTION_KEYS))
+
+
+def capture_environment_identity(value):
+    """Normalized CAP-005 §9 capture identity; excludes non-authority diagnostic extras."""
+    if not isinstance(value, dict) or not all(key in value for key in CAPTURE_ENVIRONMENT_KEYS):
+        return None
+    if not (all(_identity_text(value.get(key)) for key in
+                    ("capture_host", "os", "python", "realsense_sdk_version", "d455_serial",
+                     "d455_firmware", "usb_type")) and
+            _packages(value.get("packages")) and _finite(value.get("depth_scale_m")) and
+            value["depth_scale_m"] > 0 and _stream_profiles(value.get("stream_profiles")) and
+            _device_options(value.get("device_options"))):
+        return None
+    return {key: ({package: value["packages"][package] for package in REQUIRED_PACKAGE_KEYS}
+                  if key == "packages" else
+                  {option: value["device_options"][option] for option in REQUIRED_DEVICE_OPTION_KEYS}
+                  if key == "device_options" else value[key]) for key in CAPTURE_ENVIRONMENT_KEYS}
+
+
+def analysis_environment_identity(value):
+    """Normalized measured analysis-side identity required by CAP-005 §9."""
+    if not isinstance(value, dict) or not all(key in value for key in ANALYSIS_ENVIRONMENT_KEYS):
+        return None
+    if not (all(_identity_text(value.get(key)) for key in
+                    ("analysis_host", "os", "python", "realsense_sdk_version")) and
+            _packages(value.get("packages"))):
+        return None
+    return {key: ({package: value["packages"][package] for package in REQUIRED_PACKAGE_KEYS}
+                  if key == "packages" else value[key]) for key in ANALYSIS_ENVIRONMENT_KEYS}
+
+
+def analysis_environment_error(state, value):
+    """Return the CAP-005 §9 mismatch reason, or None for an acceptable measured snapshot."""
+    analysis = analysis_environment_identity(value)
+    capture = state.baseline_environment
+    if analysis is None:
+        return "analysis environment snapshot missing/invalid required fields (§9)"
+    if capture is None:
+        return "capture environment baseline is unavailable (§9)"
+    if (analysis["packages"]["pyrealsense2"] != capture["packages"]["pyrealsense2"] or
+            analysis["realsense_sdk_version"] != capture["realsense_sdk_version"]):
+        return "analysis pyrealsense2/RealSense SDK identity differs from capture baseline (§9)"
+    if analysis["analysis_host"] == capture["capture_host"]:
+        for key in ("os", "python", "packages", "realsense_sdk_version"):
+            if analysis[key] != capture[key]:
+                return "same-host analysis environment differs from measured capture baseline (§9)"
+    if state.baseline_analysis_environment is not None and analysis != state.baseline_analysis_environment:
+        return "analysis environment differs from execution analysis baseline (§9)"
+    return None
 
 
 def _logs(value, *, nullable=False):
@@ -433,17 +505,18 @@ def _apply_session(state, event, kind):
         if state.subject is None:
             state.subject = event["subject"]
         _require(event["subject"] == state.subject, "reserved validation subject changed")
-        _require(_environment(event["environment"]), "environment snapshot missing/invalid pinned fields")
+        environment = capture_environment_identity(event["environment"])
+        _require(environment is not None, "capture environment snapshot missing/invalid pinned fields")
         code = event["code_state"]
         _require(isinstance(code, dict) and set(code) == {"git_commit", "git_clean"}, "invalid code_state")
         _require(_strings(event["recording_inventory"]), "recording_inventory must be sorted unique strings")
         if state.baseline_environment is None:
-            state.baseline_environment = {k: event["environment"][k] for k in PINNED_ENVIRONMENT_KEYS}
+            state.baseline_environment = environment
             state.baseline_code = dict(code)
         state.sessions[event["session_id"]] = dict(
             kind=event["session_kind"], warmup=False, setup_pose=None, recheck=False, static_attempts=False,
-            environment_matches={k: event["environment"][k] for k in PINNED_ENVIRONMENT_KEYS} ==
-            state.baseline_environment, inventory=list(event["recording_inventory"]))
+            environment_matches=environment == state.baseline_environment,
+            inventory=list(event["recording_inventory"]))
         state.open_session = event["session_id"]
     elif kind == "session_end":
         session = state.sessions[state.open_session]
@@ -619,6 +692,10 @@ def _apply_analysis(state, event, kind):
              "analysis only for a ledger-canonical recording (§52)")
     record = state.analyses.setdefault(event["recording_id"], dict(invocations=[], canonical=None, failures=[]))
     if kind == "analysis_invocation":
+        environment = analysis_environment_identity(event["environment"])
+        _require(environment is not None, "analysis environment snapshot missing/invalid required fields (§9)")
+        environment_error = analysis_environment_error(state, environment)
+        _require(environment_error is None, environment_error or "analysis environment mismatch (§9)")
         _require(event["invocation_index"] == len(record["invocations"]) + 1, "invocation_index mismatch")
         _require(state.analysis_invocation_allowed(event["recording_id"]),
                  "re-analysis only after logged infrastructure failure and before completion (§54)")
@@ -633,6 +710,8 @@ def _apply_analysis(state, event, kind):
         _require(event["canonical_analysis_run_id"] == expected, "canonical analysis = first completed run (§53)")
         _require(event["exit_code"] is None or type(event["exit_code"]) is int, "invalid exit_code")
         _require(_logs(event["logs"]), "analysis invocation requires sealed logs")
+        if state.baseline_analysis_environment is None:
+            state.baseline_analysis_environment = environment
         record["invocations"].append(event)
         if expected is not None:
             record["canonical"] = expected

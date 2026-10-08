@@ -9,7 +9,8 @@ from unittest.mock import patch
 
 import patch8_ledger as ledger
 import patch8_protocol as p8
-from patch8_test_fixtures import (CODE, EXECUTION_ID, HEX, LOGS, POSE, SUBJECT, LedgerHarness, environment)
+from patch8_test_fixtures import (CODE, EXECUTION_ID, HEX, LOGS, POSE, SUBJECT, LedgerHarness,
+                                  analysis_environment, environment)
 
 
 class LedgerTestCase(unittest.TestCase):
@@ -248,11 +249,11 @@ class LifecycleTests(LedgerTestCase):
         self.h.append("warmup_completed", dict(duration_s=60.0, exit_code=0, logs=LOGS))
         self.assert_rejected(self.h.start, "131", message="environment differs")
 
-    def test_stream_profile_and_device_option_changes_each_block_attempts(self):
+    def test_valid_environment_identity_changes_each_block_attempts(self):
+        options = environment()["device_options"]
         changes = (
-            dict(stream_profiles=dict(environment()["stream_profiles"], align_to="depth")),
-            dict(device_options={"depth.visual_preset": 2.0}),
-            dict(analysis_host="other-analysis-host"),
+            dict(device_options=dict(options, **{"depth.visual_preset": 2.0})),
+            dict(capture_host="other-capture-host"),
             dict(realsense_sdk_version="different-sdk"),
         )
         for change in changes:
@@ -271,6 +272,34 @@ class LifecycleTests(LedgerTestCase):
                 with self.assertRaisesRegex(ledger.LedgerError, "environment differs"):
                     harness.start("131")
                 self.assertEqual(harness.path.read_bytes(), before)
+
+    def test_capture_environment_rejects_incomplete_profiles_options_and_sdk(self):
+        valid = environment()
+        cases = {
+            "missing color profile content": dict(stream_profiles={
+                "color": {"height": 720, "format": "bgr8", "fps": 15},
+                "depth": valid["stream_profiles"]["depth"], "align_to": "color"}),
+            "missing depth profile content": dict(stream_profiles={
+                "color": valid["stream_profiles"]["color"],
+                "depth": {"width": 848, "height": 480, "fps": 15}, "align_to": "color"}),
+            "missing alignment": dict(stream_profiles={
+                "color": valid["stream_profiles"]["color"], "depth": valid["stream_profiles"]["depth"]}),
+            "incomplete device options": dict(device_options={"depth.visual_preset": 1.0}),
+            "unrelated device options": dict(device_options={"unrelated": 0.0}),
+            "missing SDK": dict(realsense_sdk_version=None),
+            "error-only SDK": dict(realsense_sdk_version="error"),
+        }
+        for name, change in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                harness = LedgerHarness(directory)
+                before = harness.path.read_bytes() if harness.path.exists() else None
+                with self.assertRaisesRegex(ledger.LedgerError, "capture environment"):
+                    harness.start_session(env=environment(**change))
+                self.assertEqual(before, harness.path.read_bytes() if harness.path.exists() else None)
+
+    def test_valid_canonical_capture_environment_passes(self):
+        self.h.start_session(env=environment())
+        self.assertEqual(self.h.state().baseline_environment, ledger.capture_environment_identity(environment()))
 
 
 class RetryAuthorityTests(LedgerTestCase):
@@ -451,10 +480,46 @@ class SessionAndAnalysisTests(LedgerTestCase):
                 self.assertIs(result, material)
         self.assertTrue(ledger.pose_differences(base, dict(base, witness_mark_displaced=True))[1])
 
-    def analysis(self, index, runs, canonical, exit_code=0):
+    def analysis(self, index, runs, canonical, exit_code=0, env=None):
         return self.h.append("analysis_invocation", dict(
             subject=SUBJECT, round="1", attempt_index=1, recording_id="V01_r1_a1", invocation_index=index,
-            exit_code=exit_code, analysis_runs=runs, canonical_analysis_run_id=canonical, logs=LOGS))
+            exit_code=exit_code, analysis_runs=runs, canonical_analysis_run_id=canonical, logs=LOGS,
+            environment=env or analysis_environment()))
+
+    def test_analysis_environment_is_measured_pinned_and_cross_host_realsense_matched(self):
+        self.h.prepare()
+        self.h.attempt("1")
+        runs = [dict(analysis_run_id="ar_1", status="failed", manifest_sha256=HEX)]
+        same_host_bad = analysis_environment(
+            packages=dict(analysis_environment()["packages"], numpy="different"))
+        self.assert_rejected(self.analysis, 1, runs, None, exit_code=1, env=same_host_bad,
+                             message="same-host analysis environment")
+        remote = analysis_environment(analysis_host="analysis-host", os="analysis-os", python="3.13",
+                                      packages=dict(analysis_environment()["packages"], mediapipe="remote"))
+        self.analysis(1, runs, None, exit_code=1, env=remote)
+        self.assertEqual(self.h.state().baseline_analysis_environment,
+                         ledger.analysis_environment_identity(remote))
+        self.h.append("analysis_infrastructure_failure", dict(
+            subject=SUBJECT, round="1", attempt_index=1, recording_id="V01_r1_a1", analysis_run_id="ar_1",
+            evidence_ref="analysis/V01_r1_a1/ar_1/analysis_manifest.json", evidence_sha256=HEX))
+        changed_host = analysis_environment(**dict(remote, analysis_host="other-analysis-host"))
+        self.assert_rejected(self.analysis, 2, runs, None, exit_code=1, env=changed_host,
+                             message="analysis environment differs")
+
+    def test_analysis_environment_rejects_missing_and_mismatched_sdk_identity(self):
+        self.h.prepare()
+        self.h.attempt("1")
+        runs = [dict(analysis_run_id="ar_1", status="failed", manifest_sha256=HEX)]
+        for name, env, message in (
+                ("missing", analysis_environment(realsense_sdk_version=None), "missing/invalid"),
+                ("error", analysis_environment(realsense_sdk_version="error"), "missing/invalid"),
+                ("sdk mismatch", analysis_environment(analysis_host="remote", realsense_sdk_version="different"),
+                 "differs from capture"),
+                ("binding mismatch", analysis_environment(
+                    analysis_host="remote", packages=dict(analysis_environment()["packages"],
+                                                          pyrealsense2="different")), "differs from capture")):
+            with self.subTest(name=name):
+                self.assert_rejected(self.analysis, 1, runs, None, exit_code=1, env=env, message=message)
 
     def test_first_completed_analysis_run_is_canonical_and_reanalysis_needs_evidence(self):
         self.h.prepare()

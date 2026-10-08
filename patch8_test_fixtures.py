@@ -23,13 +23,23 @@ INTRINSICS = dict(width=1280, height=720, fx=640.0, fy=640.0, ppx=640.0, ppy=360
 
 
 def environment(serial=SERIAL, **changes):
-    value = dict(capture_host="synthetic-host", analysis_host="synthetic-host", os="synthetic-os", python="3.12",
+    value = dict(capture_host="synthetic-host", os="synthetic-os", python="3.12",
                  packages={"mediapipe": "x", "pyrealsense2": "x", "opencv-python": "x", "numpy": "x"},
                  realsense_sdk_version="2.x", d455_serial=serial, d455_firmware="5.0", usb_type="3.2",
-                 depth_scale_m=0.001, realsense_devices=[], device_options={"depth.visual_preset": 1.0},
+                 depth_scale_m=0.001, realsense_devices=[], device_options={
+                     "depth.visual_preset": 1.0, "depth.emitter_enabled": 1.0,
+                     "depth.laser_power": 150.0, "depth.enable_auto_exposure": 1.0},
                  stream_profiles={"color": {"width": 1280, "height": 720, "format": "bgr8", "fps": 15},
                                   "depth": {"width": 848, "height": 480, "format": "z16", "fps": 15},
                                   "align_to": "color"})
+    value.update(changes)
+    return value
+
+
+def analysis_environment(**changes):
+    value = dict(analysis_host="synthetic-host", os="synthetic-os", python="3.12",
+                 packages={"mediapipe": "x", "pyrealsense2": "x", "opencv-python": "x", "numpy": "x"},
+                 realsense_sdk_version="2.x")
     value.update(changes)
     return value
 

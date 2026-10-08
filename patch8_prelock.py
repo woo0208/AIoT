@@ -176,8 +176,8 @@ def package_versions():
     return versions
 
 
-def realsense_sdk_version(rs, package_version):
-    """Best available explicit librealsense identity exposed by the Python binding."""
+def realsense_sdk_version(rs):
+    """Explicit librealsense SDK identity exposed by the binding; never substitute package identity."""
     value = getattr(rs, "__version__", None)
     if value is None:
         getter = getattr(rs, "get_api_version", None)
@@ -185,20 +185,19 @@ def realsense_sdk_version(rs, package_version):
             value = getter() if callable(getter) else None
         except Exception:
             value = None
-    return str(value) if value is not None else package_version
+    return str(value) if value is not None else None
 
 
 def collect_environment(rs=None):
-    """§9 environment snapshot recorded at each physical session start."""
+    """§9 capture-side environment snapshot recorded at each physical session start."""
     if rs is None:
         import pyrealsense2 as rs
     enumeration = enumerate_devices(rs)
     d455 = [d for d in enumeration["devices"] if d["name"] and "D455" in d["name"]]
     packages = package_versions()
-    host = platform.node()
-    environment = dict(capture_host=host, analysis_host=host, os=platform.platform(),
+    environment = dict(capture_host=platform.node(), os=platform.platform(),
                        python=platform.python_version(), packages=packages,
-                       realsense_sdk_version=realsense_sdk_version(rs, packages.get("pyrealsense2")),
+                       realsense_sdk_version=realsense_sdk_version(rs),
                        realsense_devices=enumeration["devices"],
                        d455_serial=None, d455_firmware=None, usb_type=None, depth_scale_m=None,
                        device_options={}, stream_profiles={
@@ -221,6 +220,14 @@ def collect_environment(rs=None):
     except Exception as error:
         environment["device_options"]["error"] = type(error).__name__
     return environment
+
+
+def collect_analysis_environment(rs=None):
+    """§9 analysis-side software/SDK identity measured on the host running analysis."""
+    if rs is None:
+        import pyrealsense2 as rs
+    return dict(analysis_host=platform.node(), os=platform.platform(), python=platform.python_version(),
+                packages=package_versions(), realsense_sdk_version=realsense_sdk_version(rs))
 
 
 def run_probe(command, *, runner, timeout):
@@ -412,10 +419,13 @@ def main(argv=None):
         value = probe_raw_readability(argv[1])
     elif argv == ["enumerate"]:
         value = enumerate_devices()
-    elif argv == ["environment"]:
+    elif argv == ["capture-environment"]:
         value = collect_environment()
+    elif argv == ["analysis-environment"]:
+        value = collect_analysis_environment()
     else:
-        print("usage: patch8_prelock.py raw-probe <path> | enumerate | environment", file=sys.stderr)
+        print("usage: patch8_prelock.py raw-probe <path> | enumerate | capture-environment | analysis-environment",
+              file=sys.stderr)
         return 2
     print(json.dumps(ledger.json_safe(value), sort_keys=True, ensure_ascii=False, allow_nan=False))
     return 0

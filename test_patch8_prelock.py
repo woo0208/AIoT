@@ -326,6 +326,14 @@ class EvidenceAccessTests(unittest.TestCase):
         self.assertTrue(result["probe_ok"])
         self.assertEqual([d["serial"] for d in result["devices"]], ["A", "B"])
 
+    def test_realsense_sdk_identity_is_explicit_and_never_package_fallback(self):
+        self.assertEqual(prelock.realsense_sdk_version(types.SimpleNamespace(__version__="2.55.1")), "2.55.1")
+        self.assertEqual(prelock.realsense_sdk_version(types.SimpleNamespace(get_api_version=lambda: 205501)),
+                         "205501")
+        self.assertIsNone(prelock.realsense_sdk_version(types.SimpleNamespace()))
+        self.assertIsNone(prelock.realsense_sdk_version(types.SimpleNamespace(
+            get_api_version=lambda: (_ for _ in ()).throw(RuntimeError("unavailable")))))
+
     def test_prelock_module_never_opens_result_bearing_sidecars(self):
         source = Path(prelock.__file__).read_text(encoding="utf-8")
         tree = ast.parse(source)
