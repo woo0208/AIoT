@@ -671,6 +671,19 @@ class AttemptLifecycleTests(OrchestrationCase):
         self.assertEqual(command, [["python-under-test", str(self.root / "capture_d455.py"), "V01", "131",
                                     "--dataset-role", "pilot"]])
 
+    def test_slot131_post_reservation_guide_skip_is_canonical_fail_without_retry(self):
+        self.world.production["131"] = dict(skip=True)
+        self.session("E2E")
+        result, outcome, opened = self.guarded_attempt("131")
+        self.assertEqual((result.reason_code, result.acquisition_valid, result.retry_allowed), (None, True, False))
+        self.assertEqual((outcome["outcome"], outcome["reason_code"]),
+                         (p8.CANONICAL, p8.GUIDE_NOT_SATISFIED))
+        self.assertIsNone(self.state().next_attempt_index("131"))
+        e2e = report.evaluate_execution(self.root, self.ledger_path, pinhole_factory)["metrics"]["slot_131"]
+        self.assertFalse(e2e["passed"])
+        self.assertFalse(e2e["components"]["canonical_acquisition_valid_recording"])
+        self.assertTrue(all(ended or permitted for _, ended, permitted in opened), opened)
+
     def test_slot121_runs_seq_core_and_records_target_miss_retry(self):
         self.world.production["121"] = dict(evidence=[gate_entry("forward_head", ref=0.75, cur=0.65),
                                                       gate_entry("body_forward", ref=0.75, cur=0.65)])
@@ -822,6 +835,41 @@ class AttemptLifecycleTests(OrchestrationCase):
         with self.assertRaisesRegex(RuntimeError, "ledger-canonical"):
             validation.analyze(self.rt, EXECUTION_ID, "2")
 
+    def test_analysis_retry_requires_the_logged_failed_run_manifest(self):
+        self.session("static-grid")
+        self.attempt("1")
+        state = self.state()
+        attempt = state.canonical_attempt("1")
+        rid, run_id = attempt.recording_id, "ar_failed"
+        manifest_path = self.root / "analysis" / rid / run_id / "analysis_manifest.json"
+        manifest_path.parent.mkdir(parents=True)
+        manifest = dict(analysis_run_id=run_id, recording_id=rid, status="failed", errors=["synthetic failure"])
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        validation.open_ledger(self.root, EXECUTION_ID).append("analysis_invocation", state.open_session, dict(
+            subject="V01", round="1", attempt_index=1, recording_id=rid, invocation_index=1, exit_code=1,
+            analysis_runs=[dict(analysis_run_id=run_id, status="failed", manifest_sha256=digest)],
+            canonical_analysis_run_id=None, logs={"stdout": {"path": "logs/x", "sha256": "0" * 64},
+                                                  "stderr": {"path": "logs/y", "sha256": "0" * 64}}), self.rt.now())
+        note = validation.execution_dir(self.root, EXECUTION_ID) / "note.txt"
+        note.write_text("operator note", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "failed logged run manifest"):
+            validation.analysis_infrastructure_failure(self.rt, EXECUTION_ID, "1", note, run_id)
+        with self.assertRaisesRegex(RuntimeError, "not a failed run"):
+            validation.analysis_infrastructure_failure(self.rt, EXECUTION_ID, "1", manifest_path, "ar_unknown")
+        original = manifest_path.read_bytes()
+        manifest_path.write_bytes(original + b"\n")
+        with self.assertRaisesRegex(RuntimeError, "logged hash"):
+            validation.analysis_infrastructure_failure(self.rt, EXECUTION_ID, "1", manifest_path, run_id)
+        manifest_path.write_bytes(original)
+        validation.analysis_infrastructure_failure(self.rt, EXECUTION_ID, "1", manifest_path, run_id)
+        self.assertTrue(self.state().analysis_invocation_allowed(rid))
+        self.assertTrue(report.retry_evidence_integrity(self.root, self.state())["passed"])
+        manifest_path.unlink()
+        retained = report.retry_evidence_integrity(self.root, self.state())
+        self.assertFalse(retained["passed"])
+        self.assertEqual(retained["failures"][0]["code"], "ANALYSIS_RETRY_EVIDENCE_MISSING_OR_MISMATCH")
+
 
 class ReconciliationAndReportTests(OrchestrationCase):
     def run_static_grid(self, failing=()):
@@ -844,6 +892,23 @@ class ReconciliationAndReportTests(OrchestrationCase):
                                             verdict="retake")
         self.run_production("body-only-negative", "121")
         self.run_production("E2E", "131")
+
+    def full_passing_execution(self):
+        closer = {"below": 0.06, "pass": 0.10, "above": 0.14}
+        self.full_execution()
+        self.session("forward-gate")
+        for rnd in FORWARD_ROUNDS:
+            label, band = p8.SLOTS[rnd].designated_phases[0], p8.SLOTS[rnd].band
+            ref, cur = 2 * closer[band], closer[band]
+            self.world.production[rnd] = dict(evidence=[gate_entry(label, ref=ref, cur=cur)], verdict="retake")
+            if rnd == "102":
+                self.world.production[rnd] = dict(evidence=[gate_entry(label, ref=0.75, cur=0.63)])
+                _, outcome = self.attempt(rnd)
+                self.assertEqual(outcome["outcome"], p8.TARGET_MISS)
+                self.world.production[rnd] = dict(evidence=[gate_entry(label, ref=ref, cur=cur)])
+            self.attempt(rnd)
+            validation.analyze(self.rt, EXECUTION_ID, rnd)
+        self.close("forward-gate")
 
     def evaluate(self):
         return report.evaluate_execution(self.root, self.ledger_path, pinhole_factory)
@@ -869,21 +934,7 @@ class ReconciliationAndReportTests(OrchestrationCase):
         self.assertEqual(audit.counts["ERROR"], 0, audit.findings)
 
     def test_full_synthetic_execution_with_forward_slots_exercised(self):
-        closer = {"below": 0.06, "pass": 0.10, "above": 0.14}
-        self.full_execution()
-        self.session("forward-gate")
-        for rnd in FORWARD_ROUNDS:
-            label, band = p8.SLOTS[rnd].designated_phases[0], p8.SLOTS[rnd].band
-            ref, cur = 2 * closer[band], closer[band]
-            self.world.production[rnd] = dict(evidence=[gate_entry(label, ref=ref, cur=cur)], verdict="retake")
-            if rnd == "102":            # first attempt misses the band → bounded retry
-                self.world.production[rnd] = dict(evidence=[gate_entry(label, ref=0.75, cur=0.63)])
-                _, outcome = self.attempt(rnd)
-                self.assertEqual(outcome["outcome"], p8.TARGET_MISS)
-                self.world.production[rnd] = dict(evidence=[gate_entry(label, ref=ref, cur=cur)])
-            self.attempt(rnd)
-            validation.analyze(self.rt, EXECUTION_ID, rnd)
-        self.close("forward-gate")
+        self.full_passing_execution()
         self.assertTrue(validation.record_integrity(self.rt, EXECUTION_ID, "closure"))
         reports = self.evaluate()
         execution = reports["execution"]
@@ -891,6 +942,36 @@ class ReconciliationAndReportTests(OrchestrationCase):
                                                                execution["computed_conditions"].items() if not v})
         self.assertEqual(execution["formal_initial_seating_range_m"], [0.7, 0.8])
         self.assertEqual(reports["metrics"]["forward_slots"]["102"]["canonical_attempt_index"], 2)
+
+    def test_publish_reruns_closure_integrity_after_evidence_mutation(self):
+        self.full_passing_execution()
+        self.assertTrue(validation.record_integrity(self.rt, EXECUTION_ID, "closure"))
+        self.assertEqual(self.evaluate()["execution"]["computed_result"], "PASS")
+        rid = self.state().canonical_attempt("131").recording_id
+        raw = self.root / "data" / f"{rid}.db3"
+        raw.write_bytes(raw.read_bytes() + b"tampered")
+        with self.assertRaisesRegex(RuntimeError, "fresh closure integrity failed"):
+            validation.evaluate(self.rt, EXECUTION_ID, publish=True)
+        self.assertFalse(any((validation.execution_dir(self.root, EXECUTION_ID) / name).exists()
+                             for name in report.REPORT_FILES.values()))
+        self.assertFalse(self.state().closure_integrity)
+
+    def test_deleted_machine_retry_evidence_fails_patch8_report_integrity(self):
+        self.world.production["131"] = dict(crash=True)
+        self.world.enumeration = {"probe_ok": True, "devices": []}
+        self.session("E2E")
+        self.attempt("131")
+        state = self.state()
+        check = report.retry_evidence_integrity(self.root, state)
+        self.assertTrue(check["passed"], check)
+        lock = state.attempts[("131", 1)].locked
+        evidence = validation.execution_dir(self.root, EXECUTION_ID) / lock["machine_evidence_ref"]["path"]
+        evidence.unlink()
+        reports = self.evaluate()
+        retry = reports["reconciliation"]["retry_evidence_integrity"]
+        self.assertFalse(retry["passed"])
+        self.assertEqual(retry["failures"][0]["code"], "MACHINE_EVIDENCE_MISSING_OR_HASH_MISMATCH")
+        self.assertFalse(reports["execution"]["computed_conditions"]["retry_evidence_integrity"])
 
     def test_slot131_verdict_not_ok_fails_e2e(self):
         self.world.production["131"] = dict(verdict="ok_with_warnings")

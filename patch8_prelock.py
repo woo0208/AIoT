@@ -176,14 +176,30 @@ def package_versions():
     return versions
 
 
+def realsense_sdk_version(rs, package_version):
+    """Best available explicit librealsense identity exposed by the Python binding."""
+    value = getattr(rs, "__version__", None)
+    if value is None:
+        getter = getattr(rs, "get_api_version", None)
+        try:
+            value = getter() if callable(getter) else None
+        except Exception:
+            value = None
+    return str(value) if value is not None else package_version
+
+
 def collect_environment(rs=None):
     """§9 environment snapshot recorded at each physical session start."""
     if rs is None:
         import pyrealsense2 as rs
     enumeration = enumerate_devices(rs)
     d455 = [d for d in enumeration["devices"] if d["name"] and "D455" in d["name"]]
-    environment = dict(capture_host=platform.node(), os=platform.platform(), python=platform.python_version(),
-                       packages=package_versions(), realsense_devices=enumeration["devices"],
+    packages = package_versions()
+    host = platform.node()
+    environment = dict(capture_host=host, analysis_host=host, os=platform.platform(),
+                       python=platform.python_version(), packages=packages,
+                       realsense_sdk_version=realsense_sdk_version(rs, packages.get("pyrealsense2")),
+                       realsense_devices=enumeration["devices"],
                        d455_serial=None, d455_firmware=None, usb_type=None, depth_scale_m=None,
                        device_options={}, stream_profiles={
                            "color": {"width": 1280, "height": 720, "format": "bgr8", "fps": 15},

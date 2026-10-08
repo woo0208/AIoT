@@ -90,10 +90,15 @@ def attempt_outcome_from_evidence(root, state, attempt):
     token = state.unseal(attempt.round, attempt.attempt_index) if attempt.recording_id else None
     lock_reason = attempt.locked["reason_code"]
     slot = attempt.slot
-    if slot.kind == p8.E2E or token is None:
+    if token is None:
         return metrics._outcome(p8.CANONICAL, lock_reason if lock_reason is not None else
-                                (None if token is not None else p8.UNCLASSIFIED_TERMINATION))
-    capture, quality = read_capture(root, token), read_quality(root, token)
+                                p8.UNCLASSIFIED_TERMINATION)
+    capture = read_capture(root, token)
+    if metrics.guide_skipped(capture):
+        return metrics._outcome(p8.CANONICAL, p8.GUIDE_NOT_SATISFIED)
+    if slot.kind == p8.E2E:
+        return metrics._outcome(p8.CANONICAL, lock_reason)
+    quality = read_quality(root, token)
     if slot.kind == p8.FORWARD:
         return metrics.forward_attempt_outcome(lock_reason, capture, quality, slot)
     duration = phase_duration(read_markers(root, token), "body_forward")
@@ -214,9 +219,11 @@ def evaluate_production_slot(root, state, rnd):
 
 def evaluate_slot131(root, state, recording_reconciliation, analysis_reconciliation):
     attempt = state.canonical_attempt("131")
-    quality = availability = analysis = lineage = None
-    if attempt is not None and attempt.recording_id is not None and attempt.locked["reason_code"] is None:
+    capture = quality = availability = analysis = lineage = None
+    outcome_ok = attempt is not None and attempt.outcome is not None and attempt.outcome["reason_code"] is None
+    if attempt is not None and attempt.recording_id is not None and attempt.locked["reason_code"] is None and outcome_ok:
         token = state.unseal("131", attempt.attempt_index)
+        capture = read_capture(root, token)
         quality = read_quality(root, token)
         analysis = canonical_analysis(root, state, attempt.recording_id)
         availability = _availability(root, state, attempt, analysis, p8.SLOTS["131"].designated_phases)
@@ -225,7 +232,7 @@ def evaluate_slot131(root, state, recording_reconciliation, analysis_reconciliat
     ana_ok = not any(f.get("round") == "131" for f in analysis_reconciliation["failures"])
     result = metrics.slot131_predicate(
         canonical_exists=attempt is not None and attempt.recording_id is not None and
-        attempt.locked["reason_code"] is None,
+        attempt.locked["reason_code"] is None and outcome_ok and not metrics.guide_skipped(capture),
         quality=quality, availability=availability or {}, analysis=analysis and analysis["predicate"],
         lineage=lineage, recording_reconciled=rec_ok and recording_reconciliation["executed"],
         analysis_reconciled=ana_ok)
@@ -405,6 +412,83 @@ def outcome_consistency(root, state):
     return dict(passed=not mismatches, mismatches=mismatches)
 
 
+def _referenced_file(base, ref):
+    """Resolve one ledger reference without permitting traversal outside its authority root."""
+    if not isinstance(ref, dict) or set(ref) != {"path", "sha256"}:
+        return None, None
+    try:
+        base = Path(base).resolve()
+        path = (base / ref["path"]).resolve()
+        if not path.is_relative_to(base) or not path.is_file():
+            return None, None
+        data = path.read_bytes()
+    except (OSError, TypeError, ValueError):
+        return None, None
+    return path, data if hashlib.sha256(data).hexdigest() == ref["sha256"] else None
+
+
+def retry_evidence_integrity(root, state):
+    """Patch 8-specific retention/binding checks for acquisition and analysis retry evidence."""
+    root = Path(root).resolve()
+    directory = root / p8.VALIDATION_ROOT / str(state.execution_id)
+    failures = []
+    for attempt in state.attempts.values():
+        lock = attempt.locked or {}
+        if lock.get("reason_code") not in p8.MACHINE_INVALID_REASONS:
+            continue
+        path, data = _referenced_file(directory, lock.get("machine_evidence_ref"))
+        if data is None:
+            failures.append(dict(round=attempt.round, attempt_index=attempt.attempt_index,
+                                 code="MACHINE_EVIDENCE_MISSING_OR_HASH_MISMATCH"))
+            continue
+        try:
+            value = json.loads(data.decode("utf-8"))
+            fields = set(prelock.PrelockEvidence.__dataclass_fields__)
+            evidence_value = {k: value[k] for k in fields}
+            evidence_value["bound_recording_ids"] = tuple(evidence_value["bound_recording_ids"])
+            evidence_value["observations"] = tuple(evidence_value["observations"])
+            evidence = prelock.PrelockEvidence(**evidence_value)
+            derived = prelock.classify(evidence)
+            classification = value.get("classification")
+            expected = dict(stage=lock["stage"], reason_code=lock["reason_code"],
+                            acquisition_valid=lock["acquisition_valid"], retry_allowed=lock["retry_allowed"],
+                            rule_id=lock["rule_id"], evidence_used=lock["evidence_used"])
+            binding_ok = (set(value) == fields | {"classification"} and classification == expected and
+                          prelock.evidence_record(evidence, derived)["classification"] == expected and
+                          evidence.slot_kind == attempt.slot.kind and evidence.stage == attempt.finished["stage"] and
+                          list(evidence.bound_recording_ids) == attempt.finished["bound_recording_ids"] and
+                          evidence.attempt_index == attempt.attempt_index and
+                          evidence.operator_declaration == lock["operator_declaration"] and
+                          all(getattr(evidence, key) == attempt.finished["termination"][key] for key in
+                              ("exit_code", "signal", "orchestrator_timeout_kill", "operator_signal_observed",
+                               "static_exit_status")) and
+                          list(evidence.observations) == [o["observation"] for o in attempt.observations])
+            if binding_ok and lock["reason_code"] == p8.POWER_FAILURE:
+                binding_ok = prelock.validate_power_evidence(
+                    evidence.power_evidence, directory, attempt.start["event_timestamp_utc"],
+                    attempt.finished["event_timestamp_utc"]) is not None
+        except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            binding_ok = False
+        if not binding_ok:
+            failures.append(dict(round=attempt.round, attempt_index=attempt.attempt_index,
+                                 code="MACHINE_EVIDENCE_EVENT_MISMATCH", path=str(path) if path else None))
+
+    for rid, record in state.analyses.items():
+        logged = {r["analysis_run_id"]: r for invocation in record["invocations"]
+                  for r in invocation["analysis_runs"]}
+        for failure in record["failures"]:
+            ref = {"path": failure["evidence_ref"], "sha256": failure["evidence_sha256"]}
+            path, data = _referenced_file(root, ref)
+            run = logged.get(failure["analysis_run_id"])
+            manifest = json_file(path) if data is not None else None
+            if (run is None or run["status"] != "failed" or run["manifest_sha256"] != failure["evidence_sha256"] or
+                    manifest is None or manifest.get("analysis_run_id") != failure["analysis_run_id"] or
+                    manifest.get("recording_id") != rid or manifest.get("status") != "failed"):
+                failures.append(dict(recording_id=rid, analysis_run_id=failure["analysis_run_id"],
+                                     code="ANALYSIS_RETRY_EVIDENCE_MISSING_OR_MISMATCH"))
+    return dict(passed=not failures, failures=failures)
+
+
 def evaluate_execution(root, ledger_path, deprojector_factory=None):
     root = Path(root)
     events, state = ledger.verify_ledger(ledger_path)
@@ -417,6 +501,7 @@ def evaluate_execution(root, ledger_path, deprojector_factory=None):
     analyses = reconcile_analyses(root, state, recordings["created"])
     e2e = evaluate_slot131(root, state, recordings, analyses)
     consistency = outcome_consistency(root, state)
+    retry_evidence = retry_evidence_integrity(root, state)
     static_sessions = [s for s in state.sessions.values() if s["kind"] == p8.SESSION_KINDS[p8.STATIC]
                        and s["setup_pose"] is not None]
     conditions = dict(
@@ -434,13 +519,13 @@ def evaluate_execution(root, ledger_path, deprojector_factory=None):
         R_body_only_121=body_only["passed"], S_slot_131=e2e["passed"],
         U_recording_reconciliation=recordings["passed"], V_analysis_reconciliation=analyses["passed"],
         X_closure_integrity=state.closure_integrity is True,
-        outcome_consistency=consistency["passed"],
+        outcome_consistency=consistency["passed"], retry_evidence_integrity=retry_evidence["passed"],
     )
     passed = all(conditions.values())
     metrics_report = dict(execution_id=state.execution_id, static_takes=takes, static_grid=grid,
                           forward_slots=forward, body_only_negative=body_only, slot_131=e2e)
     reconciliation_report = dict(execution_id=state.execution_id, recording=recordings, analysis=analyses,
-                                 outcome_consistency=consistency)
+                                 outcome_consistency=consistency, retry_evidence_integrity=retry_evidence)
     execution_report = dict(
         execution_id=state.execution_id, ledger_format_version=p8.LEDGER_FORMAT_VERSION,
         ledger=dict(event_count=len(events), last_event_sha256=events[-1]["event_sha256"] if events else None,

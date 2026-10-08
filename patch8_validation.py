@@ -668,11 +668,26 @@ def analysis_infrastructure_failure(rt, execution_id, rnd, evidence_path, analys
     attempt = state.canonical_attempt(rnd)
     if attempt is None:
         raise RuntimeError("no canonical attempt")
-    directory = execution_dir(rt.root, execution_id)
-    path = Path(evidence_path).resolve()
-    if not path.is_file() or not path.is_relative_to(directory.resolve()):
-        raise RuntimeError("infrastructure-failure evidence must be a file under the execution directory (§54)")
-    reference = _artifact(directory.resolve(), path)
+    if not analysis_run_id:
+        raise RuntimeError("analysis infrastructure failure requires the failed logged analysis_run_id (§54)")
+    record = state.analyses.get(attempt.recording_id) or {}
+    invocations = record.get("invocations") or []
+    failed = {r["analysis_run_id"]: r for r in (invocations[-1]["analysis_runs"] if invocations else [])
+              if r["status"] == "failed"}
+    if analysis_run_id not in failed:
+        raise RuntimeError("analysis_run_id is not a failed run in the latest logged invocation (§54)")
+    expected = (Path(rt.root) / "analysis" / attempt.recording_id / analysis_run_id /
+                "analysis_manifest.json").resolve()
+    supplied = Path(evidence_path)
+    path = (supplied if supplied.is_absolute() else Path(rt.root) / supplied).resolve()
+    if path != expected or not path.is_file():
+        raise RuntimeError("infrastructure-failure evidence must be the failed logged run manifest (§54)")
+    reference = _artifact(Path(rt.root).resolve(), path)
+    manifest = report.json_file(path)
+    if (reference["sha256"] != failed[analysis_run_id]["manifest_sha256"] or manifest is None or
+            manifest.get("analysis_run_id") != analysis_run_id or
+            manifest.get("recording_id") != attempt.recording_id or manifest.get("status") != "failed"):
+        raise RuntimeError("failed analysis manifest is malformed or differs from its logged hash (§54)")
     led.append("analysis_infrastructure_failure", _any_session(state), dict(
         subject=state.subject, round=rnd, attempt_index=attempt.attempt_index, recording_id=attempt.recording_id,
         analysis_run_id=analysis_run_id, evidence_ref=reference["path"], evidence_sha256=reference["sha256"]), rt.now())
@@ -689,8 +704,13 @@ def analyze_one(path):
 # ---------------------------------------------------------------- evaluation / reports
 def evaluate(rt, execution_id, publish=False):
     path = execution_dir(rt.root, execution_id) / p8.LEDGER_FILENAME
+    if publish:
+        if not record_integrity(rt, execution_id, "closure"):
+            raise RuntimeError("fresh closure integrity failed; formal reports were not published (§85)")
     reports = report.evaluate_execution(rt.root, path)
     if publish:
+        if reports["execution"]["computed_result"] != "PASS":
+            raise RuntimeError("current Patch 8 evidence evaluates FAIL; formal PASS reports were not published")
         led = open_ledger(rt.root, execution_id)
         _, state = led.read()
         directory = execution_dir(rt.root, execution_id)

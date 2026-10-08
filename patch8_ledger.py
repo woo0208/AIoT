@@ -68,8 +68,10 @@ STAGES = ("pre_reservation", "post_reservation")
 DECLARATIONS = ("operator_initiated", "not_operator_initiated", "unknown")
 TERMINATION_FIELDS = frozenset(("exit_code", "signal", "orchestrator_timeout_kill", "operator_signal_observed",
                                 "static_exit_status", "recovered", "reservation_observed_s"))
-PINNED_ENVIRONMENT_KEYS = ("capture_host", "os", "python", "packages", "d455_serial", "d455_firmware",
-                           "usb_type", "depth_scale_m")
+PINNED_ENVIRONMENT_KEYS = ("capture_host", "analysis_host", "os", "python", "packages",
+                           "realsense_sdk_version", "d455_serial", "d455_firmware", "usb_type",
+                           "depth_scale_m", "stream_profiles", "device_options")
+REQUIRED_PACKAGE_KEYS = ("mediapipe", "pyrealsense2", "opencv-python", "numpy")
 # After execution_failed no attempt may start; the in-flight attempt may still be closed
 # (and locked without retry authority) and preserved evidence may still be analyzed.
 AFTER_EXECUTION_FAILURE = frozenset(("session_end", "report_published", "integrity_check", "execution_failed",
@@ -301,6 +303,20 @@ def _artifact_ref(value):
             isinstance(value["sha256"], str) and HEX64.fullmatch(value["sha256"]) is not None)
 
 
+def _environment(value):
+    """CAP-005 §9 explicit environment identities and equality-bearing fields."""
+    if not isinstance(value, dict) or not all(k in value for k in PINNED_ENVIRONMENT_KEYS):
+        return False
+    packages = value["packages"]
+    return (all(_text(value[k]) for k in ("capture_host", "analysis_host", "os", "python",
+                                           "realsense_sdk_version", "d455_serial", "d455_firmware", "usb_type")) and
+            _finite(value["depth_scale_m"]) and value["depth_scale_m"] > 0 and
+            isinstance(packages, dict) and all(_text(packages.get(k)) for k in REQUIRED_PACKAGE_KEYS) and
+            isinstance(value["stream_profiles"], dict) and bool(value["stream_profiles"]) and
+            isinstance(value["device_options"], dict) and bool(value["device_options"]) and
+            "error" not in value["device_options"])
+
+
 def _logs(value, *, nullable=False):
     if value is None:
         return nullable
@@ -417,8 +433,7 @@ def _apply_session(state, event, kind):
         if state.subject is None:
             state.subject = event["subject"]
         _require(event["subject"] == state.subject, "reserved validation subject changed")
-        _require(isinstance(event["environment"], dict) and all(k in event["environment"]
-                 for k in PINNED_ENVIRONMENT_KEYS), "environment snapshot missing pinned keys")
+        _require(_environment(event["environment"]), "environment snapshot missing/invalid pinned fields")
         code = event["code_state"]
         _require(isinstance(code, dict) and set(code) == {"git_commit", "git_clean"}, "invalid code_state")
         _require(_strings(event["recording_inventory"]), "recording_inventory must be sorted unique strings")
@@ -623,9 +638,16 @@ def _apply_analysis(state, event, kind):
             record["canonical"] = expected
     else:
         _require(record["canonical"] is None and record["invocations"], "infrastructure failure after completion")
-        _require(_text(event["evidence_ref"]) and HEX64.fullmatch(event["evidence_sha256"] or ""),
-                 "analysis infrastructure failure requires machine evidence (§54)")
-        _require(event["analysis_run_id"] is None or _text(event["analysis_run_id"]), "invalid analysis_run_id")
+        invocation = record["invocations"][-1]
+        failed = {r["analysis_run_id"]: r for r in invocation["analysis_runs"] if r["status"] == "failed"}
+        run_id = event["analysis_run_id"]
+        _require(_text(run_id) and run_id in failed, "infrastructure evidence must name a failed logged run (§54)")
+        expected_ref = f"analysis/{event['recording_id']}/{run_id}/analysis_manifest.json"
+        _require(event["evidence_ref"] == expected_ref and failed[run_id]["manifest_sha256"] is not None and
+                 event["evidence_sha256"] == failed[run_id]["manifest_sha256"],
+                 "analysis infrastructure evidence must be the logged failed-run manifest (§54)")
+        _require(type(invocation["exit_code"]) is int and invocation["exit_code"] != 0,
+                 "analysis infrastructure failure requires a nonzero failed invocation (§54)")
         record["failures"].append(event)
 
 

@@ -248,6 +248,30 @@ class LifecycleTests(LedgerTestCase):
         self.h.append("warmup_completed", dict(duration_s=60.0, exit_code=0, logs=LOGS))
         self.assert_rejected(self.h.start, "131", message="environment differs")
 
+    def test_stream_profile_and_device_option_changes_each_block_attempts(self):
+        changes = (
+            dict(stream_profiles=dict(environment()["stream_profiles"], align_to="depth")),
+            dict(device_options={"depth.visual_preset": 2.0}),
+            dict(analysis_host="other-analysis-host"),
+            dict(realsense_sdk_version="different-sdk"),
+        )
+        for change in changes:
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+                harness = LedgerHarness(directory)
+                harness.prepare()
+                harness.attempt("1")
+                harness.append("camera_pose_recheck", dict(camera_pose=dict(POSE, witness_mark_displaced=False),
+                                                            material_change=False, differences=dict(
+                                                                reference_height_mm=0.0, pitch_deg=0.0,
+                                                                yaw_deg=0.0, roll_deg=0.0)))
+                harness.append("session_end", dict(session_kind="static-grid", status="completed"))
+                harness.start_session("E2E", env=environment(**change))
+                harness.append("warmup_completed", dict(duration_s=60.0, exit_code=0, logs=LOGS))
+                before = harness.path.read_bytes()
+                with self.assertRaisesRegex(ledger.LedgerError, "environment differs"):
+                    harness.start("131")
+                self.assertEqual(harness.path.read_bytes(), before)
+
 
 class RetryAuthorityTests(LedgerTestCase):
     def test_static_retry_only_after_objective_invalid_lock(self):
@@ -427,22 +451,31 @@ class SessionAndAnalysisTests(LedgerTestCase):
                 self.assertIs(result, material)
         self.assertTrue(ledger.pose_differences(base, dict(base, witness_mark_displaced=True))[1])
 
-    def analysis(self, index, runs, canonical, failures_before=False):
+    def analysis(self, index, runs, canonical, exit_code=0):
         return self.h.append("analysis_invocation", dict(
             subject=SUBJECT, round="1", attempt_index=1, recording_id="V01_r1_a1", invocation_index=index,
-            exit_code=0, analysis_runs=runs, canonical_analysis_run_id=canonical, logs=LOGS))
+            exit_code=exit_code, analysis_runs=runs, canonical_analysis_run_id=canonical, logs=LOGS))
 
     def test_first_completed_analysis_run_is_canonical_and_reanalysis_needs_evidence(self):
         self.h.prepare()
         self.assert_rejected(self.analysis, 1, [], None, message="ledger-canonical recording")
         self.h.attempt("1")
         failed = [dict(analysis_run_id="ar_1", status="failed", manifest_sha256=HEX)]
-        self.analysis(1, failed, None)
+        self.analysis(1, failed, None, exit_code=1)
         completed = [dict(analysis_run_id="ar_2", status="completed", manifest_sha256=HEX)]
         self.assert_rejected(self.analysis, 2, completed, "ar_2", message="infrastructure failure")
+        base = dict(subject=SUBJECT, round="1", attempt_index=1, recording_id="V01_r1_a1",
+                    analysis_run_id="ar_1", evidence_ref="analysis/V01_r1_a1/ar_1/analysis_manifest.json",
+                    evidence_sha256=HEX)
+        self.assert_rejected(self.h.append, "analysis_infrastructure_failure",
+                             dict(base, analysis_run_id="ar_unknown"), message="failed logged run")
+        self.assert_rejected(self.h.append, "analysis_infrastructure_failure",
+                             dict(base, evidence_ref="evidence/disk.txt"), message="failed-run manifest")
+        self.assert_rejected(self.h.append, "analysis_infrastructure_failure",
+                             dict(base, evidence_sha256="1" * 64), message="failed-run manifest")
         self.h.append("analysis_infrastructure_failure", dict(
             subject=SUBJECT, round="1", attempt_index=1, recording_id="V01_r1_a1", analysis_run_id="ar_1",
-            evidence_ref="evidence/disk.txt", evidence_sha256=HEX))
+            evidence_ref="analysis/V01_r1_a1/ar_1/analysis_manifest.json", evidence_sha256=HEX))
         self.assert_rejected(self.analysis, 2, completed, None, message="first completed run")
         self.analysis(2, completed, "ar_2")
         self.assertEqual(self.h.state().analyses["V01_r1_a1"]["canonical"], "ar_2")
