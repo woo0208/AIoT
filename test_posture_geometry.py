@@ -15,6 +15,17 @@ def neutral_points(scale=1.0, nose_depth=0.70):
         "right_ear": geometry.Point(80.0 * scale, 50.0 * scale, 0.70),
         "left_shoulder": geometry.Point(140.0 * scale, 100.0 * scale, 0.80),
         "right_shoulder": geometry.Point(60.0 * scale, 100.0 * scale, 0.80),
+        "left_hip": geometry.Point(130.0 * scale, 160.0 * scale, 0.80),
+        "right_hip": geometry.Point(70.0 * scale, 160.0 * scale, 0.80),
+    }
+
+
+def metric_body_points(shoulder_z=.80, hip_z=.80):
+    return {
+        "left_shoulder": geometry.Point3D(.20, -.30, shoulder_z),
+        "right_shoulder": geometry.Point3D(-.20, -.30, shoulder_z),
+        "left_hip": geometry.Point3D(.15, .30, hip_z),
+        "right_hip": geometry.Point3D(-.15, .30, hip_z),
     }
 
 
@@ -34,6 +45,72 @@ class CandidateGeometryTests(unittest.TestCase):
         self.assertAlmostEqual(result.features["shoulder_width_metric_proxy_m"], .08)
         self.assertAlmostEqual(result.features["nose_forward_normalized_by_shoulder_width"], 1.5)
 
+    def test_upright_torso_geometry_and_true_shoulder_width(self):
+        result = geometry.compute_candidate_geometry(
+            neutral_points(), points_3d=metric_body_points()
+        )
+        self.assertEqual(
+            result.proxies_3d["shoulder_midpoint_3d"],
+            geometry.Point3D(0.0, -.30, .80),
+        )
+        self.assertEqual(
+            result.proxies_3d["hip_midpoint_3d"],
+            geometry.Point3D(0.0, .30, .80),
+        )
+        self.assertAlmostEqual(result.features["shoulder_width_3d_m"], .40)
+        self.assertAlmostEqual(result.features["sagittal_torso_lean_deg"], 0.0)
+        self.assertAlmostEqual(
+            result.features["nose_forward_normalized_by_shoulder_width_3d"],
+            .25,
+        )
+
+    def test_forward_and_reverse_torso_lean_have_opposite_signs(self):
+        forward = geometry.compute_candidate_geometry(
+            neutral_points(), points_3d=metric_body_points(shoulder_z=.65, hip_z=.80)
+        )
+        reverse = geometry.compute_candidate_geometry(
+            neutral_points(), points_3d=metric_body_points(shoulder_z=.95, hip_z=.80)
+        )
+        self.assertGreater(forward.features["sagittal_torso_lean_deg"], 0)
+        self.assertLess(reverse.features["sagittal_torso_lean_deg"], 0)
+        self.assertAlmostEqual(
+            forward.features["sagittal_torso_lean_deg"],
+            -reverse.features["sagittal_torso_lean_deg"],
+        )
+
+    def test_missing_hip_or_missing_metric_hip_makes_torso_geometry_unavailable(self):
+        points = neutral_points()
+        points["left_hip"] = None
+        metric = metric_body_points()
+        metric["left_hip"] = None
+        result = geometry.compute_candidate_geometry(points, points_3d=metric)
+        self.assertIsNone(result.proxies["hip_midpoint"])
+        self.assertIsNone(result.proxies_3d["hip_midpoint_3d"])
+        self.assertIsNone(result.features["sagittal_torso_lean_deg"])
+        self.assertAlmostEqual(result.features["shoulder_width_3d_m"], .40)
+
+    def test_invalid_hip_depth_does_not_create_metric_torso_geometry(self):
+        points = neutral_points()
+        points["left_hip"] = geometry.Point(130, 160, None)
+        metric = metric_body_points()
+        metric["left_hip"] = None
+        result = geometry.compute_candidate_geometry(points, points_3d=metric)
+        self.assertIsNone(result.proxies["hip_midpoint"].depth_m)
+        self.assertIsNone(result.proxies_3d["hip_midpoint_3d"])
+        self.assertIsNone(result.features["sagittal_torso_lean_deg"])
+
+    def test_degenerate_metric_body_geometry_is_unavailable(self):
+        metric = metric_body_points()
+        same = geometry.Point3D(0.0, 0.0, .80)
+        for name in metric:
+            metric[name] = same
+        result = geometry.compute_candidate_geometry(neutral_points(), points_3d=metric)
+        self.assertIsNone(result.features["shoulder_width_3d_m"])
+        self.assertIsNone(result.features["sagittal_torso_lean_deg"])
+        self.assertIsNone(
+            result.features["nose_forward_normalized_by_shoulder_width_3d"]
+        )
+
     def test_left_and_right_head_tilt_have_opposite_signs(self):
         left = neutral_points()
         left["left_ear"] = geometry.Point(120, 40, .7)
@@ -46,6 +123,19 @@ class CandidateGeometryTests(unittest.TestCase):
         self.assertLess(left_angle, 0)
         self.assertGreater(right_angle, 0)
         self.assertAlmostEqual(abs(left_angle), abs(right_angle))
+
+    def test_relative_head_tilt_subtracts_shoulder_tilt(self):
+        points = neutral_points()
+        points["left_ear"] = geometry.Point(120, 40, .7)
+        points["right_ear"] = geometry.Point(80, 60, .7)
+        points["left_shoulder"] = geometry.Point(140, 90, .8)
+        points["right_shoulder"] = geometry.Point(60, 110, .8)
+        result = geometry.compute_candidate_geometry(points)
+        self.assertAlmostEqual(
+            result.features["relative_head_tilt_deg"],
+            result.features["head_lateral_tilt_deg"]
+            - result.features["shoulder_tilt_deg"],
+        )
 
     def test_image_scale_normalization(self):
         base = geometry.compute_candidate_geometry(neutral_points(1.0))
@@ -97,6 +187,8 @@ class CandidateGeometryTests(unittest.TestCase):
         landmarks[8] = types.SimpleNamespace(x=.4, y=.3)
         landmarks[11] = types.SimpleNamespace(x=.7, y=.6)
         landmarks[12] = types.SimpleNamespace(x=.3, y=.6)
+        landmarks[23] = types.SimpleNamespace(x=.65, y=.9)
+        landmarks[24] = types.SimpleNamespace(x=.35, y=.9)
         depth = np.full((100, 200), 750, dtype=np.uint16)
         points = geometry.points_from_pose_landmarks(
             landmarks, 200, 100, aligned_depth=depth, depth_scale_m=.001
@@ -104,6 +196,8 @@ class CandidateGeometryTests(unittest.TestCase):
         self.assertEqual(points["nose"], geometry.Point(100, 25, .75))
         self.assertEqual(points["left_ear"], geometry.Point(120, 30, .75))
         self.assertEqual(points["right_shoulder"], geometry.Point(60, 60, .75))
+        self.assertEqual(points["left_hip"], geometry.Point(130, 90, .75))
+        self.assertEqual(points["right_hip"], geometry.Point(70, 90, .75))
 
     def test_pose_adapter_rejects_missing_out_of_frame_and_invalid_depth(self):
         landmarks = [types.SimpleNamespace(x=.5, y=.5) for _ in range(12)]

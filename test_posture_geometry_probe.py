@@ -2,6 +2,7 @@ import csv
 import math
 import os
 import tempfile
+import types
 import unittest
 
 import posture_geometry as geometry
@@ -43,6 +44,33 @@ class ProbeHelperTests(unittest.TestCase):
         self.assertFalse(row["right_shoulder_depth_valid"])
         self.assertIsNone(row["nose_forward_from_torso_m"])
         self.assertFalse(row["normalized_nose_available"])
+        self.assertFalse(row["shoulder_width_3d_available"])
+        self.assertFalse(row["sagittal_torso_lean_available"])
+        self.assertIsNone(row["left_hip_3d_x_m"])
+
+    def test_realsense_deprojection_adapter_passes_metric_points_to_geometry(self):
+        calls = []
+
+        def deproject(intrinsics, pixel, depth):
+            calls.append((intrinsics, pixel, depth))
+            return [pixel[0] / 1000, pixel[1] / 1000, depth]
+
+        points = {
+            "left_shoulder": geometry.Point(140, 100, .80),
+            "right_shoulder": geometry.Point(60, 100, .80),
+            "left_hip": geometry.Point(130, 160, .85),
+            "right_hip": geometry.Point(70, 160, None),
+        }
+        intrinsics = object()
+        metric = probe.deproject_body_points(
+            points,
+            intrinsics,
+            types.SimpleNamespace(rs2_deproject_pixel_to_point=deproject),
+        )
+        self.assertEqual(metric["left_shoulder"], geometry.Point3D(.14, .10, .80))
+        self.assertEqual(metric["left_hip"], geometry.Point3D(.13, .16, .85))
+        self.assertIsNone(metric["right_hip"])
+        self.assertEqual(len(calls), 3)
 
     def test_csv_writer_is_opt_in_and_refuses_overwrite(self):
         handle, writer = probe._open_csv(None)
