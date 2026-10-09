@@ -42,7 +42,7 @@ def make_frames(root, rid="P01_r1_take", run="ar_source", rows=None, flat=True):
         shutil.copyfile(path, compatibility)
         link = dict(recording_id=rid, analysis_run_id=run,
                     frames_sha256=rf.file_identity(path)["sha256"],
-                    analysis_manifest=str(owner.relative_to(root)),
+                    analysis_manifest=owner.relative_to(root).as_posix(),
                     analysis_manifest_sha256=rf.file_identity(owner)["sha256"])
         Path(str(compatibility) + ".provenance.json").write_text(json.dumps(link), encoding="utf-8")
     return path

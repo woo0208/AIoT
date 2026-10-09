@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 
 
 SOURCE_PATH = Path(__file__).with_name("capture_d455.py")
-SOURCE = SOURCE_PATH.read_text()
+SOURCE = SOURCE_PATH.read_text(encoding="utf-8")
 TREE = ast.parse(SOURCE)
 
 
@@ -392,7 +392,7 @@ class CaptureProvenanceTests(unittest.TestCase):
             self.assertNotEqual(info1["recording_id"], info2["recording_id"])
             self.assertEqual(raw.read_bytes(), b"existing recording")
             self.assertEqual(Path(base1 + "_camera.json").read_bytes(), saved)
-            self.assertEqual(json.loads(Path(base2 + "_camera.json").read_text())["recording_id"],
+            self.assertEqual(json.loads(Path(base2 + "_camera.json").read_text(encoding="utf-8"))["recording_id"],
                              info2["recording_id"])
             self.assertIsNone(info2["record_file"])
 
@@ -409,7 +409,7 @@ class CaptureProvenanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch("builtins.open", side_effect=racing_open):
             base, _ = capture.reserve_capture("P03", "1", "pilot", directory)
             self.assertNotEqual(base + "_camera.json", collisions[0])
-            self.assertEqual(Path(collisions[0]).read_text(), "other process reservation")
+            self.assertEqual(Path(collisions[0]).read_text(encoding="utf-8"), "other process reservation")
 
     def test_failed_start_keeps_attempt_reservation(self):
         reserve = capture.reserve_capture
@@ -425,7 +425,7 @@ class CaptureProvenanceTests(unittest.TestCase):
                 capture.record_phase("P03", "1", None, capture.SEQ_CORE, "pilot")
             files = list(Path(directory).glob("*_camera.json"))
             self.assertEqual(len(files), 1)
-            info = json.loads(files[0].read_text())
+            info = json.loads(files[0].read_text(encoding="utf-8"))
             self.assertIsNone(info["record_file"])
             self.assertEqual([Path(call.args[0]).stem for call in config.call_args_list],
                              [info["recording_id"]] * 2)
@@ -486,7 +486,7 @@ class CaptureProvenanceTests(unittest.TestCase):
             streams = [c.args for c in rs.config.return_value.enable_stream.call_args_list]
             self.assertEqual(streams, [("depth", 848, 480, "z16", 15),
                                        ("color", 1280, 720, "bgr8", 15)] * 2)
-            camera = json.loads(Path(base + "_camera.json").read_text())
+            camera = json.loads(Path(base + "_camera.json").read_text(encoding="utf-8"))
             expected_old = {
                 "subject": "P03", "round": "1", "start_time": provenance["start_time"],
                 "record_file": recording_id + ".bag", "start_distance": start_info,
@@ -519,7 +519,7 @@ class CaptureProvenanceTests(unittest.TestCase):
             self.assertEqual(samples[0]["face_size_cm2"], 4 * 0.75 ** 2 / 600 ** 2 * 1e4)
             stack.enter_context(patch.object(capture, "count_frames", return_value=(15, 15)))
             capture.report("P03", "1", base, rec_file, phases, samples, aborted, 1.0, provenance)
-            quality = json.loads(Path(base + "_quality.json").read_text())
+            quality = json.loads(Path(base + "_quality.json").read_text(encoding="utf-8"))
             self.assertEqual(quality["recording_id"], recording_id)
             self.assertEqual(quality["fails"], capture.quality_check(phases, samples, aborted)[0])
             self.assertEqual(quality["verdict"], "retake")
@@ -528,7 +528,7 @@ class CaptureProvenanceTests(unittest.TestCase):
                 self.assertTrue(Path(directory, filename).exists())
 
             # Execute unchanged reader functions without importing analysis hardware/models.
-            analysis_tree = ast.parse(SOURCE_PATH.with_name("analyze_d455.py").read_text())
+            analysis_tree = ast.parse(SOURCE_PATH.with_name("analyze_d455.py").read_text(encoding="utf-8"))
             functions = [n for n in analysis_tree.body if isinstance(n, ast.FunctionDef)
                          and n.name in ("parse_name", "load_markers")]
             namespace = {"os": os, "csv": csv}
@@ -752,7 +752,7 @@ class ForwardGateEvidenceTests(unittest.TestCase):
                 patch.object(capture, "quality_check", return_value=checked) as check:
             base = os.path.join(directory, "test_recording")
             capture.report("TEST", "1", base, base + ".bag", phases, samples, False, 20.0, provenance)
-            saved = json.loads(Path(base + "_quality.json").read_text())
+            saved = json.loads(Path(base + "_quality.json").read_text(encoding="utf-8"))
         check.assert_called_once_with(phases, samples, False, include_evidence=True)
         self.assertEqual(saved.pop("forward_gate_evidence"), checked[3])
         self.assertEqual(saved, {

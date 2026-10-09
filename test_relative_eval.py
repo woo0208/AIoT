@@ -44,7 +44,7 @@ def run_experiment(mode, module=rf):
         with mocked_model_inputs(module, directory, (Xp, yp, gp), (Xo, yo, meta)):
             module.main()
         rows = plot.call_args.args[0]
-        log = Path(directory, "rf_results.txt").read_text()
+        log = Path(directory, "rf_results.txt").read_text(encoding="utf-8")
         with Path(directory, "rf_results.csv").open(encoding="utf-8-sig", newline="") as stream:
             csv_rows = list(csv.DictReader(stream))
         return dict(rows=rows, csv_rows=csv_rows, log=log, training=training,

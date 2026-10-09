@@ -354,6 +354,8 @@ class AnalysisProvenanceTests(unittest.TestCase):
         self.assertEqual(first_manifest.read_bytes(), manifest_bytes)
         self.assertEqual(archived.read_bytes(), frame_bytes)
         link = analysis.read_json(str(frame) + ".provenance.json")
+        linked_manifest = self.out / link["recording_id"] / link["analysis_run_id"] / "analysis_manifest.json"
+        self.assertEqual(link["analysis_manifest"], linked_manifest.relative_to(self.out).as_posix())
         self.assertNotEqual(link["analysis_run_id"], first["analysis_run_id"])
         self.args.from_csv = True
         with patch.object(analysis, "ensure_models", side_effect=AssertionError("no models on csv path")), \

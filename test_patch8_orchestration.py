@@ -190,7 +190,7 @@ class StaticCaptureTests(unittest.TestCase):
     def files(self):
         camera = next(self.data.glob("*_camera.json"))
         rid = camera.name[:-len("_camera.json")]
-        return rid, json.loads(camera.read_text()), self.data
+        return rid, json.loads(camera.read_text(encoding="utf-8")), self.data
 
     def test_static_provenance_reuses_capture_provenance_without_repurposing(self):
         code, rs, _ = self.record()
@@ -451,7 +451,7 @@ class World:
 
     @contextmanager
     def analysis_patches(self):
-        lock = json.loads((self.root / "mediapipe_model_lock.json").read_text())
+        lock = json.loads((self.root / "mediapipe_model_lock.json").read_text(encoding="utf-8"))
         models = {e["role"]: str(self.root / "models" / e["filename"]) for e in lock["artifacts"]}
         with ExitStack() as stack:
             for name, value in (("OUT_DIR", str(self.root / "analysis")), ("DATA_DIR", str(self.data)),
@@ -558,7 +558,7 @@ class OrchestrationCase(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.world = World(self.root)
         self.rt = make_runtime(self.root, self.world)
-        lock = json.loads((REPO / "mediapipe_model_lock.json").read_text())
+        lock = json.loads((REPO / "mediapipe_model_lock.json").read_text(encoding="utf-8"))
         (self.root / "models").mkdir()
         for entry in lock["artifacts"]:
             content = b"synthetic model " + entry["role"].encode()
@@ -836,7 +836,7 @@ class AttemptLifecycleTests(OrchestrationCase):
         self.assertEqual(command[2:], ["_analyze-one", str(self.root / "data" / (
             self.state().canonical_attempt("1").recording_id + ".db3"))])
         manifest = json.loads((self.root / "analysis" / invocation["recording_id"] / run /
-                               "analysis_manifest.json").read_text())
+                               "analysis_manifest.json").read_text(encoding="utf-8"))
         self.assertEqual((manifest["analysis_mode"], manifest["options"]["step_effective"], manifest["status"],
                           manifest["protocol_version"]), ("extract_raw", 1, "completed", p8.STATIC_PROTOCOL_VERSION))
         with self.assertRaisesRegex(RuntimeError, "not authorized"):
@@ -1070,7 +1070,7 @@ class ReconciliationAndReportTests(OrchestrationCase):
         (self.root / "data" / "V01_r131_stray_camera.json").unlink()
         rid = self.state().canonical_attempt("131").recording_id
         camera = self.root / "data" / f"{rid}_camera.json"
-        value = json.loads(camera.read_text())
+        value = json.loads(camera.read_text(encoding="utf-8"))
         camera.write_text(json.dumps(dict(value, protocol_version=p8.STATIC_PROTOCOL_VERSION)))
         recordings = self.evaluate()["reconciliation"]["recording"]
         self.assertEqual([f["code"] for f in recordings["failures"]], ["IDENTITY_MISMATCH"])
@@ -1081,7 +1081,7 @@ class ReconciliationAndReportTests(OrchestrationCase):
         self.run_production("body-only-negative", "121")
         rid = self.state().canonical_attempt("121").recording_id
         quality = self.root / "data" / f"{rid}_quality.json"
-        value = json.loads(quality.read_text())
+        value = json.loads(quality.read_text(encoding="utf-8"))
         value["forward_gate_evidence"][1] = gate_entry("body_forward", ref=0.75, cur=0.65)
         quality.write_text(json.dumps(value))
         consistency = self.evaluate()["reconciliation"]["outcome_consistency"]
@@ -1147,7 +1147,7 @@ class CliAndRepositoryTests(OrchestrationCase):
         self.assertEqual(protocol["thresholds"]["depth_sd_mm"], 10.0)
 
     def test_validation_runtime_is_git_ignored(self):
-        self.assertIn("validation/", (REPO / ".gitignore").read_text().splitlines())
+        self.assertIn("validation/", (REPO / ".gitignore").read_text(encoding="utf-8").splitlines())
         result = subprocess.run(["git", "check-ignore", "-q", "validation/patch8/" + EXECUTION_ID + "/x.jsonl"],
                                 cwd=REPO)
         self.assertEqual(result.returncode, 0)

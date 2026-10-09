@@ -41,6 +41,7 @@ import importlib.metadata
 import json
 import math
 import os
+from pathlib import Path
 import platform
 import re
 import shutil
@@ -1459,7 +1460,7 @@ def run_analysis(files, args):
                 write_json(frame["compatibility_path"] + ".provenance.json", {
                     "recording_id": manifest["recording_id"], "analysis_run_id": manifest["analysis_run_id"],
                     "frames_sha256": frame["sha256"],
-                    "analysis_manifest": os.path.relpath(manifest_path, compatibility_dir),
+                    "analysis_manifest": Path(manifest_path).relative_to(compatibility_dir).as_posix(),
                     # 최종 JSON과 동일한 bytes의 hash를 먼저 연결한다. 모든 publish가
                     # 성공한 뒤에만 completed로 확정하며, 그 전에는 parent 검증이 거부한다.
                     "analysis_manifest_sha256": hashlib.sha256(json.dumps(

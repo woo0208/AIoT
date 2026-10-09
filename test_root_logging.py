@@ -122,7 +122,7 @@ class RootProvenanceIntegrationTests(unittest.TestCase):
                 rf.main()
             with Path(directory, "rf_results.csv").open(encoding="utf-8-sig", newline="") as stream:
                 rows = list(csv.DictReader(stream))
-            return rows, Path(directory, "rf_results.txt").read_text()
+            return rows, Path(directory, "rf_results.txt").read_text(encoding="utf-8")
 
     @classmethod
     def setUpClass(cls):

@@ -562,7 +562,8 @@ class FrameSchemaTests(unittest.TestCase):
         analysis.write_json(parent_path, parent)
         link = {
             "recording_id": row["recording_id"], "analysis_run_id": row["analysis_run_id"],
-            "frames_sha256": digest, "analysis_manifest": os.path.relpath(parent_path, frame.parent),
+            "frames_sha256": digest,
+            "analysis_manifest": parent_path.relative_to(frame.parent).as_posix(),
             "analysis_manifest_sha256": hashlib.sha256(parent_path.read_bytes()).hexdigest(),
         }
         analysis.write_json(str(frame) + ".provenance.json", link)
