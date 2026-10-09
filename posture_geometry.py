@@ -5,9 +5,10 @@ canonical ``frames-schema/1.0.0`` writer.  Its values are engineering candidates
 not frozen F1/F2 features or posture decisions.
 
 The Pose indices used here are the named BlazePose landmarks already returned by
-the repository's PoseLandmarker: nose 0, ears 7/8, shoulders 11/12, and hips
-23/24.  Metric depth is sampled from the aligned D455 depth image; MediaPipe's
-relative landmark ``z`` is not treated as sensor depth.
+the repository's PoseLandmarker: nose 0, ears 7/8, shoulders 11/12, elbows
+13/14, wrists 15/16, and hips 23/24.  Metric depth is sampled from the aligned
+D455 depth image; MediaPipe's relative landmark ``z`` is not treated as sensor
+depth.
 
 RealSense deprojection is deliberately performed by the hardware-facing caller.
 This module accepts ordinary metric XYZ points and has no ``pyrealsense2``
@@ -31,16 +32,19 @@ POSE_LANDMARK_INDICES = {
     "right_ear": 8,
     "left_shoulder": 11,
     "right_shoulder": 12,
+    "left_elbow": 13,
+    "right_elbow": 14,
+    "left_wrist": 15,
+    "right_wrist": 16,
     "left_hip": 23,
     "right_hip": 24,
 }
 
-BODY_3D_POINT_NAMES = (
-    "left_shoulder",
-    "right_shoulder",
-    "left_hip",
-    "right_hip",
-)
+# Every direct landmark is eligible for the same aligned-depth + RealSense SDK
+# deprojection path.  Keep the older name as an alias for callers that already
+# use it; this is exploratory API compatibility, not a formal schema contract.
+UPPER_BODY_3D_POINT_NAMES = tuple(POSE_LANDMARK_INDICES)
+BODY_3D_POINT_NAMES = UPPER_BODY_3D_POINT_NAMES
 
 
 @dataclass(frozen=True)
@@ -258,9 +262,11 @@ def compute_candidate_geometry(
         clean_3d["left_shoulder"], clean_3d["right_shoulder"]
     )
     hip_midpoint_3d = _midpoint_3d(clean_3d["left_hip"], clean_3d["right_hip"])
+    ear_midpoint_3d = _midpoint_3d(clean_3d["left_ear"], clean_3d["right_ear"])
     proxies_3d = {
         "shoulder_midpoint_3d": shoulder_midpoint_3d,
         "hip_midpoint_3d": hip_midpoint_3d,
+        "ear_midpoint_3d": ear_midpoint_3d,
     }
 
     shoulder_width_px = _distance_2d(left_shoulder, right_shoulder)
@@ -387,7 +393,7 @@ def points_from_pose_landmarks(
     aligned_depth: np.ndarray | None = None,
     depth_scale_m: float | None = None,
 ) -> dict[str, Point | None]:
-    """Extract verified Pose nose/ear/shoulder/hip points from one result list."""
+    """Extract verified Pose upper-body points from one result list."""
 
     output: dict[str, Point | None] = {name: None for name in POSE_LANDMARK_INDICES}
     if pose_landmarks is None or image_width <= 0 or image_height <= 0:
@@ -418,6 +424,10 @@ def draw_geometry_overlay(image: np.ndarray, result: GeometryResult) -> np.ndarr
         "right_ear": (255, 160, 0),
         "left_shoulder": (0, 220, 0),
         "right_shoulder": (0, 220, 0),
+        "left_elbow": (0, 180, 255),
+        "right_elbow": (0, 180, 255),
+        "left_wrist": (0, 120, 255),
+        "right_wrist": (0, 120, 255),
         "left_hip": (255, 100, 255),
         "right_hip": (255, 100, 255),
     }
@@ -433,6 +443,10 @@ def draw_geometry_overlay(image: np.ndarray, result: GeometryResult) -> np.ndarr
 
     line(result.points.get("left_ear"), result.points.get("right_ear"), (255, 160, 0))
     line(result.points.get("left_shoulder"), result.points.get("right_shoulder"), (0, 220, 0))
+    line(result.points.get("left_shoulder"), result.points.get("left_elbow"), (0, 180, 255))
+    line(result.points.get("left_elbow"), result.points.get("left_wrist"), (0, 120, 255))
+    line(result.points.get("right_shoulder"), result.points.get("right_elbow"), (0, 180, 255))
+    line(result.points.get("right_elbow"), result.points.get("right_wrist"), (0, 120, 255))
     line(result.points.get("left_hip"), result.points.get("right_hip"), (255, 100, 255))
     line(result.proxies.get("hip_midpoint"), result.proxies.get("shoulder_midpoint"), (0, 140, 255), 3)
     line(result.points.get("nose"), result.proxies.get("shoulder_midpoint"), (0, 255, 255))

@@ -16,6 +16,7 @@ import os
 from typing import Any, Sequence
 
 import posture_geometry as geometry
+import posture_3d_viewer as viewer
 
 
 WINDOW_NAME = "Exploratory D455 posture geometry probe"
@@ -55,6 +56,14 @@ POINT_3D_SOURCES = (
     ("right_hip_3d", "points_3d", "right_hip"),
     ("shoulder_midpoint_3d", "proxies_3d", "shoulder_midpoint_3d"),
     ("hip_midpoint_3d", "proxies_3d", "hip_midpoint_3d"),
+    ("nose_3d", "points_3d", "nose"),
+    ("left_ear_3d", "points_3d", "left_ear"),
+    ("right_ear_3d", "points_3d", "right_ear"),
+    ("left_elbow_3d", "points_3d", "left_elbow"),
+    ("right_elbow_3d", "points_3d", "right_elbow"),
+    ("left_wrist_3d", "points_3d", "left_wrist"),
+    ("right_wrist_3d", "points_3d", "right_wrist"),
+    ("ear_midpoint_3d", "proxies_3d", "ear_midpoint_3d"),
 )
 POINT_3D_FIELDS = tuple(
     f"{output_name}_{axis}_m"
@@ -114,6 +123,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help=("write exploratory engineering measurements to a new CSV file; "
               "default: no file output"),
+    )
+    parser.add_argument(
+        "--views",
+        action="store_true",
+        help=("show the separate 3D upper-body skeleton and depth-derived "
+              "sagittal visualization"),
     )
     return parser.parse_args(argv)
 
@@ -275,7 +290,7 @@ def _open_csv(path: str | None) -> tuple[Any | None, csv.DictWriter | None]:
     return handle, writer
 
 
-def run_probe(csv_path: str | None = None) -> None:
+def run_probe(csv_path: str | None = None, *, show_3d_views: bool = False) -> None:
     """Run the live D455/MediaPipe loop.  Hardware dependencies load only here."""
 
     import cv2
@@ -346,6 +361,8 @@ def run_probe(csv_path: str | None = None) -> None:
             overlay = geometry.draw_geometry_overlay(bgr, result)
             display = draw_engineering_panel(overlay, result, pose_detected)
             cv2.imshow(WINDOW_NAME, display)
+            if show_3d_views:
+                cv2.imshow(viewer.WINDOW_NAME, viewer.render_views(result))
 
             if csv_writer is not None:
                 csv_writer.writerow(exploratory_csv_row(
@@ -370,7 +387,7 @@ def run_probe(csv_path: str | None = None) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    run_probe(args.csv)
+    run_probe(args.csv, show_3d_views=args.views)
     return 0
 
 

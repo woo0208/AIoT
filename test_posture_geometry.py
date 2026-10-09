@@ -187,6 +187,10 @@ class CandidateGeometryTests(unittest.TestCase):
         landmarks[8] = types.SimpleNamespace(x=.4, y=.3)
         landmarks[11] = types.SimpleNamespace(x=.7, y=.6)
         landmarks[12] = types.SimpleNamespace(x=.3, y=.6)
+        landmarks[13] = types.SimpleNamespace(x=.8, y=.7)
+        landmarks[14] = types.SimpleNamespace(x=.2, y=.7)
+        landmarks[15] = types.SimpleNamespace(x=.9, y=.8)
+        landmarks[16] = types.SimpleNamespace(x=.1, y=.8)
         landmarks[23] = types.SimpleNamespace(x=.65, y=.9)
         landmarks[24] = types.SimpleNamespace(x=.35, y=.9)
         depth = np.full((100, 200), 750, dtype=np.uint16)
@@ -196,8 +200,26 @@ class CandidateGeometryTests(unittest.TestCase):
         self.assertEqual(points["nose"], geometry.Point(100, 25, .75))
         self.assertEqual(points["left_ear"], geometry.Point(120, 30, .75))
         self.assertEqual(points["right_shoulder"], geometry.Point(60, 60, .75))
+        self.assertEqual(points["left_elbow"], geometry.Point(160, 70, .75))
+        self.assertEqual(points["right_elbow"], geometry.Point(40, 70, .75))
+        self.assertEqual(points["left_wrist"], geometry.Point(180, 80, .75))
+        self.assertEqual(points["right_wrist"], geometry.Point(20, 80, .75))
         self.assertEqual(points["left_hip"], geometry.Point(130, 90, .75))
         self.assertEqual(points["right_hip"], geometry.Point(70, 90, .75))
+
+    def test_missing_arm_landmarks_do_not_invalidate_head_or_torso_geometry(self):
+        points = neutral_points()
+        baseline = geometry.compute_candidate_geometry(points, points_3d=metric_body_points())
+        result = geometry.compute_candidate_geometry(points, points_3d=metric_body_points())
+        for name in ("left_elbow", "right_elbow", "left_wrist", "right_wrist"):
+            self.assertIsNone(result.points[name])
+            self.assertIsNone(result.points_3d[name])
+        self.assertEqual(result.features, baseline.features)
+        self.assertEqual(result.proxies["ear_midpoint"], baseline.proxies["ear_midpoint"])
+        self.assertEqual(
+            result.proxies_3d["shoulder_midpoint_3d"],
+            baseline.proxies_3d["shoulder_midpoint_3d"],
+        )
 
     def test_pose_adapter_rejects_missing_out_of_frame_and_invalid_depth(self):
         landmarks = [types.SimpleNamespace(x=.5, y=.5) for _ in range(12)]

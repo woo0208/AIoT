@@ -58,6 +58,10 @@ class ProbeHelperTests(unittest.TestCase):
         points = {
             "left_shoulder": geometry.Point(140, 100, .80),
             "right_shoulder": geometry.Point(60, 100, .80),
+            "left_elbow": geometry.Point(155, 125, .78),
+            "right_elbow": geometry.Point(45, 125, None),
+            "left_wrist": geometry.Point(165, 150, .76),
+            "right_wrist": None,
             "left_hip": geometry.Point(130, 160, .85),
             "right_hip": geometry.Point(70, 160, None),
         }
@@ -69,8 +73,12 @@ class ProbeHelperTests(unittest.TestCase):
         )
         self.assertEqual(metric["left_shoulder"], geometry.Point3D(.14, .10, .80))
         self.assertEqual(metric["left_hip"], geometry.Point3D(.13, .16, .85))
+        self.assertEqual(metric["left_elbow"], geometry.Point3D(.155, .125, .78))
+        self.assertEqual(metric["left_wrist"], geometry.Point3D(.165, .15, .76))
+        self.assertIsNone(metric["right_elbow"])
+        self.assertIsNone(metric["right_wrist"])
         self.assertIsNone(metric["right_hip"])
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 5)
 
     def test_csv_writer_is_opt_in_and_refuses_overwrite(self):
         handle, writer = probe._open_csv(None)
