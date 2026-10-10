@@ -1,4 +1,4 @@
-"""Exploratory posture geometry derived from one MediaPipe Pose frame.
+"""Exploratory posture geometry derived from one MediaPipe Pose/Face frame.
 
 This module is deliberately separate from the production capture gate and the
 canonical ``frames-schema/1.0.0`` writer.  Its values are engineering candidates,
@@ -6,9 +6,11 @@ not frozen F1/F2 features or posture decisions.
 
 The Pose indices used here are the named BlazePose landmarks already returned by
 the repository's PoseLandmarker: nose 0, ears 7/8, shoulders 11/12, elbows
-13/14, wrists 15/16, and hips 23/24.  Metric depth is sampled from the aligned
-D455 depth image; MediaPipe's relative landmark ``z`` is not treated as sensor
-depth.
+13/14, wrists 15/16, and hips 23/24.  The FaceLandmarker lower-chin point is
+index 152: it is the bottom-centre vertex in MediaPipe's canonical face model,
+the repository's ordered ``FACE_OVAL``, and MediaPipe's official face-oval
+connections (377 -> 152 -> 148).  Metric depth is sampled from the aligned D455
+depth image; MediaPipe's relative landmark ``z`` is not treated as sensor depth.
 
 RealSense deprojection is deliberately performed by the hardware-facing caller.
 This module accepts ordinary metric XYZ points and has no ``pyrealsense2``
@@ -21,6 +23,7 @@ negative when they lean away from the camera.
 
 from dataclasses import dataclass, field
 import math
+from types import MappingProxyType
 from typing import Any, Mapping
 
 import numpy as np
@@ -40,11 +43,19 @@ POSE_LANDMARK_INDICES = {
     "right_hip": 24,
 }
 
+FACE_LANDMARK_INDICES = {
+    "chin": 152,
+}
+
 # Every direct landmark is eligible for the same aligned-depth + RealSense SDK
 # deprojection path.  Keep the older name as an alias for callers that already
 # use it; this is exploratory API compatibility, not a formal schema contract.
 UPPER_BODY_3D_POINT_NAMES = tuple(POSE_LANDMARK_INDICES)
 BODY_3D_POINT_NAMES = UPPER_BODY_3D_POINT_NAMES
+EXPLORATORY_POINT_NAMES = (
+    *UPPER_BODY_3D_POINT_NAMES,
+    *FACE_LANDMARK_INDICES,
+)
 
 
 @dataclass(frozen=True)
@@ -74,6 +85,12 @@ class GeometryResult:
     features: Mapping[str, float | None]
     points_3d: Mapping[str, Point3D | None] = field(default_factory=dict)
     proxies_3d: Mapping[str, Point3D | None] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Freeze owned mapping snapshots as well as the dataclass fields."""
+
+        for name in ("points", "proxies", "features", "points_3d", "proxies_3d"):
+            object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
 
     def as_debug_dict(self) -> dict[str, Any]:
         """Return a JSON-friendly debug object, not a canonical research schema."""
@@ -220,6 +237,52 @@ def _sagittal_torso_lean_deg(
     return math.degrees(math.atan2(camera_forward_m, upward_m))
 
 
+def _exploratory_head_pitch_deg(
+    ear_midpoint: Point3D | None,
+    nose: Point3D | None,
+    chin: Point3D | None,
+) -> float | None:
+    """Return sparse, translation-invariant head pitch in the camera YZ plane.
+
+    The ear midpoint is the origin for two rays, ``ear -> nose`` and
+    ``ear -> chin``.  Each ray is projected onto the RealSense YZ plane and
+    normalized; their normalized sum is the sparse face-forward bisector.
+    The returned angle is ``atan2(vertical-up, camera-forward)`` where
+    ``vertical-up = -Y`` and ``camera-forward = -Z``.  Positive means the
+    face-forward bisector is rotated toward vertical-up, corresponding to chin
+    up / head backward; negative corresponds to chin down / head forward.
+    Common XYZ translation cancels before projection, so head-forward
+    translation alone does not create pitch.
+
+    This is an exploratory camera-relative orientation, not an anatomical
+    cervical angle and not a frozen research feature.
+    """
+
+    ear_midpoint = _valid_point_3d(ear_midpoint)
+    nose = _valid_point_3d(nose)
+    chin = _valid_point_3d(chin)
+    if ear_midpoint is None or nose is None or chin is None:
+        return None
+
+    def yz_unit(target: Point3D) -> tuple[float, float] | None:
+        down = target.y_m - ear_midpoint.y_m
+        away = target.z_m - ear_midpoint.z_m
+        length = math.hypot(down, away)
+        if not math.isfinite(length) or length <= 1e-6:
+            return None
+        return down / length, away / length
+
+    nose_ray = yz_unit(nose)
+    chin_ray = yz_unit(chin)
+    if nose_ray is None or chin_ray is None:
+        return None
+    bisector_down = nose_ray[0] + chin_ray[0]
+    bisector_away = nose_ray[1] + chin_ray[1]
+    if math.hypot(bisector_down, bisector_away) <= 1e-6:
+        return None
+    return math.degrees(math.atan2(-bisector_down, -bisector_away))
+
+
 def compute_candidate_geometry(
     points: Mapping[str, Point | None], *,
     focal_length_px: float | None = None,
@@ -234,7 +297,7 @@ def compute_candidate_geometry(
     metric RealSense camera coordinates; this pure module never invokes the SDK.
     """
 
-    clean = {name: _valid_point(points.get(name)) for name in POSE_LANDMARK_INDICES}
+    clean = {name: _valid_point(points.get(name)) for name in EXPLORATORY_POINT_NAMES}
     nose = clean["nose"]
     left_ear, right_ear = clean["left_ear"], clean["right_ear"]
     left_shoulder, right_shoulder = clean["left_shoulder"], clean["right_shoulder"]
@@ -257,7 +320,10 @@ def compute_candidate_geometry(
     }
 
     provided_3d = points_3d or {}
-    clean_3d = {name: _valid_point_3d(provided_3d.get(name)) for name in BODY_3D_POINT_NAMES}
+    clean_3d = {
+        name: _valid_point_3d(provided_3d.get(name))
+        for name in EXPLORATORY_POINT_NAMES
+    }
     shoulder_midpoint_3d = _midpoint_3d(
         clean_3d["left_shoulder"], clean_3d["right_shoulder"]
     )
@@ -341,6 +407,11 @@ def compute_candidate_geometry(
         "sagittal_torso_lean_deg": _sagittal_torso_lean_deg(
             hip_midpoint_3d, shoulder_midpoint_3d
         ),
+        "exploratory_head_pitch_deg": _exploratory_head_pitch_deg(
+            ear_midpoint_3d,
+            clean_3d["nose"],
+            clean_3d["chin"],
+        ),
         "nose_forward_normalized_by_shoulder_width_3d": normalized_depth_3d(nose_forward),
         "ear_midpoint_forward_normalized_by_shoulder_width_3d": normalized_depth_3d(
             ear_mid_forward
@@ -412,6 +483,33 @@ def points_from_pose_landmarks(
     return output
 
 
+def points_from_face_landmarks(
+    face_landmarks: Any,
+    image_width: int,
+    image_height: int,
+    *,
+    aligned_depth: np.ndarray | None = None,
+    depth_scale_m: float | None = None,
+) -> dict[str, Point | None]:
+    """Extract the verified FaceLandmarker lower-chin point from one RGB frame."""
+
+    output: dict[str, Point | None] = {name: None for name in FACE_LANDMARK_INDICES}
+    if face_landmarks is None or image_width <= 0 or image_height <= 0:
+        return output
+    for name, index in FACE_LANDMARK_INDICES.items():
+        try:
+            landmark = face_landmarks[index]
+            x_norm, y_norm = _finite_number(landmark.x), _finite_number(landmark.y)
+        except (IndexError, KeyError, TypeError, AttributeError):
+            continue
+        if x_norm is None or y_norm is None or not (0 <= x_norm < 1 and 0 <= y_norm < 1):
+            continue
+        x_px, y_px = x_norm * image_width, y_norm * image_height
+        depth_m = sample_aligned_depth_m(aligned_depth, x_px, y_px, depth_scale_m)
+        output[name] = Point(x_px, y_px, depth_m)
+    return output
+
+
 def draw_geometry_overlay(image: np.ndarray, result: GeometryResult) -> np.ndarray:
     """Draw direct points, exploratory proxies, reference lines, and values on BGR image."""
 
@@ -430,6 +528,7 @@ def draw_geometry_overlay(image: np.ndarray, result: GeometryResult) -> np.ndarr
         "right_wrist": (0, 120, 255),
         "left_hip": (255, 100, 255),
         "right_hip": (255, 100, 255),
+        "chin": (60, 220, 255),
     }
 
     def pixel(point: Point | None) -> tuple[int, int] | None:
@@ -450,6 +549,7 @@ def draw_geometry_overlay(image: np.ndarray, result: GeometryResult) -> np.ndarr
     line(result.points.get("left_hip"), result.points.get("right_hip"), (255, 100, 255))
     line(result.proxies.get("hip_midpoint"), result.proxies.get("shoulder_midpoint"), (0, 140, 255), 3)
     line(result.points.get("nose"), result.proxies.get("shoulder_midpoint"), (0, 255, 255))
+    line(result.points.get("nose"), result.points.get("chin"), (60, 220, 255))
     line(result.points.get("left_ear"), result.points.get("left_shoulder"), (180, 100, 255), 1)
     line(result.points.get("right_ear"), result.points.get("right_shoulder"), (180, 100, 255), 1)
     line(result.proxies.get("exploratory_neck_proxy"),
@@ -482,6 +582,7 @@ def draw_geometry_overlay(image: np.ndarray, result: GeometryResult) -> np.ndarr
         ("nose forward / shoulder", "nose_forward_normalized_by_shoulder_width", ""),
         ("torso lean (+camera)", "sagittal_torso_lean_deg", "deg"),
         ("3D shoulder width", "shoulder_width_3d_m", "m"),
+        ("exploratory head pitch", "exploratory_head_pitch_deg", "deg"),
     )
     y = 22
     for label, key, unit in labels:
@@ -503,6 +604,7 @@ def overlay_pose_frame(
     depth_scale_m: float | None = None,
     focal_length_px: float | None = None,
     points_3d: Mapping[str, Point3D | None] | None = None,
+    face_landmarks: Any = None,
 ) -> tuple[np.ndarray, GeometryResult]:
     """Drop-in exploratory overlay for an existing aligned BGR/depth frame.
 
@@ -521,6 +623,13 @@ def overlay_pose_frame(
         aligned_depth=aligned_depth,
         depth_scale_m=depth_scale_m,
     )
+    points.update(points_from_face_landmarks(
+        face_landmarks,
+        width,
+        height,
+        aligned_depth=aligned_depth,
+        depth_scale_m=depth_scale_m,
+    ))
     result = compute_candidate_geometry(
         points,
         focal_length_px=focal_length_px,

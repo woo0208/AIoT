@@ -29,7 +29,113 @@ def metric_body_points(shoulder_z=.80, hip_z=.80):
     }
 
 
+def metric_head_points(pitch_deg=0.0, translation_z=0.0):
+    """Rigid synthetic head around the ear midpoint for structural tests."""
+
+    angle = math.radians(pitch_deg)
+    cosine, sine = math.cos(angle), math.sin(angle)
+    ear_y, ear_z = -.48, .70 + translation_z
+
+    def rotate(down, away):
+        return (
+            ear_y + down * cosine + away * sine,
+            ear_z - down * sine + away * cosine,
+        )
+
+    nose_y, nose_z = rotate(-.07, -.12)
+    chin_y, chin_z = rotate(.07, -.12)
+    return {
+        "left_ear": geometry.Point3D(.10, ear_y, ear_z),
+        "right_ear": geometry.Point3D(-.10, ear_y, ear_z),
+        "nose": geometry.Point3D(0.0, nose_y, nose_z),
+        "chin": geometry.Point3D(0.0, chin_y, chin_z),
+    }
+
+
 class CandidateGeometryTests(unittest.TestCase):
+    def test_verified_face_chin_index_maps_to_rgb_and_aligned_depth(self):
+        self.assertEqual(geometry.FACE_LANDMARK_INDICES, {"chin": 152})
+        landmarks = [types.SimpleNamespace(x=.5, y=.5) for _ in range(153)]
+        landmarks[152] = types.SimpleNamespace(x=.4, y=.75)
+        depth = np.full((100, 200), 820, dtype=np.uint16)
+        points = geometry.points_from_face_landmarks(
+            landmarks, 200, 100, aligned_depth=depth, depth_scale_m=.001
+        )
+        self.assertEqual((points["chin"].x_px, points["chin"].y_px), (80, 75))
+        self.assertAlmostEqual(points["chin"].depth_m, .82)
+
+    def test_missing_or_out_of_frame_chin_landmark_is_unavailable(self):
+        self.assertIsNone(
+            geometry.points_from_face_landmarks([], 200, 100)["chin"]
+        )
+        landmarks = [types.SimpleNamespace(x=.5, y=.5) for _ in range(153)]
+        landmarks[152] = types.SimpleNamespace(x=1.1, y=.75)
+        self.assertIsNone(
+            geometry.points_from_face_landmarks(landmarks, 200, 100)["chin"]
+        )
+
+    def test_invalid_chin_depth_keeps_landmark_but_no_metric_pitch(self):
+        landmarks = [types.SimpleNamespace(x=.5, y=.5) for _ in range(153)]
+        landmarks[152] = types.SimpleNamespace(x=.4, y=.75)
+        point = geometry.points_from_face_landmarks(
+            landmarks,
+            200,
+            100,
+            aligned_depth=np.zeros((100, 200), dtype=np.uint16),
+            depth_scale_m=.001,
+        )["chin"]
+        self.assertEqual(point, geometry.Point(80, 75, None))
+        points = neutral_points()
+        points["chin"] = point
+        result = geometry.compute_candidate_geometry(
+            points, points_3d={**metric_head_points(), "chin": None}
+        )
+        self.assertIsNone(result.points_3d["chin"])
+        self.assertIsNone(result.features["exploratory_head_pitch_deg"])
+
+    def test_neutral_chin_up_and_chin_down_head_pitch_sign(self):
+        neutral = geometry.compute_candidate_geometry(
+            neutral_points(), points_3d=metric_head_points()
+        )
+        chin_up = geometry.compute_candidate_geometry(
+            neutral_points(), points_3d=metric_head_points(20.0)
+        )
+        chin_down = geometry.compute_candidate_geometry(
+            neutral_points(), points_3d=metric_head_points(-20.0)
+        )
+        self.assertAlmostEqual(
+            neutral.features["exploratory_head_pitch_deg"], 0.0, places=7
+        )
+        self.assertAlmostEqual(
+            chin_up.features["exploratory_head_pitch_deg"], 20.0, places=7
+        )
+        self.assertAlmostEqual(
+            chin_down.features["exploratory_head_pitch_deg"], -20.0, places=7
+        )
+
+    def test_forward_translation_does_not_create_artificial_head_pitch(self):
+        baseline = geometry.compute_candidate_geometry(
+            neutral_points(), points_3d=metric_head_points(12.0)
+        )
+        translated = geometry.compute_candidate_geometry(
+            neutral_points(), points_3d=metric_head_points(12.0, translation_z=-.15)
+        )
+        self.assertAlmostEqual(
+            baseline.features["exploratory_head_pitch_deg"],
+            translated.features["exploratory_head_pitch_deg"],
+            places=7,
+        )
+
+    def test_geometry_result_mappings_are_immutable_snapshots(self):
+        source = neutral_points()
+        result = geometry.compute_candidate_geometry(source)
+        source["nose"] = None
+        self.assertIsNotNone(result.points["nose"])
+        with self.assertRaises(TypeError):
+            result.points["nose"] = None
+        with self.assertRaises(TypeError):
+            result.features["exploratory_head_pitch_deg"] = 1.0
+
     def test_neutral_geometry_and_explicit_proxies(self):
         result = geometry.compute_candidate_geometry(neutral_points(), focal_length_px=800.0)
         self.assertAlmostEqual(result.features["head_lateral_tilt_deg"], 0.0)

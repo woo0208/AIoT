@@ -22,7 +22,7 @@ import posture_3d_viewer as viewer
 WINDOW_NAME = "Exploratory D455 posture geometry probe"
 EXPLORATORY_ARTIFACT_KIND = "exploratory-posture-geometry-engineering-measurement"
 
-POINT_NAMES = tuple(geometry.POSE_LANDMARK_INDICES)
+POINT_NAMES = geometry.EXPLORATORY_POINT_NAMES
 FEATURE_FIELDS = (
     "head_lateral_tilt_deg",
     "shoulder_tilt_deg",
@@ -45,6 +45,7 @@ FEATURE_FIELDS = (
     "ear_midpoint_forward_normalized_by_shoulder_width",
     "shoulder_width_3d_m",
     "sagittal_torso_lean_deg",
+    "exploratory_head_pitch_deg",
     "nose_forward_normalized_by_shoulder_width_3d",
     "ear_midpoint_forward_normalized_by_shoulder_width_3d",
 )
@@ -64,6 +65,7 @@ POINT_3D_SOURCES = (
     ("left_wrist_3d", "points_3d", "left_wrist"),
     ("right_wrist_3d", "points_3d", "right_wrist"),
     ("ear_midpoint_3d", "proxies_3d", "ear_midpoint_3d"),
+    ("chin_3d", "points_3d", "chin"),
 )
 POINT_3D_FIELDS = tuple(
     f"{output_name}_{axis}_m"
@@ -93,6 +95,7 @@ FEATURE_DISPLAY = (
     ("ear-mid forward / shoulder", "ear_midpoint_forward_normalized_by_shoulder_width", ""),
     ("3D shoulder width", "shoulder_width_3d_m", " m"),
     ("sagittal torso lean (+camera)", "sagittal_torso_lean_deg", " deg"),
+    ("exploratory head pitch (+up)", "exploratory_head_pitch_deg", " deg"),
     ("nose forward / 3D shoulder", "nose_forward_normalized_by_shoulder_width_3d", ""),
     ("ear-mid forward / 3D shoulder", "ear_midpoint_forward_normalized_by_shoulder_width_3d", ""),
 )
@@ -126,9 +129,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--views",
-        action="store_true",
-        help=("show the separate 3D upper-body skeleton and depth-derived "
-              "sagittal visualization"),
+        nargs="?",
+        const="side",
+        choices=("side", "debug", "skeleton", "avatar", "all"),
+        default=None,
+        help=("show exploratory 3D views: bare --views (or 'side') shows the "
+              "primary side-oriented avatar; 'debug' shows the legacy skeleton, "
+              "axonometric avatar, and sagittal panels; legacy individual modes "
+              "and 'all' remain available"),
     )
     return parser.parse_args(argv)
 
@@ -168,16 +176,16 @@ def diagnostics_for(result: geometry.GeometryResult, pose_detected: bool) -> dic
 def deproject_body_points(
     points: dict[str, geometry.Point | None], color_intrinsics: Any, rs_module: Any
 ) -> dict[str, geometry.Point3D | None]:
-    """Use the RealSense SDK to deproject valid aligned-depth body points.
+    """Use the RealSense SDK to deproject valid aligned-depth exploratory points.
 
     This is the thin hardware adapter.  The pure geometry module receives only
     the resulting metric XYZ values and never imports ``pyrealsense2``.
     """
 
     output: dict[str, geometry.Point3D | None] = {
-        name: None for name in geometry.BODY_3D_POINT_NAMES
+        name: None for name in geometry.EXPLORATORY_POINT_NAMES
     }
-    for name in geometry.BODY_3D_POINT_NAMES:
+    for name in geometry.EXPLORATORY_POINT_NAMES:
         point = points.get(name)
         if point is None or point.depth_m is None:
             continue
@@ -290,7 +298,9 @@ def _open_csv(path: str | None) -> tuple[Any | None, csv.DictWriter | None]:
     return handle, writer
 
 
-def run_probe(csv_path: str | None = None, *, show_3d_views: bool = False) -> None:
+def run_probe(
+    csv_path: str | None = None, *, show_3d_views: bool | str = False
+) -> None:
     """Run the live D455/MediaPipe loop.  Hardware dependencies load only here."""
 
     import cv2
@@ -303,23 +313,30 @@ def run_probe(csv_path: str | None = None, *, show_3d_views: bool = False) -> No
     import analyze_d455
     import capture_d455
 
-    model_path = analyze_d455.ensure_models()["pose"]
-    options = vision.PoseLandmarkerOptions(
-        base_options=mpt.BaseOptions(model_asset_path=model_path),
+    model_paths = analyze_d455.ensure_models()
+    pose_options = vision.PoseLandmarkerOptions(
+        base_options=mpt.BaseOptions(model_asset_path=model_paths["pose"]),
         running_mode=vision.RunningMode.VIDEO,
         num_poses=analyze_d455.POSE_NUM_POSES,
+    )
+    face_options = vision.FaceLandmarkerOptions(
+        base_options=mpt.BaseOptions(model_asset_path=model_paths["mesh"]),
+        running_mode=vision.RunningMode.VIDEO,
+        num_faces=analyze_d455.FACE_NUM_FACES,
     )
 
     csv_handle, csv_writer = _open_csv(csv_path)
     pipeline = rs.pipeline()
     profile = None
-    landmarker = None
+    pose_landmarker = None
+    face_landmarker = None
     try:
         profile = pipeline.start(capture_d455.make_config())
         align = rs.align(rs.stream.color)
         depth_scale_m = profile.get_device().first_depth_sensor().get_depth_scale()
         color_intrinsics = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
-        landmarker = vision.PoseLandmarker.create_from_options(options)
+        pose_landmarker = vision.PoseLandmarker.create_from_options(pose_options)
+        face_landmarker = vision.FaceLandmarker.create_from_options(face_options)
         last_mediapipe_timestamp_ms = -1
         print("[probe] live RGB + aligned depth started; press q in the window to quit")
         print("[probe] diagnostic-only: no posture classification and no production gate changes")
@@ -342,9 +359,14 @@ def run_probe(csv_path: str | None = None, *, show_3d_views: bool = False) -> No
                 timestamp_ms = last_mediapipe_timestamp_ms + 1
             last_mediapipe_timestamp_ms = timestamp_ms
 
-            pose_result = landmarker.detect_for_video(mp_image, timestamp_ms)
+            # Both Tasks consume the exact same RGB image and MediaPipe timestamp.
+            pose_result = pose_landmarker.detect_for_video(mp_image, timestamp_ms)
+            face_result = face_landmarker.detect_for_video(mp_image, timestamp_ms)
             pose_detected = bool(pose_result.pose_landmarks)
             landmarks = pose_result.pose_landmarks[0] if pose_detected else None
+            face_landmarks = (
+                face_result.face_landmarks[0] if face_result.face_landmarks else None
+            )
             points = geometry.points_from_pose_landmarks(
                 landmarks,
                 bgr.shape[1],
@@ -352,6 +374,13 @@ def run_probe(csv_path: str | None = None, *, show_3d_views: bool = False) -> No
                 aligned_depth=aligned_depth,
                 depth_scale_m=depth_scale_m,
             )
+            points.update(geometry.points_from_face_landmarks(
+                face_landmarks,
+                bgr.shape[1],
+                bgr.shape[0],
+                aligned_depth=aligned_depth,
+                depth_scale_m=depth_scale_m,
+            ))
             points_3d = deproject_body_points(points, color_intrinsics, rs)
             result = geometry.compute_candidate_geometry(
                 points,
@@ -362,7 +391,13 @@ def run_probe(csv_path: str | None = None, *, show_3d_views: bool = False) -> No
             display = draw_engineering_panel(overlay, result, pose_detected)
             cv2.imshow(WINDOW_NAME, display)
             if show_3d_views:
-                cv2.imshow(viewer.WINDOW_NAME, viewer.render_views(result))
+                view_mode = (
+                    "side" if show_3d_views is True else str(show_3d_views)
+                )
+                cv2.imshow(
+                    viewer.WINDOW_NAME,
+                    viewer.render_selected_views(result, view_mode),
+                )
 
             if csv_writer is not None:
                 csv_writer.writerow(exploratory_csv_row(
@@ -376,8 +411,10 @@ def run_probe(csv_path: str | None = None, *, show_3d_views: bool = False) -> No
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
     finally:
-        if landmarker is not None:
-            landmarker.close()
+        if pose_landmarker is not None:
+            pose_landmarker.close()
+        if face_landmarker is not None:
+            face_landmarker.close()
         if profile is not None:
             pipeline.stop()
         if csv_handle is not None:
