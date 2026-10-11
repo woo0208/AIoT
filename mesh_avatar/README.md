@@ -17,7 +17,7 @@ python run_mesh_avatar.py --synthetic  # 카메라 없이 가짜 관절로 파�
 
 URL 옵션: `?demo=1` (브라우저 단독 가짜 움직임), `?side=left` (측면에서 얼굴이 왼쪽을 향함),
 `?cam_pitch=15` (D455가 아래로 15° 기울어 설치됨; 실행기는 `--cam-pitch 15`),
-`?model=passive_marker_man.fbx` (다른 모델 파일), `?smooth=0.45` / `?nose_down=10` (아래 "선택 시각 보조", 기본 꺼짐)
+`?model=passive_marker_man.fbx` (다른 모델 파일), `?head=landmarks` (머리를 예전 귀·코 방식으로 비교), `?smooth=0.45` / `?nose_down=10` (아래 "선택 시각 보조", 기본 꺼짐)
 
 ### 카메라 기울기 보정 (표시 전용)
 기본 좌표 변환은 D455 광축이 수평이라고 가정합니다. 카메라가 아래를 내려다보면 반듯한 자세도
@@ -29,7 +29,9 @@ URL 옵션: `?demo=1` (브라우저 단독 가짜 움직임), `?side=left` (측�
 1. probe 루프의 3D 뷰 호출을 감싸 각 프레임의 관절(m, RealSense 좌표)을 `/pose`로 공개
 2. 브라우저(three.js)가 좌표를 아바타 좌표로 변환한 뒤 뼈 방향을 맞춤
    - 몸통: hip-mid → shoulder-mid 방향(척추 3단 분배) + 어깨선 비틀림
-   - 목/머리: shoulder-mid → ear-mid, ear-mid → nose
+   - 목: shoulder-mid → ear-mid
+   - 머리 회전: probe가 이미 계산한 Face Matrix 각도 → 머리 축(PyVista Viewer의 `face_matrix_head_axes` 재사용).
+     얼굴 미검출 시 ear-mid → nose로 대체. 사용 중인 방식은 HUD `머리:`에 표시
    - 팔: 어깨→팔꿈치, 팔꿈치→손목 (없으면 편안한 자세)
    - 하체: 앉은 자세로 고정(관측하지 않음), 골반은 의자에 고정
 3. 일시적 누락은 1초(`HOLD_MS`)간 직전 값 유지. 관절 평활은 기본 꺼짐(아래 참조)
@@ -48,7 +50,7 @@ URL 옵션: `?demo=1` (브라우저 단독 가짜 움직임), `?side=left` (측�
 ## 한계
 - 하체는 관측하지 않은 고정 자세, 골반 위치는 고정(절대 이동은 표시하지 않음)
 - 몸통 기울기는 hip 관절 신뢰도에 의존(책상에 가리면 MediaPipe 추정값)
-- 머리 회전은 pitch 위주, 손가락/표정 없음
+- 목 방향은 여전히 귀 depth에 의존(귀 depth가 앞으로 잡혀 목이 앞으로 숙어 보일 수 있음, 3단계 대상). 손가락/표정 없음
 
 ## 모델 에셋 (`VIEWER_3D_HANDOFF_RULES.md` §5)
 `mesh_avatar/web/models/`는 `.gitignore`(`models/`)로 **Git에 포함되지 않습니다.** 받는 사람은 같은 파일을 직접 받아 넣어야 합니다.
@@ -73,7 +75,8 @@ URL 옵션: `?demo=1` (브라우저 단독 가짜 움직임), `?side=left` (측�
 | hip-mid → shoulder-mid | `Spine`, `Spine1`, `Spine2` | 방향을 40% / 80% / 100%로 나눠 적용 | 수직 |
 | left/right_shoulder | `Spine2` (비틀림) | 어깨선 방향 맞춤 | 회전 없음 |
 | shoulder-mid → ear-mid | `Neck` | 몸통 방향과 70% 섞어 적용 | 회전 없음 |
-| ear-mid → nose | `Head` | 얼굴 정면 축을 이 방향으로 | 회전 없음 |
+| Face Matrix 머리 축 (`/pose`의 `head`) | `Head` | 정면·위 축을 그대로 맞춤(좌우·상하·기울기 모두) | ear-mid → nose 방식으로 대체 |
+| ear-mid → nose (대체) | `Head` | 얼굴 정면 축을 이 방향으로 | 회전 없음 |
 | shoulder → elbow → wrist | `Left/RightArm`, `Left/RightForeArm` | 뼈 방향 맞춤 | 편안히 내린 고정 자세 |
 | (관측 안 함) | `UpLeg`, `Leg`, `Foot`, `ToeBase` | 앉은 자세 고정 | — |
 

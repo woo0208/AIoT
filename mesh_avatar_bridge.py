@@ -7,6 +7,11 @@ illustration of measured joint directions, not a measurement.
 
 Coordinates are forwarded unchanged in RealSense camera frame (metres):
 +X image-right, +Y image-down, +Z away from the camera.  The browser converts them.
+
+Optional ``head`` (stage 2): unit head axes in the same RealSense frame, derived
+from the probe's already-computed face-matrix angles with the PyVista viewer's
+``face_matrix_head_axes`` (no new sign convention).  ``None`` when no valid
+face matrix exists; the page then falls back to ear/nose joints.
 """
 
 from __future__ import annotations
@@ -21,10 +26,15 @@ from pathlib import Path
 from typing import Any, Mapping
 
 WEB_DIR = Path(__file__).resolve().parent / "mesh_avatar" / "web"
-POSE_SCHEMA = "mesh-avatar-pose/1"
+POSE_SCHEMA = "mesh-avatar-pose/2"  # /2: optional "head" axes
 
 
-def result_to_pose_payload(result: Any, *, frame_id: int = 0) -> dict[str, Any]:
+def result_to_pose_payload(
+    result: Any,
+    *,
+    frame_id: int = 0,
+    face_matrix_values: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Serialise usable 3D joints of a GeometryResult (missing joints -> null)."""
 
     import posture_3d_viewer as viewer  # imported lazily: --synthetic needs no research code
@@ -32,10 +42,33 @@ def result_to_pose_payload(result: Any, *, frame_id: int = 0) -> dict[str, Any]:
     joints: dict[str, list[float] | None] = {}
     for name, point in viewer.joint_positions_3d(result).items():
         joints[name] = None if point is None else [float(point.x_m), float(point.y_m), float(point.z_m)]
-    return make_payload(joints, frame_id=frame_id)
+    return make_payload(joints, frame_id=frame_id, head=head_axes_from_face_matrix(face_matrix_values))
 
 
-def make_payload(joints: Mapping[str, Any], *, frame_id: int = 0, synthetic: bool = False) -> dict[str, Any]:
+def head_axes_from_face_matrix(values: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Face-matrix head axes (lateral->left ear, vertical->head top, forward->out of face) or None."""
+
+    import posture_pyvista_viewer as pv  # lazily; imports without PyVista installed
+
+    orientation = pv.face_matrix_orientation(values)
+    if orientation is None:
+        return None
+    lateral, vertical, forward = pv.face_matrix_head_axes(orientation)
+    return {
+        "source": "face_matrix",
+        "lateral": list(lateral),
+        "vertical": list(vertical),
+        "forward": list(forward),
+    }
+
+
+def make_payload(
+    joints: Mapping[str, Any],
+    *,
+    frame_id: int = 0,
+    synthetic: bool = False,
+    head: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     clean: dict[str, list[float] | None] = {}
     for name, value in joints.items():
         if value is None:
@@ -53,7 +86,23 @@ def make_payload(joints: Mapping[str, Any], *, frame_id: int = 0, synthetic: boo
         "t_unix": time.time(),
         "synthetic": bool(synthetic),
         "joints": clean,
+        "head": _clean_head(head),
     }
+
+
+def _clean_head(head: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if not head:
+        return None
+    out: dict[str, Any] = {"source": str(head.get("source", "unknown"))}
+    for axis in ("lateral", "vertical", "forward"):
+        try:
+            xyz = [float(v) for v in head[axis]]
+        except (KeyError, TypeError, ValueError):
+            return None
+        if len(xyz) != 3 or not all(math.isfinite(v) for v in xyz):
+            return None
+        out[axis] = xyz
+    return out
 
 
 class PoseStore:

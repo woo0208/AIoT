@@ -26,8 +26,8 @@
 |---|---|---|---|---|
 | 0 | Mesh Avatar 기본 구현 (기준점) | Viewer 전용 | 커밋됨 (WIP) | `bc48465`, `2ad81a8` |
 | 1 | 카메라 설치 기울기 보정 | Viewer 전용 | **완료 · 커밋됨** | `3a7583d` |
-| 0.5 | 기존 코드 규칙 정리 (평활·고개 보정 기본 꺼짐, 에셋 문서, 기본 모델 X Bot) | Viewer 전용 | **완료 · 커밋됨** | (아래 0.5단계 섹션 참조) |
-| 2 | 머리 방향을 Face Matrix로 | Viewer 전용 | 계획 | — |
+| 0.5 | 기존 코드 규칙 정리 (평활·고개 보정 기본 꺼짐, 에셋 문서, 기본 모델 X Bot) | Viewer 전용 | **완료 · 커밋됨** | `cc8780f` |
+| 2 | 머리 방향을 Face Matrix로 | Viewer 전용 | **완료 · 커밋됨** (일부 항목 미확인, 2단계 섹션 참조) | (2단계 섹션 참조) |
 | 3 | 표시용 머리·목 위치 추정 개선 | Viewer 전용 (시각화 추정값) | 계획 | — |
 | 4 | 측정 계층 개선 요청 (귀 depth, hip 가림 등) | **금지 범위 — 원 개발자 승인 필요** | 계획 (요청서 형태) | — |
 | 5 | 판정 결과(`PredictionResult`) 표시 연동 | Viewer는 읽기만 | 계획 | — |
@@ -131,7 +131,7 @@
 - **목표:** 0단계에 승인 없이 들어간 시각 보조(평활, 고개 중립 보정)를 상위 규칙 §3-4에 맞게 기본 꺼짐으로 바꾸고, §5 에셋 문서를 채운다. 2단계(머리 방향) 결과를 이 보정값과 섞이지 않게 확인하기 위한 정리.
 - **상태:** 완료 · 커밋됨
 - **기준 커밋:** `3a7583d` (1단계)
-- **커밋:** (커밋 후 기입)
+- **커밋:** `cc8780f` feat(mesh-avatar): stage 0.5 visual aids off by default, asset docs, X Bot
 - 번호가 1단계 뒤에 0.5인 이유: 0단계 코드를 정리하는 성격이라 0.5로 부르고, 실제 진행은 1단계 다음에 함.
 
 **추가된 것**
@@ -184,11 +184,61 @@
 - `HOLD_MS`(누락 관절을 1초간 직전 값으로 표시)도 표시용 결측 처리임. 현재는 유지하며, 화면에 누락 관절 표시가 필요한지는 이후 결정.
 - 에셋 라이선스 확인은 사용자(Adobe 약관 확인) 몫으로 남음.
 
-## 2단계 — 머리 방향을 Face Matrix로 (계획)
+## 2단계 — 머리 방향을 Face Matrix로
 
-- **목표:** 머리 회전을 귀↔코 3D 벡터 대신 MediaPipe Face Landmarker의 Face Matrix(표준 3D 얼굴 모델에 맞춘 머리 회전)로 구동. 특정인 기준이 아니므로 개인별 calibration 없이 사람마다 동일하게 동작.
-- **계획 변경 파일:** `run_mesh_avatar.py`(probe 수정 없이 이미 계산된 Face Matrix 값 읽기), `mesh_avatar_bridge.py`(payload에 머리 축 추가 — 축·부호는 `posture_pyvista_viewer.face_matrix_head_axes` 재사용), `mesh_avatar/web/app.js`(Face Matrix 우선, 얼굴 미검출 시 기존 방식으로 대체, 사용 중인 방식을 HUD에 표시), 테스트.
-- **완료 기준(안):** 정면 응시 시 머리가 정면, 끄덕임/좌우 회전 방향·부호 일치, 얼굴 미검출 시 대체 동작, 전후 6초 정지 자세 비교 기록.
+- **목표:** 머리 회전을 귀↔코 3D 벡터(귀 depth 오류에 취약) 대신 MediaPipe Face Matrix(표준 3D 얼굴 모델에 맞춘 머리 회전)로 구동. 개인별 calibration 없이 사람마다 같은 방식으로 동작.
+- **상태:** 완료 · 커밋됨 (완료 기준 1만 화면 확인, 2·3은 미확인 상태에서 사용자 판단으로 커밋)
+- **기준 커밋:** `cc8780f` (0.5단계)
+- **커밋:** (커밋 후 기입)
+
+**추가된 것**
+- `mesh_avatar_bridge.py`
+  - `head_axes_from_face_matrix(values)` — probe의 `face_matrix_valid/pitch/yaw/roll` 값을 받아 머리 축 3개(lateral→왼쪽 귀, vertical→정수리, forward→얼굴 앞)를 RealSense 좌표로 반환. 유효하지 않으면 `None`.
+    축·부호 계산은 새로 만들지 않고 `posture_pyvista_viewer.face_matrix_orientation` / `face_matrix_head_axes`를 그대로 호출(엔지니어링 검증 기록: `HEAD_ORIENTATION_ENGINEERING_VALIDATION.md`).
+  - `_clean_head()` — head 값 검증(3성분·유한값 아니면 `None`).
+- `run_mesh_avatar.py` — probe의 `_face_matrix_csv_values`를 **읽기 전용으로 감쌈**: 원래 함수 결과를 그대로 반환하면서 마지막 값을 기억해, 같은 프레임의 `/pose`에 실어 보냄. probe 파일은 수정하지 않음. 값은 해당 프레임에만 사용(다음 프레임으로 넘기지 않음).
+- `mesh_avatar/web/app.js`
+  - `orientHeadFromAxes()` — head 축을 관절과 같은 `camToWorld`(1단계 카메라 기울기 보정 포함)로 바꾼 뒤, T-pose 머리 회전(`headRestWorldQ`)에 곱해 `Head` 뼈를 좌우·상하·기울기까지 맞춤. 오프셋·평활 없음.
+  - `latestHead` — head 축을 관절과 같은 `HOLD_MS` 규칙으로 유지.
+  - URL `?head=landmarks` — 예전 귀·코 방식을 강제(비교용).
+  - HUD `머리: Face Matrix / 귀·코 (대체) / 없음`.
+- `test_mesh_avatar_bridge.py` — 테스트 4개 추가(중립 축 방향, 고개 숙임 부호·단위 길이, 무효 입력 → `None`, payload 전달·잘못된 head 거부).
+
+**변경된 것**
+- `mesh_avatar_bridge.py` `POSE_SCHEMA`
+  - 이전: `mesh-avatar-pose/1` (`joints`만)
+  - 이후: `mesh-avatar-pose/2` (선택 필드 `head` 추가; 없으면 `null`)
+- `mesh_avatar_bridge.py` `result_to_pose_payload()` / `make_payload()`
+  - 이전: 관절만 받음
+  - 이후: 선택 인자 `face_matrix_values` / `head` 추가(기존 호출은 그대로 동작)
+- `app.js` `applyPose()` 머리 부분
+  - 이전: 항상 ear-mid → nose 방향으로 머리 정면 축만 맞춤
+  - 이후: Face Matrix head가 있으면 그것으로 머리 전체 회전, 없을 때만 예전 방식(0.5단계 `nose_down` 옵션도 예전 방식에만 적용)
+
+**바뀌지 않은 것**
+- 측정·연구 코드(probe, `posture_geometry*.py`, `posture_pyvista_viewer.py` 포함) — 함수 호출만 하고 수정하지 않음.
+- 목(`Neck`) 방향(여전히 shoulder-mid → ear-mid), 몸통·팔·하체, 1단계 카메라 보정, 0.5단계 기본값.
+
+**기본값·호환성**
+- 얼굴이 검출되면 기본으로 Face Matrix 사용. `?head=landmarks`로 2단계 이전 머리 동작 재현.
+
+**검증**
+- 수식 확인(계산): 중립(0,0,0)+카메라 0° → 정면·수평 / Face Matrix pitch −20° → 20° 숙임 / +20° → 20° 들림 / pitch −8° + 카메라 8° → 정확히 수평 / yaw +30° → 아바타 왼쪽(+X)으로 30° / 회전 행렬 행렬식 1(뒤집힘 없음).
+  1단계 화면 값(pitch −10.79°, yaw +3.51°, roll −0.22°, 카메라 8°) → 2.8° 숙임, 3.4° 회전.
+- 단위 테스트: `test_mesh_avatar_bridge` 7개 OK. 관련 회귀 `test_posture_pyvista_viewer`, `test_posture_3d_viewer`, `test_posture_geometry_probe` 102개 OK(7 skipped). 전체 `python -B -m unittest` 738개 OK(8 skipped).
+- 정적: `app.js` ES module 구문 OK.
+- 실제 D455 화면 확인 (2026-10-11, 관절 11/11): HUD `머리: Face Matrix`, 정면 응시 시 머리가 대략 정면을 봄(사용자 판단 "얼추 앞을 보는 형태"). 이때 화면은 `cam_pitch=15`(실측 8°가 아님)로 실행된 상태였음.
+- **미검증:** 끄덕임·좌우 회전 방향(완료 기준 2), 얼굴 가렸을 때 대체 동작(완료 기준 3), 실측 8°에서의 화면.
+
+**완료 기준 (커밋 조건)**
+1. 정면 응시 시 HUD `머리: Face Matrix`, 머리가 정면을 봄.
+2. 고개를 숙이기/들기/좌우로 돌리기를 하면 아바타가 같은 방향으로 움직임.
+3. 얼굴을 손으로 가리면 1초 후 `머리: 귀·코 (대체)`로 바뀜.
+
+**남은 한계**
+- 목 방향은 귀 depth 그대로라 목이 앞으로 숙어 보일 수 있음 → 3단계.
+- Face Matrix는 표준 얼굴 모델 기준 카메라 상대 각도이며 해부학적 중립각이 아님. 같은 사람도 측정마다 중립값이 몇 도 달라진 기록이 있음(검증 문서 §8.4).
+- 얼굴이 많이 돌아가거나 가려지면 검출되지 않아 예전 방식으로 대체됨.
 
 ## 3단계 — 표시용 머리·목 위치 추정 개선 (계획)
 

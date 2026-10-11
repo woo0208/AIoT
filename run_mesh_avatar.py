@@ -6,7 +6,8 @@ Usage:
     python run_mesh_avatar.py --cam-pitch 15  # camera mounted looking 15 deg downward
 
 It leaves posture_geometry_probe.py / posture_3d_viewer.py untouched: it wraps the
-probe's 3D-view hook so every frame's GeometryResult is also published to the page.
+probe's 3D-view hook so every frame's GeometryResult is also published to the page,
+and taps (read-only) the probe's per-frame face-matrix values for the head axes.
 """
 
 from __future__ import annotations
@@ -80,13 +81,26 @@ def main() -> int:
     import posture_geometry_probe as probe
 
     original = probe.viewer.render_selected_views
+    original_face_values = probe._face_matrix_csv_values
     counter = {"n": 0}
+    latest_face = {"values": None}
+
+    # Read-only tap: the probe computes face-matrix values each frame before it
+    # renders the 3D views; remember them and return them unchanged.
+    def tapped_face_values(matrix):
+        values = original_face_values(matrix)
+        latest_face["values"] = values
+        return values
 
     def hooked(result, view_mode):
         counter["n"] += 1
-        store.publish(bridge.result_to_pose_payload(result, frame_id=counter["n"]))
+        face_values, latest_face["values"] = latest_face["values"], None  # this frame only
+        store.publish(bridge.result_to_pose_payload(
+            result, frame_id=counter["n"], face_matrix_values=face_values
+        ))
         return original(result, view_mode)
 
+    probe._face_matrix_csv_values = tapped_face_values
     probe.viewer.render_selected_views = hooked
     # The probe only calls render_selected_views when views are enabled; the
     # OpenCV window it opens is harmless, and can be closed independently.

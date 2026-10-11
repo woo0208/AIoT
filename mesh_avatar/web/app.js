@@ -23,6 +23,8 @@ const DEMO = params.get('demo') === '1';
 const LOOK_MODE = params.get('look') || 'original';
 const LIGHT_BG = params.get('bg') === 'light';
 const SIDE_FACES_LEFT = params.get('side') === 'left';
+// ?head=landmarks forces the stage-0 ear/nose head method (for comparison); default uses the face matrix when present
+const HEAD_MODE = params.get('head') === 'landmarks' ? 'landmarks' : 'auto';
 const MODEL_FILE = (params.get('model') || 'X_Bot.fbx').replace(/[^\w.\-]/g, ''); // file inside ./models/
 // D455 mounting pitch in degrees (+ = camera looks downward). Display transform only; default 0 = level camera.
 const CAM_PITCH_MAX_DEG = 60;
@@ -117,6 +119,25 @@ function aimLocalAxis(bone, localAxis, target) {
 }
 
 let headFwdLocal = V(0, 0, 1);
+let headRestWorldQ = new THREE.Quaternion();   // Head world rotation in T-pose (faces +Z, up +Y)
+let headSource = '없음';
+
+// Stage 2: orient Head from face-matrix axes (RealSense frame; vertical -> head top, forward -> out of face).
+// Same camera->world transform as joints (incl. cam_pitch); no offset, no smoothing.
+function orientHeadFromAxes(axes) {
+  const F = camToWorld(axes.forward).normalize();
+  const U = camToWorld(axes.vertical);
+  U.sub(F.clone().multiplyScalar(U.dot(F)));
+  if (U.length() < 1e-6) return false;
+  U.normalize();
+  const X = new THREE.Vector3().crossVectors(U, F);
+  const R = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, U, F));
+  bones.Head.updateWorldMatrix(true, false);
+  const parentQ = worldQuat(bones.Head.parent).invert();
+  bones.Head.quaternion.copy(parentQ.multiply(R.multiply(headRestWorldQ.clone())));
+  bones.Head.updateWorldMatrix(false, true);
+  return true;
+}
 
 function resetRest() {
   for (const n in bones) bones[n].quaternion.copy(restQ[n]);
@@ -175,7 +196,11 @@ function applyPose(j) {
       aim(bones.Neck, bones.Head, slerpDir(torso, nh.normalize(), 0.7));
     }
   }
-  if (ear && j.nose) {
+  headSource = '없음';
+  if (j.head && orientHeadFromAxes(j.head)) {
+    headSource = 'Face Matrix';
+  } else if (ear && j.nose) {
+    headSource = '귀·코 (대체)';
     const f = j.nose.clone().sub(ear);
     // remove the typical nose-below-ear offset so a neutral head stays level
     const right = V(1, 0, 0);
@@ -255,6 +280,7 @@ new FBXLoader().load('./models/' + MODEL_FILE, (obj) => {
 
   for (const n in bones) restQ[n] = bones[n].quaternion.clone();
   headFwdLocal = V(0, 0, 1).applyQuaternion(worldQuat(bones.Head).invert());
+  headRestWorldQ = worldQuat(bones.Head);
 
   // seated placement: hips so that (shin vertical) feet touch the floor
   resetRest();
@@ -279,6 +305,7 @@ new FBXLoader().load('./models/' + MODEL_FILE, (obj) => {
 const JN = ['nose', 'left_ear', 'right_ear', 'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow',
   'left_wrist', 'right_wrist', 'left_hip', 'right_hip'];
 const smoothed = {};   // name -> {p: Vector3, t: ms}
+let latestHead = null;  // {axes, t}: face-matrix head axes, held like joints
 let lastFrameId = -1, lastPoseAt = 0, fpsCount = 0, fpsT = performance.now(), fps = 0, synthetic = false;
 
 function ingest(payload) {
@@ -292,12 +319,14 @@ function ingest(payload) {
       if (s) { s.p.lerp(w, SMOOTH); s.t = now; } else smoothed[n] = { p: w, t: now };
     }
   }
+  if (payload.head) latestHead = { axes: payload.head, t: now };
   lastPoseAt = now;
 }
 
 function currentJoints() {
   const now = performance.now(), j = {};
   for (const n of JN) { const s = smoothed[n]; j[n] = s && now - s.t < HOLD_MS ? s.p.clone() : null; }
+  j.head = HEAD_MODE !== 'landmarks' && latestHead && now - latestHead.t < HOLD_MS ? latestHead.axes : null;
   return j;
 }
 
@@ -355,5 +384,5 @@ function frame(now) {
     else setStatus(synthetic ? '연결됨 · SYNTHETIC (가짜 데이터)' : '연결됨 · 실시간', synthetic ? 'status-demo' : 'status-ok');
   }
   infoEl.textContent = `${fps} fps · 관절 ${have}/${JN.length} · 카메라 기울기 보정 ${camPitchDeg}° ([ ] 조정, 0 초기화)`
-    + ` · 평활 ${SMOOTH < 1 ? SMOOTH : '꺼짐'} · 고개 보정 ${NEUTRAL_NOSE_DOWN_DEG ? NEUTRAL_NOSE_DOWN_DEG + '°' : '꺼짐'}`;
+    + ` · 머리: ${headSource}` + ` · 평활 ${SMOOTH < 1 ? SMOOTH : '꺼짐'} · 고개 보정 ${NEUTRAL_NOSE_DOWN_DEG ? NEUTRAL_NOSE_DOWN_DEG + '°' : '꺼짐'}`;
 }
