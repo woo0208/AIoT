@@ -1,7 +1,7 @@
 # Research Decision Log
 
-- 문서 버전: `v1.11`
-- 기준일: `2026-10-07`
+- 문서 버전: `v1.12`
+- 기준일: `2026-10-11`
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
 - 역할: 현재 Research Master에 반영된 중요한 연구·데이터·실험·거버넌스 결정을 **왜 그렇게 결정했는지** 기록
@@ -1403,6 +1403,7 @@ final-test 결과를 본 parameter 변경
 | `v1.9` | 2026-10-06 | Patch 7 Round 3 independent READ-ONLY re-audit의 remaining IMPORTANT finding을 반영하여 `PROV-011`을 append. selection event의 `include`/`exclude`/`recapture` action 자체가 아니라 각 artifact reference의 실제 role(`historical evidence` vs `selected/consumed canonical source`)에 따라 completed-owner requirement를 적용하도록 명확화 |
 | `v1.10` | 2026-10-07 | `CAP-005`를 append하여 Foundation Patch 8 D455 Measurement-Quality and End-to-End Validation을 Design Freeze하고 `OPEN-006`을 해소. candidate-range derivation, 0.60–1.00 m static grid와 mandatory 0.70/0.80 anchors, physical setup, execution governance, single-shot/retry/result firewall, static/production protocol identity, closed pre-lock classification, static/3D/distance-stability metrics, exact five-series depth temporal-SD rule, forward availability population, body-only-negative semantics, exact slot-131 predicate, reconciliation, integrity closure를 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`에 고정했다. Patch 8은 DESIGN-FROZEN이며 implementation / implementation audit / execution registration / hardware execution은 pending이다. `OPEN-002`~`OPEN-005`는 계속 DEFERRED이고 Patch 4/4.5/5/6/7 authority는 변경하지 않는다 |
 | `v1.11` | 2026-10-07 | Patch 8 implementation 중 확인된 pre-execution design-authority gap `P8-I1`을 반영하여 `CAP-006`을 append (Clarifies `CAP-005`, Supersedes None). CAP-005가 capture sequence를 명시하지 않았던 forward validation rounds 101–103 / 111–113이 `SEQ_CORE`를 사용함을 명확화하고, 121 = `SEQ_CORE` (§80) / 131 = `SEQ_FULL` (§81)은 그대로 유지한다. formal Patch 8 execution, `execution_id` 발급, Patch 8 결과 관찰은 없었다. production forward gate, `capture-forward-face-v2.0.0`, SEQ_CORE/SEQ_FULL 정의, §75/§76/§79/§80/§81, schema, threshold, `OPEN-002`~`OPEN-005`는 변경하지 않는다 |
+| `v1.12` | 2026-10-11 | Research Stage 1 Gate 1.6 연구자 부분 승인을 반영하여 `FEAT-009`를 append (CONFIRMED — core calculation only; Supersedes None; Resolves None). F1-5 기본 계산 표현(`fs_x, fs_y, sh_x, sh_y, so_beta`), 공통 `D_sh` 정규화, radian period-π `[-π/2, π/2)` β, 동일 frame 우선 계산, F1-6 비교 후보 유지를 확정하고 상세 계약을 `docs/research/F1_FEATURE_CORE_CALCULATION_CONTRACT.md`에 기록했다. `OPEN-002`는 부분 승인 상태로 DEFERRED 유지이며 `OPEN-003`~`OPEN-005`, `frames-schema/1.0.0`은 변경하지 않는다. 본 version row는 `FEAT-009`만 다루며 기존 `CAP-007` entry의 version row 누락은 이번 변경 범위에서 보정하지 않았다 |
 
 ---
 
@@ -6590,5 +6591,94 @@ Resolves:
 
 Supersedes:
 - None
+
+---
+
+## FEAT-009 — F1 Core Calculation Contract (Gate 1.6 partial approval)
+
+**Status:** CONFIRMED — **CORE CALCULATION ONLY**
+**Logged:** 2026-10-11
+**Decision timing:** Research Stage 1 Gate 1.6 연구자 부분 승인 (2026-10-11); F1 full Design Freeze 이전. 기록 기준 branch `feat/posture-integrated-v0`, HEAD `9d05815`
+
+### Decision
+
+연구 책임자가 F1 frame-level 핵심 계산 계약을 다음과 같이 승인했다.
+상세 계약은 `docs/research/F1_FEATURE_CORE_CALCULATION_CONTRACT.md`에 기록한다.
+
+1. **F1-5를 기본 계산 표현으로 채택한다.**
+
+```text
+F      = Face bbox center                       (face_x, face_y)
+L, R   = subject-left / subject-right shoulder  (lsh_x, lsh_y) / (rsh_x, rsh_y)
+Lh, Rh = subject-left / subject-right hip       (left_hip_x_px, left_hip_y_px) / (right_hip_x_px, right_hip_y_px)
+
+S    = (L + R) / 2
+H    = (Lh + Rh) / 2
+W    = R - L
+D_sh = norm(W)
+
+출력 순서:
+1  fs_x    = (F_x - S_x) / D_sh
+2  fs_y    = (F_y - S_y) / D_sh
+3  sh_x    = (S_x - H_x) / D_sh
+4  sh_y    = (S_y - H_y) / D_sh
+5  so_beta = wrap_pi(atan2(W_y, W_x))
+```
+
+2. FS / SH 선형 성분은 공통 shoulder-width `D_sh` 정규화를 사용한다.
+3. `so_beta`는 radian 단위, period-π, 범위 `[-π/2, π/2)`를 사용한다.
+4. 기하 계산은 **동일 frame의 관측값으로 먼저** 수행한다.
+5. F1-6 (`fs_x, fs_y, sh_x, sh_y, sin(2β), cos(2β)`)은 **별도 비교 후보**로 유지한다. 기본 표현은 F1-5다.
+
+좌표는 `frames-schema/1.0.0`의 원래 color 이미지 비반전 pixel 좌표이며 left/right는 사람 기준이다.
+`D_sh = 0`이면 5개 feature 모두 수학적으로 미정의이고 `atan2(0, 0)` 값을 유효 β로 쓰지 않는다.
+`D_sh > 0`은 수학적 정의 조건일 뿐 품질 임계값이 아니다.
+입력 validity는 기존 Schema §F의 `face_detected`, `lsh_valid` / `rsh_valid`, `left_hip_valid` / `right_hip_valid` 의미를 그대로 따르며 새 validity·품질 기준을 만들지 않는다.
+
+### Not decided by this entry
+
+다음은 이 entry로 확정하지 않는다.
+
+```text
+5점 joint-frame support의 최종 sample 채택 정책
+frame-to-sample median 집계 및 so_beta angular aggregation
+N_min, R_min
+D_sh 품질 임계값
+Face 추가 in-frame 정책
+모델 수준 결측 처리
+F1용 M1/M2 가중치 정책
+자체 데이터 LOSO 프로토콜
+F1 전체 Design Freeze
+실제 측정 결과 또는 분류 성능
+```
+
+### Rationale
+
+- 연구 책임자의 명시적 승인 (2026-10-11)에 따른 기록이다.
+- `FEAT-002`의 calibration-free 원칙과 일치한다: 개인별 upright reference, depth, label을 F1-5 계산 입력으로 사용하지 않는다.
+- `FEAT-003` / `DATA-003`의 Face / 양 Shoulder / 양 Hip canonical raw observation을 그대로 입력으로 사용하며 Schema를 변경하지 않는다.
+- `FEAT-005`의 raw → derived geometry → model feature 계층 분리를 유지한다: 이 entry는 derived geometry와 F1 기본 feature 표현의 계산만 정하고, 집계·sample 채택·모델 입력 정책은 정하지 않는다.
+
+### Evidence / Source
+
+- 연구 책임자의 Gate 1.6 승인 (2026-10-11 사용자 지시)
+- `RESEARCH_DATA_SCHEMA.md` §F.2 / §F.3 / §F.4 (`frames-schema/1.0.0`) field 이름·좌표계·validity 의미
+- `rf_experiment.py` `rank_weights()`의 현재 `p > 6` 거부 동작 (참고 사실)
+
+본 entry는 실제 측정, 학습, D455 실행 결과를 포함하지 않는다. Agreement between AI agents는 experimental evidence가 아니다.
+
+### Impact
+
+- F1 기본 계산 표현 F1-5의 이름·순서·수식·단위·정규화·β 표현이 authority로 확정된다.
+- `OPEN-002`는 **부분 승인 상태로 계속 DEFERRED**다. 본 entry는 `OPEN-002`를 해소하지 않는다. 남은 범위: missing policy, feature selection(F1-5 vs F1-6 최종 채택 포함), 집계, sample eligibility, 품질 기준, F1 full Design Freeze.
+- `OPEN-003`, `OPEN-004`, `OPEN-005`는 변경하지 않는다. F1-5(p=5)와 F1-6(p=6)은 현재 `rank_weights()`의 `p > 6` 거부 조건에 해당하지 않지만, 이는 F1용 M1/M2 가중치 정책의 승인이 아니다.
+- `frames-schema/1.0.0` 및 기타 frozen contract, F0 / F_cal, M0/M1/M2 정의는 변경하지 않는다.
+- 본 entry는 F1 구현 착수, RF 학습, LOSO 실험, D455 실행을 승인하지 않는다.
+
+Supersedes:
+- None
+
+Resolves:
+- None (`OPEN-002` partial approval only; not resolved)
 
 ---

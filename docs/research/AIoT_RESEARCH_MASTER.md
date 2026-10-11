@@ -1,7 +1,7 @@
 # AIoT Research Master
 
-- 문서 버전: `v1.11`
-- 기준일: `2026-10-07`
+- 문서 버전: `v1.12`
+- 기준일: `2026-10-11` (v1.12는 F1 `FEAT-009` 부분 승인만 동기화; 그 밖의 상태 서술은 v1.11 기준)
 - 상태: **CURRENT / Living Document**
 - 권장 위치: `docs/research/AIoT_RESEARCH_MASTER.md`
 - 역할: **현재 연구 방향·범위·용어·로드맵의 Single Source of Truth**
@@ -577,6 +577,22 @@ normalization
 missing-data policy
 derived geometry 조합
 ```
+
+2026-10-11 부분 승인 (`FEAT-009`, CORE CALCULATION CONFIRMED):
+
+```text
+F1 기본 계산 표현 = F1-5
+  fs_x, fs_y, sh_x, sh_y, so_beta  (이 순서)
+FS/SH 공통 shoulder-width D_sh 정규화
+so_beta: radian, period-π, [-π/2, π/2)
+동일 frame 관측값으로 기하 먼저 계산
+F1-6 (sin 2β, cos 2β): 별도 비교 후보로 유지
+```
+
+상세 계약은 `docs/research/F1_FEATURE_CORE_CALCULATION_CONTRACT.md`다.
+이는 위 미확정 목록 중 frame-level 핵심 수식·feature 순서·정규화만 확정한 것이며,
+sample 채택·집계·품질 임계값·모델 결측 처리·F1용 M1/M2 가중치·LOSO protocol·F1 full Design Freeze는 미확정이다.
+`OPEN-002`는 부분 승인 상태로 DEFERRED를 유지한다.
 
 현재 `all / invariant / relative`를 이름만 바꿔 F1으로 취급하지 않는다.
 
@@ -1856,6 +1872,9 @@ bbox-vs-contour/oval의 F1/F2 feature 포함 여부 및 최종 논문 채택 여
 
 실험 전에 필요한 시점에 하나씩 Design Freeze한다.
 
+F1 항목 중 frame-level 핵심 계산(F1-5 수식·출력 순서·`D_sh` 정규화·β 표현)은 2026-10-11 `FEAT-009`로 확정되었다.
+F1 feature selection(F1-5 vs F1-6 최종 채택), missing-data policy, frame→sample 집계, sample 채택, 품질 임계값, F1 full Design Freeze는 위 목록대로 계속 미확정이다 (`OPEN-002` 부분 승인 / DEFERRED).
+
 D455 validation의 candidate-range evidence 절차, exact distance grid, repetition count, landmark acquisition / depth-valid / jitter / 3D-repeatability / RGB-depth coupling / distance-stability metric, acceptance criterion은 2026-10-07 `CAP-005`로 확정되어 위 목록에서 제거했다 (`OPEN-006` RESOLVED BY CAP-005).
 실제 Patch 8 hardware 결과는 아직 없으며, 구현자는 CAP-005 값을 변경하지 않는다.
 
@@ -2247,3 +2266,4 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 | `v1.9` | 2026-10-06 | Patch 7 implementation `cc39b7d` 및 final independent READ-ONLY implementation audit `PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0 / MINOR 6`을 반영. Python 3.12.2에서 targeted 124 / affected 332 / full pytest 454 passed (1571 subtests, 0 skipped), unittest 454 tests OK evidence를 기록하고 closure documentation을 동기화했다. Patch 1–7 implementation은 완료됐으며 Patch 7 main integration / post-merge regression은 pending이다. 이후 다음 Foundation은 기존 scope의 Patch 8이다. |
 | `v1.10` | 2026-10-06 | Patch 7 documentation closure `98a8917` 및 독립 documentation-closure audit 이후 main merge `1e99e06`, origin/main 동기화, immediate post-merge pytest 454 passed / 1571 subtests 및 unittest 454 tests OK를 반영했다. Current baseline을 `main` / `1e99e06`으로 갱신하고 Patch 7을 COMPLETE / MAIN-INTEGRATED로 동기화했다. Implementation audit 0/0/6과 documentation-closure audit 0/0/1을 구분하며 stale current-HEAD 문구를 해소했다. 다음 required Foundation은 기존 scope의 Patch 8이다. |
 | `v1.11` | 2026-10-07 | `CAP-005` Foundation Patch 8 D455 Measurement-Quality and End-to-End Validation Design Freeze integration을 반영했다. V5.1.1 Design Freeze draft의 independent READ-ONLY audit `BLOCKER 0 / IMPORTANT 0 / MINOR 1` 이후 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`를 canonical Foundation document로 추가하고 단일 MINOR(E2-R1 wording)를 §62 clarification으로 반영했다. `OPEN-006`은 RESOLVED BY CAP-005이며 D455 validation exact protocol 항목을 미확정 목록에서 제거했다. Current baseline을 `main` / `b2e090f`로 갱신했다. Patch 8은 DESIGN-FROZEN이고 implementation / implementation audit / execution registration / hardware execution은 PENDING이다. `OPEN-002`~`OPEN-005`는 DEFERRED이며 Patch 4/4.5/5/6/7 authority는 변경하지 않았다. Patch 8 COMPLETE가 아니다. |
+| `v1.12` | 2026-10-11 | Research Stage 1 Gate 1.6 연구자 부분 승인 `FEAT-009` (CORE CALCULATION CONFIRMED)를 §5.3 F1과 §17에 최소 동기화했다. F1-5 기본 계산 표현, 공통 `D_sh` 정규화, radian period-π β, 동일 frame 우선 계산, F1-6 비교 후보 유지만 반영하고 상세 계약은 `docs/research/F1_FEATURE_CORE_CALCULATION_CONTRACT.md`에 둔다. `OPEN-002`는 부분 승인 / DEFERRED 유지, `OPEN-003`~`OPEN-005`와 Schema는 변경하지 않았다. F1 full Design Freeze 및 구현 착수가 아니다. 이번 변경은 §1.1 repository baseline, Patch 8 상태(`CAP-007` 포함) 등 다른 항목을 재동기화하지 않았다 |
