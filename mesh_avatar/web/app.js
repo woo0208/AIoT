@@ -16,6 +16,13 @@ const LOOK_MODE = params.get('look') || 'original';
 const LIGHT_BG = params.get('bg') === 'light';
 const SIDE_FACES_LEFT = params.get('side') === 'left';
 const MODEL_FILE = (params.get('model') || 'passive_marker_man.fbx').replace(/[^\w.\-]/g, ''); // file inside ./models/
+// D455 mounting pitch in degrees (+ = camera looks downward). Display transform only; default 0 = level camera.
+const CAM_PITCH_MAX_DEG = 60;
+let camPitchDeg = parsePitch(params.get('cam_pitch'));
+function parsePitch(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(-CAM_PITCH_MAX_DEG, Math.min(CAM_PITCH_MAX_DEG, n)) : 0;
+}
 
 // ---------- scene ----------
 const canvas = document.getElementById('c');
@@ -47,7 +54,28 @@ const infoEl = document.getElementById('info');
 function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls; }
 
 // camera frame (+X right, +Y down, +Z away) -> avatar world (Y up, avatar faces +Z, avatar-left = +X)
-function camToWorld(p) { return V(p[0], -p[1], -p[2]); }
+// First undo the camera's downward pitch about its X axis (camera frame -> level frame), then flip axes.
+// Measured coordinates are not changed; this only re-expresses them for drawing.
+function camToWorld(p) {
+  const t = THREE.MathUtils.degToRad(camPitchDeg), c = Math.cos(t), s = Math.sin(t);
+  const yLevel = p[1] * c + p[2] * s;
+  const zLevel = -p[1] * s + p[2] * c;
+  return V(p[0], -yLevel, -zLevel);
+}
+
+// [ / ] adjust the pitch by 1 deg (Shift: 5 deg), 0 resets; value is kept in the URL.
+addEventListener('keydown', (e) => {
+  const step = e.shiftKey ? 5 : 1;
+  let next = camPitchDeg;
+  if (e.key === ']' || e.key === '}') next += step;
+  else if (e.key === '[' || e.key === '{') next -= step;
+  else if (e.key === '0') next = 0;
+  else return;
+  camPitchDeg = parsePitch(next);
+  for (const n in smoothed) delete smoothed[n];   // re-seed joints in the new frame
+  const q = new URLSearchParams(location.search); q.set('cam_pitch', String(camPitchDeg));
+  history.replaceState(null, '', '?' + q.toString());
+});
 
 // ---------- rig ----------
 const bones = {};      // short name -> Bone
@@ -318,5 +346,5 @@ function frame(now) {
     else if (age > 1000) setStatus('데이터 끊김 (' + Math.round(age / 1000) + 's)', 'status-wait');
     else setStatus(synthetic ? '연결됨 · SYNTHETIC (가짜 데이터)' : '연결됨 · 실시간', synthetic ? 'status-demo' : 'status-ok');
   }
-  infoEl.textContent = `${fps} fps · 관절 ${have}/${JN.length}`;
+  infoEl.textContent = `${fps} fps · 관절 ${have}/${JN.length} · 카메라 기울기 보정 ${camPitchDeg}° ([ ] 조정, 0 초기화)`;
 }

@@ -3,6 +3,7 @@
 Usage:
     python run_mesh_avatar.py            # live D455 -> http://127.0.0.1:8765
     python run_mesh_avatar.py --synthetic     # no camera; synthetic poses (NOT data)
+    python run_mesh_avatar.py --cam-pitch 15  # camera mounted looking 15 deg downward
 
 It leaves posture_geometry_probe.py / posture_3d_viewer.py untouched: it wraps the
 probe's 3D-view hook so every frame's GeometryResult is also published to the page.
@@ -44,11 +45,15 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--synthetic", action="store_true", help="no camera: structural demo with synthetic joints")
+    parser.add_argument(
+        "--cam-pitch", type=float, default=0.0,
+        help="display only: D455 downward pitch in degrees (+ = looking down) to level the avatar",
+    )
     args = parser.parse_args()
 
     store = bridge.PoseStore()
     bridge.start_server(store, args.port)
-    url = f"http://127.0.0.1:{args.port}/"
+    url = f"http://127.0.0.1:{args.port}/?cam_pitch={args.cam_pitch:g}"
     print(f"[mesh-avatar] viewer: {url}  (display only; not a measurement)")
     if not args.no_browser:
         webbrowser.open(url)
