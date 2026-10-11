@@ -106,10 +106,12 @@ class ViewerHelperTests(unittest.TestCase):
         self.assertIsNotNone(avatar.pelvis)
         self.assertEqual(len(avatar.arm_segments), 4)
         self.assertEqual(len(avatar.joints), len(geometry.UPPER_BODY_3D_POINT_NAMES))
+        # Head centre is the measured ear midpoint, shared with the neck top.
         self.assertEqual(
             avatar.head.center,
-            geometry.Point3D(0.0, -.515, .69),
+            geometry.Point3D(0.0, -.48, .70),
         )
+        self.assertEqual(avatar.neck.start, avatar.head.center)
         self.assertAlmostEqual(avatar.torso.shoulder_width_m, .44)
         self.assertAlmostEqual(avatar.torso.hip_width_m, .32)
         self.assertEqual(len(avatar.torso.vertices), 8)

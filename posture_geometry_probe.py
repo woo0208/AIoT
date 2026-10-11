@@ -21,6 +21,7 @@ import numpy as np
 
 import posture_geometry as geometry
 import posture_3d_viewer as viewer
+import posture_pyvista_viewer as pyvista_viewer
 
 
 WINDOW_NAME = "Exploratory D455 posture geometry probe"
@@ -253,7 +254,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
               "axonometric avatar, and sagittal panels; legacy individual modes "
               "and 'all' remain available"),
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--pyvista",
+        action="store_true",
+        help=("also show the optional PyVista front/side 3D avatar window; "
+              f"requires: {pyvista_viewer.INSTALL_HINT}"),
+    )
+    parser.add_argument(
+        "--pyvista-anchor",
+        choices=pyvista_viewer.VIEW_ANCHOR_MODES,
+        default=pyvista_viewer.VIEW_ANCHOR_SHOULDER,
+        help=("PyVista view centre: 'shoulder' (default) follows the measured "
+              "shoulder midpoint; 'camera' locks it once and keeps it fixed in "
+              "camera coordinates; display only, requires --pyvista"),
+    )
+    args = parser.parse_args(argv)
+    if args.pyvista_anchor != pyvista_viewer.VIEW_ANCHOR_SHOULDER and not args.pyvista:
+        parser.error("--pyvista-anchor requires --pyvista")
+    return args
 
 
 def format_feature(value: Any, unit: str = "") -> str:
@@ -1105,6 +1123,8 @@ def run_probe(
     face_diag_csv_path: str | None = None,
     show_3d_views: bool | str = False,
     panel_mode: str = "summary",
+    pyvista_view: bool = False,
+    pyvista_anchor: str = pyvista_viewer.VIEW_ANCHOR_SHOULDER,
 ) -> None:
     """Run the live D455/MediaPipe loop.  Hardware dependencies load only here."""
 
@@ -1117,6 +1137,10 @@ def run_probe(
 
     import analyze_d455
     import capture_d455
+
+    if pyvista_view:
+        # Fail before opening the camera when the optional viewer is absent.
+        pyvista_viewer.require_pyvista()
 
     model_paths = analyze_d455.ensure_models()
     pose_options = vision.PoseLandmarkerOptions(
@@ -1137,6 +1161,7 @@ def run_probe(
     profile = None
     pose_landmarker = None
     face_landmarker = None
+    pyvista_window = None
     try:
         csv_handle, csv_writer = _open_csv(csv_path)
         face_diag_handle, face_diag_writer = _open_face_diagnostic_csv(
@@ -1148,6 +1173,10 @@ def run_probe(
         color_intrinsics = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
         pose_landmarker = vision.PoseLandmarker.create_from_options(pose_options)
         face_landmarker = vision.FaceLandmarker.create_from_options(face_options)
+        if pyvista_view:
+            pyvista_window = pyvista_viewer.PyVistaPostureViewer(
+                anchor_mode=pyvista_anchor
+            )
         last_mediapipe_timestamp_ms = -1
         frame_index = 0
         debug_page = 0
@@ -1224,6 +1253,11 @@ def run_probe(
                     viewer.WINDOW_NAME,
                     viewer.render_selected_views(result, view_mode),
                 )
+            if pyvista_window is not None and not pyvista_window.update(
+                result, face_matrix_values
+            ):
+                pyvista_window = None
+                print("[probe] PyVista window closed; measurement loop continues")
 
             if csv_writer is not None:
                 csv_writer.writerow(exploratory_csv_row(
@@ -1263,6 +1297,8 @@ def run_probe(
             csv_handle.close()
         if face_diag_handle is not None:
             face_diag_handle.close()
+        if pyvista_window is not None:
+            pyvista_window.close()
         cv2.destroyAllWindows()
 
 
@@ -1273,6 +1309,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         face_diag_csv_path=args.face_diag_csv,
         show_3d_views=args.views,
         panel_mode=args.panel_mode,
+        pyvista_view=args.pyvista,
+        pyvista_anchor=args.pyvista_anchor,
     )
     return 0
 

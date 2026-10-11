@@ -364,9 +364,12 @@ def build_avatar_primitives(result: geometry.GeometryResult) -> AvatarPrimitives
                 if forward is not None and _dot(forward, _vector(ear_midpoint, nose)) < 0:
                     forward = tuple(-value for value in forward)  # type: ignore[assignment]
             if vertical is not None and forward is not None:
+                # Centre the volume on the measured ear midpoint, where the
+                # neck capsule ends.  The nose is the front face surface;
+                # averaging it in pushed the whole volume forward of the ears.
                 head = AvatarEllipsoid(
                     name="head",
-                    center=_midpoint(nose, ear_midpoint),
+                    center=ear_midpoint,
                     lateral_axis=lateral,
                     vertical_axis=vertical,
                     forward_axis=forward,

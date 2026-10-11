@@ -948,7 +948,46 @@ class ProbeHelperTests(unittest.TestCase):
             face_diag_csv_path=None,
             show_3d_views="all",
             panel_mode="debug",
+            pyvista_view=False,
+            pyvista_anchor="shoulder",
         )
+
+    def test_pyvista_view_is_opt_in_and_independent_of_opencv_views(self):
+        self.assertFalse(probe.parse_args([]).pyvista)
+        args = probe.parse_args(["--pyvista", "--views", "side", "--csv", "e.csv"])
+        self.assertTrue(args.pyvista)
+        self.assertEqual(args.views, "side")
+        self.assertEqual(args.csv, "e.csv")
+        with mock.patch.object(probe, "run_probe") as run_probe:
+            self.assertEqual(probe.main(["--pyvista"]), 0)
+        run_probe.assert_called_once_with(
+            None,
+            face_diag_csv_path=None,
+            show_3d_views=None,
+            panel_mode="summary",
+            pyvista_view=True,
+            pyvista_anchor="shoulder",
+        )
+
+    def test_pyvista_camera_anchor_is_opt_in_and_requires_pyvista(self):
+        self.assertEqual(probe.parse_args(["--pyvista"]).pyvista_anchor, "shoulder")
+        with mock.patch.object(probe, "run_probe") as run_probe:
+            self.assertEqual(
+                probe.main(["--pyvista", "--pyvista-anchor", "camera"]), 0
+            )
+        run_probe.assert_called_once_with(
+            None,
+            face_diag_csv_path=None,
+            show_3d_views=None,
+            panel_mode="summary",
+            pyvista_view=True,
+            pyvista_anchor="camera",
+        )
+        with mock.patch("sys.stderr"):
+            for argv in (["--pyvista-anchor", "camera"],
+                         ["--pyvista", "--pyvista-anchor", "hips"]):
+                with self.subTest(argv=argv), self.assertRaises(SystemExit):
+                    probe.parse_args(argv)
 
     def test_debug_pages_are_visible_and_do_not_overlap_or_clip(self):
         import cv2

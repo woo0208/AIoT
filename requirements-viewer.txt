@@ -1,0 +1,14 @@
+# Optional dependency for the exploratory PyVista front/side 3D viewer
+# (posture_pyvista_viewer.py and `python posture_geometry_probe.py --pyvista`).
+#
+# Not required by capture, analysis, canonical data, RF experiments, or the
+# existing OpenCV probe views.  Tests that need a real PyVista window are
+# skipped when it is absent.
+#
+# Verified 2026-10-10 on Windows 11 / CPython 3.12.10 with off-screen
+# rendering.  VTK is installed as a PyVista dependency and is pinned here to
+# the verified version.
+#
+#   python -m pip install -r requirements-viewer.txt
+pyvista==0.49.0
+vtk==9.7.1
