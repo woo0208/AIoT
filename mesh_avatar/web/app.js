@@ -6,16 +6,24 @@ import { FBXLoader } from './vendor/three/examples/jsm/loaders/FBXLoader.js';
 // ---------- tunables (visual only; not research parameters) ----------
 const POSE_URL = '/pose';
 const POLL_MS = 33;
-const SMOOTH = 0.45;           // exponential smoothing of joints (0..1, higher = snappier)
 const HOLD_MS = 1000;          // keep last joint this long when it drops out
-const NEUTRAL_NOSE_DOWN_DEG = 10; // typical nose-below-ear pitch; keeps a neutral head from tilting down
 const TARGET_HEIGHT_M = 1.75;
 const params = new URLSearchParams(location.search);
+// Visual aids below are OFF by default (VIEWER_3D_HANDOFF_RULES §3-4); enable explicitly via URL.
+// ?smooth=0.45  exponential smoothing weight of the newest sample (0 < w <= 1; 1 = off, lower = smoother/laggier)
+const SMOOTH = clampParam(params.get('smooth'), 0.05, 1, 1);
+// ?nose_down=10  assumed nose-below-ear pitch (deg) subtracted from the head direction; 0 = off
+const NEUTRAL_NOSE_DOWN_DEG = clampParam(params.get('nose_down'), -30, 30, 0);
+function clampParam(v, lo, hi, dflt) {
+  if (v === null || v === '') return dflt;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : dflt;
+}
 const DEMO = params.get('demo') === '1';
 const LOOK_MODE = params.get('look') || 'original';
 const LIGHT_BG = params.get('bg') === 'light';
 const SIDE_FACES_LEFT = params.get('side') === 'left';
-const MODEL_FILE = (params.get('model') || 'passive_marker_man.fbx').replace(/[^\w.\-]/g, ''); // file inside ./models/
+const MODEL_FILE = (params.get('model') || 'X_Bot.fbx').replace(/[^\w.\-]/g, ''); // file inside ./models/
 // D455 mounting pitch in degrees (+ = camera looks downward). Display transform only; default 0 = level camera.
 const CAM_PITCH_MAX_DEG = 60;
 let camPitchDeg = parsePitch(params.get('cam_pitch'));
@@ -346,5 +354,6 @@ function frame(now) {
     else if (age > 1000) setStatus('데이터 끊김 (' + Math.round(age / 1000) + 's)', 'status-wait');
     else setStatus(synthetic ? '연결됨 · SYNTHETIC (가짜 데이터)' : '연결됨 · 실시간', synthetic ? 'status-demo' : 'status-ok');
   }
-  infoEl.textContent = `${fps} fps · 관절 ${have}/${JN.length} · 카메라 기울기 보정 ${camPitchDeg}° ([ ] 조정, 0 초기화)`;
+  infoEl.textContent = `${fps} fps · 관절 ${have}/${JN.length} · 카메라 기울기 보정 ${camPitchDeg}° ([ ] 조정, 0 초기화)`
+    + ` · 평활 ${SMOOTH < 1 ? SMOOTH : '꺼짐'} · 고개 보정 ${NEUTRAL_NOSE_DOWN_DEG ? NEUTRAL_NOSE_DOWN_DEG + '°' : '꺼짐'}`;
 }

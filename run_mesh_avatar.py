@@ -49,11 +49,23 @@ def main() -> int:
         "--cam-pitch", type=float, default=0.0,
         help="display only: D455 downward pitch in degrees (+ = looking down) to level the avatar",
     )
+    parser.add_argument(
+        "--smooth", type=float, default=None,
+        help="display only, off by default: joint smoothing weight of the newest sample (e.g. 0.45)",
+    )
+    parser.add_argument(
+        "--nose-down", type=float, default=None,
+        help="display only, off by default: assumed nose-below-ear head pitch offset in degrees (e.g. 10)",
+    )
     args = parser.parse_args()
 
     store = bridge.PoseStore()
     bridge.start_server(store, args.port)
     url = f"http://127.0.0.1:{args.port}/?cam_pitch={args.cam_pitch:g}"
+    if args.smooth is not None:
+        url += f"&smooth={args.smooth:g}"
+    if args.nose_down is not None:
+        url += f"&nose_down={args.nose_down:g}"
     print(f"[mesh-avatar] viewer: {url}  (display only; not a measurement)")
     if not args.no_browser:
         webbrowser.open(url)
