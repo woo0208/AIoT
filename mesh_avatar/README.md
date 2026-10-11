@@ -17,7 +17,7 @@ python run_mesh_avatar.py --synthetic  # 카메라 없이 가짜 관절로 파�
 
 URL 옵션: `?demo=1` (브라우저 단독 가짜 움직임), `?side=left` (측면에서 얼굴이 왼쪽을 향함),
 `?cam_pitch=15` (D455가 아래로 15° 기울어 설치됨; 실행기는 `--cam-pitch 15`),
-`?model=passive_marker_man.fbx` (다른 모델 파일), `?head=landmarks` (머리를 예전 귀·코 방식으로 비교), `?smooth=0.45` / `?nose_down=10` (아래 "선택 시각 보조", 기본 꺼짐)
+`?model=passive_marker_man.fbx` (다른 모델 파일), `?head=landmarks` (머리·목을 예전 귀·코 방식으로 비교), `?guide=0` (측면 어깨 기준선 숨김), `?smooth=0.45` / `?nose_down=10` (아래 "선택 시각 보조", 기본 꺼짐)
 
 ### 카메라 기울기 보정 (표시 전용)
 기본 좌표 변환은 D455 광축이 수평이라고 가정합니다. 카메라가 아래를 내려다보면 반듯한 자세도
@@ -29,7 +29,10 @@ URL 옵션: `?demo=1` (브라우저 단독 가짜 움직임), `?side=left` (측�
 1. probe 루프의 3D 뷰 호출을 감싸 각 프레임의 관절(m, RealSense 좌표)을 `/pose`로 공개
 2. 브라우저(three.js)가 좌표를 아바타 좌표로 변환한 뒤 뼈 방향을 맞춤
    - 몸통: hip-mid → shoulder-mid 방향(척추 3단 분배) + 어깨선 비틀림
-   - 목: shoulder-mid → ear-mid
+   - 목: 아바타 얼굴 앞면 점이 아바타 어깨 관절 중점에서 볼 때 **측정된 shoulder-mid → nose 방향**에 오도록 `Neck` 회전
+     (머리 회전은 Face Matrix 유지). 기준점은 로드한 모델에서 한 번 계산(얼굴 정중앙 가장 앞 점, 양 어깨 관절 중점) — 사람별 값 없음.
+     Face Matrix나 코가 없으면 shoulder-mid → ear-mid(예전 방식)로 대체. HUD `목:`에 표시
+   - 측면 화면의 파란 점선: 아바타 어깨 관절 중점을 지나는 수직 기준선(그림 보조, 측정값 아님)
    - 머리 회전: probe가 이미 계산한 Face Matrix 각도 → 머리 축(PyVista Viewer의 `face_matrix_head_axes` 재사용).
      얼굴 미검출 시 ear-mid → nose로 대체. 사용 중인 방식은 HUD `머리:`에 표시
    - 팔: 어깨→팔꿈치, 팔꿈치→손목 (없으면 편안한 자세)
@@ -50,7 +53,8 @@ URL 옵션: `?demo=1` (브라우저 단독 가짜 움직임), `?side=left` (측�
 ## 한계
 - 하체는 관측하지 않은 고정 자세, 골반 위치는 고정(절대 이동은 표시하지 않음)
 - 몸통 기울기는 hip 관절 신뢰도에 의존(책상에 가리면 MediaPipe 추정값)
-- 목 방향은 여전히 귀 depth에 의존(귀 depth가 앞으로 잡혀 목이 앞으로 숙어 보일 수 있음, 3단계 대상). 손가락/표정 없음
+- 목 위치는 표준 모델(X Bot)의 얼굴·어깨 비율을 기준으로 한 시각화 추정. 실제 사람과 머리 크기·어깨 관절 위치가 달라 중립 자세에서 몇 cm·몇 ° 차이가 날 수 있음(절대값 미검증).
+- 실측 어깨 depth는 옷 표면이고 아바타 기준은 관절이라 차이가 남을 수 있음. 손가락/표정 없음
 
 ## 모델 에셋 (`VIEWER_3D_HANDOFF_RULES.md` §5)
 `mesh_avatar/web/models/`는 `.gitignore`(`models/`)로 **Git에 포함되지 않습니다.** 받는 사람은 같은 파일을 직접 받아 넣어야 합니다.
@@ -74,7 +78,8 @@ URL 옵션: `?demo=1` (브라우저 단독 가짜 움직임), `?side=left` (측�
 |---|---|---|---|
 | hip-mid → shoulder-mid | `Spine`, `Spine1`, `Spine2` | 방향을 40% / 80% / 100%로 나눠 적용 | 수직 |
 | left/right_shoulder | `Spine2` (비틀림) | 어깨선 방향 맞춤 | 회전 없음 |
-| shoulder-mid → ear-mid | `Neck` | 몸통 방향과 70% 섞어 적용 | 회전 없음 |
+| shoulder-mid → nose (+ Face Matrix) | `Neck` | 아바타 얼굴 앞면 점을 측정 방향에 맞춤(3회 반복) | shoulder-mid → ear-mid 방식 |
+| shoulder-mid → ear-mid (대체) | `Neck` | 몸통 방향과 70% 섞어 적용 | 회전 없음 |
 | Face Matrix 머리 축 (`/pose`의 `head`) | `Head` | 정면·위 축을 그대로 맞춤(좌우·상하·기울기 모두) | ear-mid → nose 방식으로 대체 |
 | ear-mid → nose (대체) | `Head` | 얼굴 정면 축을 이 방향으로 | 회전 없음 |
 | shoulder → elbow → wrist | `Left/RightArm`, `Left/RightForeArm` | 뼈 방향 맞춤 | 편안히 내린 고정 자세 |

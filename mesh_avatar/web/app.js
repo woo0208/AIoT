@@ -55,6 +55,17 @@ const LOOK = new THREE.Vector3(0, 0.85, 0.15);
 frontCam.position.set(0, 1.1, 3.6); frontCam.lookAt(LOOK);
 // avatar faces +Z. Camera on avatar's right (-X) => face points image-right.
 sideCam.position.set(SIDE_FACES_LEFT ? 3.6 : -3.6, 1.0, 0.15); sideCam.lookAt(LOOK);
+// Side view only (layer 1): vertical guide through the avatar's shoulder-joint midpoint, for reading head vs shoulder.
+// A drawing aid on the avatar, not a measurement; ?guide=0 hides it.
+const GUIDE_LAYER = 1;
+const shoulderGuide = new THREE.Line(
+  new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0)]),  // V() is defined below
+  new THREE.LineDashedMaterial({ color: 0x7db8ff, dashSize: 0.04, gapSize: 0.03, transparent: true, opacity: 0.8 }),
+);
+shoulderGuide.layers.set(GUIDE_LAYER);
+shoulderGuide.visible = params.get('guide') !== '0';
+scene.add(shoulderGuide);
+sideCam.layers.enable(GUIDE_LAYER);
 
 // ---------- helpers ----------
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -139,6 +150,73 @@ function orientHeadFromAxes(axes) {
   return true;
 }
 
+// Stage 3: avatar reference points, measured once on the loaded model at rest (no person-specific values).
+//   faceFrontLocal    front-most midline point of the head mesh, in Head-bone space. The MediaPipe nose
+//                     landmark is a surface point (nose tip), so it is matched to the avatar's face surface.
+//   shoulderRefLocal  mid of the two shoulder (Arm) joints, in Spine2 space. MediaPipe shoulder landmarks
+//                     denote joints, so they are matched to the avatar's joints, not its (bulky) shoulder mesh.
+let faceFrontLocal = null, shoulderRefLocal = null;
+let neckSource = '없음';
+
+function restSurfacePoints(root) {
+  const pts = [];
+  const v = new THREE.Vector3();
+  root.traverse((o) => {
+    if (!o.isSkinnedMesh) return;
+    const pos = o.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      o.applyBoneTransform(i, v);
+      pts.push(v.clone().applyMatrix4(o.matrixWorld));
+    }
+  });
+  return pts;
+}
+
+function frontMost(pts, test) {
+  let best = null;
+  for (const p of pts) if (test(p) && (!best || p.z > best.z)) best = p;
+  return best;
+}
+
+function measureAvatarSurfaces(root) {
+  root.updateMatrixWorld(true);
+  const pts = restSurfacePoints(root);
+  const head = worldPos(bones.Head), top = worldPos(bones.HeadTop_End || bones.Head);
+  const face = frontMost(pts, (p) => Math.abs(p.x - head.x) < 0.02 && p.y > head.y && p.y < top.y);
+  if (!face) return false;
+  faceFrontLocal = bones.Head.worldToLocal(face.clone());
+  shoulderRefLocal = bones.Spine2.worldToLocal(worldPos(bones.LeftArm).add(worldPos(bones.RightArm)).multiplyScalar(0.5));
+  return true;
+}
+
+function rotateBoneWorld(bone, dq) {
+  const parentQ = worldQuat(bone.parent).invert();
+  bone.quaternion.copy(parentQ.multiply(dq.multiply(worldQuat(bone))));
+  bone.updateWorldMatrix(false, true);
+}
+
+// Rotate Neck so the avatar's face-front point lies, seen from its shoulder-joint midpoint, in the measured
+// nose-from-shoulder direction. The head keeps its face-matrix rotation (re-applied each pass).
+function neckFromNose(measured, headAxes) {
+  if (!faceFrontLocal || !shoulderRefLocal) return false;
+  const len = measured.length();
+  if (len < 0.05 || len > 0.6) return false;
+  const dir = measured.clone().divideScalar(len);
+  for (let pass = 0; pass < 3; pass++) {
+    bones.Neck.updateWorldMatrix(true, true);
+    const N = bones.Head.localToWorld(faceFrontLocal.clone());
+    const S = bones.Spine2.localToWorld(shoulderRefLocal.clone());
+    const want = S.clone().add(dir.clone().multiplyScalar(N.distanceTo(S)));
+    const pivot = worldPos(bones.Neck);
+    const from = N.sub(pivot), to = want.sub(pivot);
+    if (from.length() < 1e-4 || to.length() < 1e-4) return false;
+    rotateBoneWorld(bones.Neck, new THREE.Quaternion().setFromUnitVectors(from.normalize(), to.normalize()));
+    orientHeadFromAxes(headAxes);
+  }
+  return true;
+}
+
 function resetRest() {
   for (const n in bones) bones[n].quaternion.copy(restQ[n]);
   bones.Hips.updateWorldMatrix(true, true);
@@ -189,17 +267,22 @@ function applyPose(j) {
 
   // --- neck + head ---
   const ear = mid(j.left_ear, j.right_ear);
-  const shoulderMid = sh || worldPos(bones.Neck);
-  if (ear && sh) {
+  headSource = '없음'; neckSource = '없음';
+  // head rotation first (absolute): the nose surface point used for the neck depends on it
+  const faceOk = !!(j.head && orientHeadFromAxes(j.head));
+  if (faceOk) headSource = 'Face Matrix';
+  // stage 3: neck from nose + shoulder surfaces (both reliably measured) matched on the avatar's own surfaces
+  if (faceOk && j.nose && sh && neckFromNose(j.nose.clone().sub(sh), j.head)) {
+    neckSource = '코·어깨';
+  } else if (ear && sh) {
     const nh = ear.clone().sub(sh);
     if (nh.length() > 0.05) {
       aim(bones.Neck, bones.Head, slerpDir(torso, nh.normalize(), 0.7));
+      neckSource = '귀 (대체)';
+      if (faceOk) orientHeadFromAxes(j.head);   // keep the absolute head rotation after moving the neck
     }
   }
-  headSource = '없음';
-  if (j.head && orientHeadFromAxes(j.head)) {
-    headSource = 'Face Matrix';
-  } else if (ear && j.nose) {
+  if (!faceOk && ear && j.nose) {
     headSource = '귀·코 (대체)';
     const f = j.nose.clone().sub(ear);
     // remove the typical nose-below-ear offset so a neutral head stays level
@@ -281,6 +364,7 @@ new FBXLoader().load('./models/' + MODEL_FILE, (obj) => {
   for (const n in bones) restQ[n] = bones[n].quaternion.clone();
   headFwdLocal = V(0, 0, 1).applyQuaternion(worldQuat(bones.Head).invert());
   headRestWorldQ = worldQuat(bones.Head);
+  if (!measureAvatarSurfaces(obj)) console.warn('avatar face surface not found; neck uses ear fallback');
 
   // seated placement: hips so that (shin vertical) feet touch the floor
   resetRest();
@@ -369,6 +453,11 @@ function frame(now) {
   if (DEMO) { ingest({ synthetic: true, joints: demoJoints(now / 1000) }); }
   const j = currentJoints();
   applyPose(j);
+  if (shoulderGuide.visible && shoulderRefLocal) {
+    const S = bones.Spine2.localToWorld(shoulderRefLocal.clone());
+    shoulderGuide.geometry.setFromPoints([V(S.x, S.y - 0.55, S.z), V(S.x, S.y + 0.45, S.z)]);
+    shoulderGuide.computeLineDistances();
+  }
 
   const w = innerWidth, h = innerHeight, dpr = renderer.getPixelRatio();
   renderer.setViewport(0, 0, w / 2, h); renderer.setScissor(0, 0, w / 2, h); renderer.render(scene, frontCam);
@@ -384,5 +473,5 @@ function frame(now) {
     else setStatus(synthetic ? '연결됨 · SYNTHETIC (가짜 데이터)' : '연결됨 · 실시간', synthetic ? 'status-demo' : 'status-ok');
   }
   infoEl.textContent = `${fps} fps · 관절 ${have}/${JN.length} · 카메라 기울기 보정 ${camPitchDeg}° ([ ] 조정, 0 초기화)`
-    + ` · 머리: ${headSource}` + ` · 평활 ${SMOOTH < 1 ? SMOOTH : '꺼짐'} · 고개 보정 ${NEUTRAL_NOSE_DOWN_DEG ? NEUTRAL_NOSE_DOWN_DEG + '°' : '꺼짐'}`;
+    + ` · 머리: ${headSource} · 목: ${neckSource}` + ` · 평활 ${SMOOTH < 1 ? SMOOTH : '꺼짐'} · 고개 보정 ${NEUTRAL_NOSE_DOWN_DEG ? NEUTRAL_NOSE_DOWN_DEG + '°' : '꺼짐'}`;
 }
