@@ -141,6 +141,12 @@ class _Handler(SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
+    def end_headers(self) -> None:
+        # page files (index.html, app.js): revalidate every load so an edited app.js is never served stale
+        if self.path.split("?")[0] != "/pose":
+            self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def log_message(self, *_args: Any) -> None:  # keep the console quiet
         return
 

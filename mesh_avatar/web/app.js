@@ -25,6 +25,8 @@ const LIGHT_BG = params.get('bg') === 'light';
 const SIDE_FACES_LEFT = params.get('side') === 'left';
 // ?head=landmarks forces the stage-0 ear/nose head method (for comparison); default uses the face matrix when present
 const HEAD_MODE = params.get('head') === 'landmarks' ? 'landmarks' : 'auto';
+// ?neck=dir forces the stage-3 neck (direction only, avatar's own nose distance); default also uses the measured distance
+const NECK_MODE = params.get('neck') === 'dir' ? 'dir' : 'dist';
 const MODEL_FILE = (params.get('model') || 'X_Bot.fbx').replace(/[^\w.\-]/g, ''); // file inside ./models/
 // D455 mounting pitch in degrees (+ = camera looks downward). Display transform only; default 0 = level camera.
 const CAM_PITCH_MAX_DEG = 60;
@@ -155,7 +157,8 @@ function orientHeadFromAxes(axes) {
 //                     landmark is a surface point (nose tip), so it is matched to the avatar's face surface.
 //   shoulderRefLocal  mid of the two shoulder (Arm) joints, in Spine2 space. MediaPipe shoulder landmarks
 //                     denote joints, so they are matched to the avatar's joints, not its (bulky) shoulder mesh.
-let faceFrontLocal = null, shoulderRefLocal = null;
+//   avatarShoulderW   distance between the two shoulder (Arm) joints at rest, for scaling measured offsets.
+let faceFrontLocal = null, shoulderRefLocal = null, avatarShoulderW = 0;
 let neckSource = '없음';
 
 function restSurfacePoints(root) {
@@ -187,6 +190,7 @@ function measureAvatarSurfaces(root) {
   if (!face) return false;
   faceFrontLocal = bones.Head.worldToLocal(face.clone());
   shoulderRefLocal = bones.Spine2.worldToLocal(worldPos(bones.LeftArm).add(worldPos(bones.RightArm)).multiplyScalar(0.5));
+  avatarShoulderW = worldPos(bones.LeftArm).distanceTo(worldPos(bones.RightArm));
   return true;
 }
 
@@ -198,7 +202,10 @@ function rotateBoneWorld(bone, dq) {
 
 // Rotate Neck so the avatar's face-front point lies, seen from its shoulder-joint midpoint, in the measured
 // nose-from-shoulder direction. The head keeps its face-matrix rotation (re-applied each pass).
-function neckFromNose(measured, headAxes) {
+// scale > 0: target = shoulder-mid + measured offset * scale (same-frame shoulder-width ratio, no stored
+// reference), so a head pushed forward (longer offset) is not forced down onto the avatar's fixed nose distance.
+// scale = 0: stage-3 target at the avatar's own nose distance (direction only).
+function neckFromNose(measured, headAxes, scale = 0) {
   if (!faceFrontLocal || !shoulderRefLocal) return false;
   const len = measured.length();
   if (len < 0.05 || len > 0.6) return false;
@@ -207,7 +214,7 @@ function neckFromNose(measured, headAxes) {
     bones.Neck.updateWorldMatrix(true, true);
     const N = bones.Head.localToWorld(faceFrontLocal.clone());
     const S = bones.Spine2.localToWorld(shoulderRefLocal.clone());
-    const want = S.clone().add(dir.clone().multiplyScalar(N.distanceTo(S)));
+    const want = S.clone().add(dir.clone().multiplyScalar(scale > 0 ? len * scale : N.distanceTo(S)));
     const pivot = worldPos(bones.Neck);
     const from = N.sub(pivot), to = want.sub(pivot);
     if (from.length() < 1e-4 || to.length() < 1e-4) return false;
@@ -272,8 +279,14 @@ function applyPose(j) {
   const faceOk = !!(j.head && orientHeadFromAxes(j.head));
   if (faceOk) headSource = 'Face Matrix';
   // stage 3: neck from nose + shoulder surfaces (both reliably measured) matched on the avatar's own surfaces
-  if (faceOk && j.nose && sh && neckFromNose(j.nose.clone().sub(sh), j.head)) {
-    neckSource = '코·어깨';
+  // stage 3.1: also the measured nose distance, scaled by the same-frame avatar/measured shoulder-width ratio
+  let neckScale = 0;
+  if (NECK_MODE === 'dist' && j.left_shoulder && j.right_shoulder && avatarShoulderW > 0) {
+    const w = j.left_shoulder.distanceTo(j.right_shoulder);
+    if (w > 0.15 && w < 0.7) neckScale = avatarShoulderW / w;
+  }
+  if (faceOk && j.nose && sh && neckFromNose(j.nose.clone().sub(sh), j.head, neckScale)) {
+    neckSource = neckScale > 0 ? '코·어깨 (거리 반영)' : '코·어깨';
   } else if (ear && sh) {
     const nh = ear.clone().sub(sh);
     if (nh.length() > 0.05) {

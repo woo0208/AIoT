@@ -103,6 +103,17 @@ class MeshAvatarBridgeTests(unittest.TestCase):
         finally:
             server.shutdown()
 
+    def test_server_page_files_revalidate_and_pose_is_not_stored(self):
+        server = bridge.start_server(bridge.PoseStore(), port=0)
+        try:
+            base = f"http://127.0.0.1:{server.server_address[1]}"
+            for path in ("/", "/app.js"):
+                headers = urllib.request.urlopen(base + path).headers
+                self.assertEqual(headers.get_all("Cache-Control"), ["no-cache"], path)
+            self.assertEqual(urllib.request.urlopen(base + "/pose").headers.get_all("Cache-Control"), ["no-store"])
+        finally:
+            server.shutdown()
+
 
 if __name__ == "__main__":
     unittest.main()
