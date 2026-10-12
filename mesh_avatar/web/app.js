@@ -2,6 +2,7 @@
 // URL options:  ?demo=1  synthetic motion (no Python/camera)   ?side=left  face-left side view
 import * as THREE from 'three';
 import { FBXLoader } from './vendor/three/examples/jsm/loaders/FBXLoader.js';
+import { computeIndicators, renderPanel } from './indicators.js';   // TEMPORARY DEMO (stage 6a/6b)
 
 // ---------- tunables (visual only; not research parameters) ----------
 const POSE_URL = '/pose';
@@ -403,6 +404,8 @@ const JN = ['nose', 'left_ear', 'right_ear', 'left_shoulder', 'right_shoulder', 
   'left_wrist', 'right_wrist', 'left_hip', 'right_hip'];
 const smoothed = {};   // name -> {p: Vector3, t: ms}
 let latestHead = null;  // {axes, t}: face-matrix head axes, held like joints
+let latestPrediction = null, indAt = 0;   // TEMPORARY DEMO: PredictionResult if the payload ever carries one
+const indEl = document.getElementById('ind');
 let lastFrameId = -1, lastPoseAt = 0, fpsCount = 0, fpsT = performance.now(), fps = 0, synthetic = false;
 
 function ingest(payload) {
@@ -417,6 +420,7 @@ function ingest(payload) {
     }
   }
   if (payload.head) latestHead = { axes: payload.head, t: now };
+  latestPrediction = payload.prediction && typeof payload.prediction === 'object' ? payload.prediction : null;
   lastPoseAt = now;
 }
 
@@ -484,6 +488,12 @@ function frame(now) {
     if (!lastPoseAt) setStatus('카메라 데이터 대기 중…', 'status-wait');
     else if (age > 1000) setStatus('데이터 끊김 (' + Math.round(age / 1000) + 's)', 'status-wait');
     else setStatus(synthetic ? '연결됨 · SYNTHETIC (가짜 데이터)' : '연결됨 · 실시간', synthetic ? 'status-demo' : 'status-ok');
+  }
+  // TEMPORARY DEMO: indicator panel, redrawn 4x/s (display rate only; values are the current frame, not averaged)
+  if (indEl && now - indAt > 250) {
+    indAt = now;
+    const axes = j.head ? { forward: camToWorld(j.head.forward), vertical: camToWorld(j.head.vertical) } : null;
+    indEl.innerHTML = renderPanel(computeIndicators(j, axes), latestPrediction);
   }
   infoEl.textContent = `${fps} fps · 관절 ${have}/${JN.length} · 카메라 기울기 보정 ${camPitchDeg}° ([ ] 조정, 0 초기화)`
     + ` · 머리: ${headSource} · 목: ${neckSource}` + ` · 평활 ${SMOOTH < 1 ? SMOOTH : '꺼짐'} · 고개 보정 ${NEUTRAL_NOSE_DOWN_DEG ? NEUTRAL_NOSE_DOWN_DEG + '°' : '꺼짐'}`;
