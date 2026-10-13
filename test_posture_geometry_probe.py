@@ -1,7 +1,10 @@
+import contextlib
 import csv
 import io
+import itertools
 import math
 import os
+import sys
 import tempfile
 import types
 import unittest
@@ -950,6 +953,8 @@ class ProbeHelperTests(unittest.TestCase):
             panel_mode="debug",
             pyvista_view=False,
             pyvista_anchor="shoulder",
+            f1_live=False,
+            rf_demo_model_path=None,
         )
 
     def test_pyvista_view_is_opt_in_and_independent_of_opencv_views(self):
@@ -967,6 +972,8 @@ class ProbeHelperTests(unittest.TestCase):
             panel_mode="summary",
             pyvista_view=True,
             pyvista_anchor="shoulder",
+            f1_live=False,
+            rf_demo_model_path=None,
         )
 
     def test_pyvista_camera_anchor_is_opt_in_and_requires_pyvista(self):
@@ -982,6 +989,8 @@ class ProbeHelperTests(unittest.TestCase):
             panel_mode="summary",
             pyvista_view=True,
             pyvista_anchor="camera",
+            f1_live=False,
+            rf_demo_model_path=None,
         )
         with mock.patch("sys.stderr"):
             for argv in (["--pyvista-anchor", "camera"],
@@ -1138,6 +1147,1216 @@ class ProbeHelperTests(unittest.TestCase):
             self.assertEqual(rows[0]["face_matrix_roll_deg"], "")
             with self.assertRaises(FileExistsError):
                 probe._open_csv(path)
+
+
+# ---------------------------------------------------------------- live F1-5
+IMAGE_W, IMAGE_H = 1280, 720
+
+
+def pose_landmark(x, y, visibility=0.9, presence=0.95):
+    return types.SimpleNamespace(
+        x=x, y=y, visibility=visibility, presence=presence
+    )
+
+
+def live_pose_result(**overrides):
+    """Synthetic subject facing the camera: subject-left appears image-right."""
+
+    landmarks = [pose_landmark(0.5, 0.5) for _ in range(33)]
+    landmarks[0] = pose_landmark(0.51, 0.18)    # nose
+    landmarks[11] = pose_landmark(0.60, 0.40)   # subject-left shoulder
+    landmarks[12] = pose_landmark(0.40, 0.40)   # subject-right shoulder
+    landmarks[13] = pose_landmark(0.70, 0.55)   # decoy: left elbow
+    landmarks[14] = pose_landmark(0.30, 0.55)   # decoy: right elbow
+    landmarks[23] = pose_landmark(0.60, 0.80)   # subject-left hip
+    landmarks[24] = pose_landmark(0.44, 0.82)   # subject-right hip
+    for index, landmark in overrides.items():
+        landmarks[int(index.lstrip("i"))] = landmark
+    return types.SimpleNamespace(pose_landmarks=[landmarks])
+
+
+def face_detection(origin_x, origin_y, width, height):
+    return types.SimpleNamespace(
+        bounding_box=types.SimpleNamespace(
+            origin_x=origin_x, origin_y=origin_y, width=width, height=height
+        ),
+        categories=[],
+    )
+
+
+def face_detector_result(*detections):
+    return types.SimpleNamespace(detections=list(detections))
+
+
+DEFAULT_FACE = face_detection(610, 90, 80, 100)   # centre (650, 140) px
+
+
+def live_f1(detector=None, pose=None):
+    return probe.compute_live_f1(
+        face_detector_result(DEFAULT_FACE) if detector is None else detector,
+        live_pose_result() if pose is None else pose,
+        IMAGE_W,
+        IMAGE_H,
+    )
+
+
+def f1_panel_texts(live, width=1911):
+    return [item[0] for item in probe.f1_panel_layout_items(live, width)]
+
+
+class FakeTask:
+    def __init__(self, result):
+        self.result = result
+        self.video_calls = []
+        self.image_calls = []
+        self.close_count = 0
+
+    def detect_for_video(self, image, timestamp_ms):
+        self.video_calls.append((image, timestamp_ms))
+        return self.result
+
+    def detect(self, image):
+        self.image_calls.append(image)
+        return self.result
+
+    def close(self):
+        self.close_count += 1
+
+
+class FakeLiveLoop:
+    """Runs run_probe with fake RealSense/MediaPipe; no hardware required."""
+
+    def __init__(self, *, frame_count=1, loop_error=None):
+        self.frame_count = frame_count
+        self.loop_error = loop_error
+        self.pose = FakeTask(live_pose_result())
+        # FaceLandmarker landmarks sit at (640, 360) px: distinct from F.
+        self.face_landmarker = FakeTask(face_result(
+            faces=[face_landmarks()], matrices=[np.eye(4)]
+        ))
+        self.face_detector = FakeTask(face_detector_result(DEFAULT_FACE))
+        self.options = []
+        self.detector_create_count = 0
+        self.shown = []
+        self.live_results = []
+        self.created_files = []
+
+    def _options(self, kind):
+        def factory(**kwargs):
+            self.options.append((kind, kwargs))
+            return (kind, kwargs)
+        return factory
+
+    def _create_detector(self, options):
+        self.detector_create_count += 1
+        return self.face_detector
+
+    def _modules(self):
+        vision = types.SimpleNamespace(
+            RunningMode=types.SimpleNamespace(VIDEO="VIDEO"),
+            PoseLandmarkerOptions=self._options("pose"),
+            FaceLandmarkerOptions=self._options("mesh"),
+            FaceDetectorOptions=self._options("face"),
+            PoseLandmarker=types.SimpleNamespace(
+                create_from_options=lambda options: self.pose
+            ),
+            FaceLandmarker=types.SimpleNamespace(
+                create_from_options=lambda options: self.face_landmarker
+            ),
+            FaceDetector=types.SimpleNamespace(
+                create_from_options=self._create_detector
+            ),
+        )
+        mpt = types.SimpleNamespace(
+            BaseOptions=lambda **kwargs: kwargs, vision=vision
+        )
+        mp = types.SimpleNamespace(
+            Image=lambda image_format, data: types.SimpleNamespace(data=data),
+            ImageFormat=types.SimpleNamespace(SRGB="SRGB"),
+            tasks=types.SimpleNamespace(python=mpt),
+        )
+        timestamps = itertools.count(1000.0, 66.7)
+        color = types.SimpleNamespace(
+            get_data=lambda: np.zeros((IMAGE_H, IMAGE_W, 3), dtype=np.uint8)
+        )
+        depth = types.SimpleNamespace(
+            get_data=lambda: np.zeros((IMAGE_H, IMAGE_W), dtype=np.uint16)
+        )
+        aligned = types.SimpleNamespace(
+            get_color_frame=lambda: color, get_depth_frame=lambda: depth
+        )
+        frame_set = types.SimpleNamespace(
+            get_timestamp=lambda: next(timestamps)
+        )
+        intrinsics = types.SimpleNamespace(fx=900.0)
+        profile = types.SimpleNamespace(
+            get_device=lambda: types.SimpleNamespace(
+                first_depth_sensor=lambda: types.SimpleNamespace(
+                    get_depth_scale=lambda: 0.001
+                )
+            ),
+            get_stream=lambda stream: types.SimpleNamespace(
+                as_video_stream_profile=lambda: types.SimpleNamespace(
+                    get_intrinsics=lambda: intrinsics
+                )
+            ),
+        )
+        self.pipeline = mock.Mock()
+        self.pipeline.start.return_value = profile
+        self.pipeline.wait_for_frames.return_value = frame_set
+        rs = types.SimpleNamespace(
+            pipeline=lambda: self.pipeline,
+            align=lambda stream: types.SimpleNamespace(
+                process=lambda frames: aligned
+            ),
+            stream=types.SimpleNamespace(color="color"),
+        )
+        return {
+            "mediapipe": mp,
+            "mediapipe.tasks": mp.tasks,
+            "mediapipe.tasks.python": mpt,
+            "mediapipe.tasks.python.vision": vision,
+            "pyrealsense2": rs,
+            "capture_d455": types.SimpleNamespace(make_config=lambda: "cfg"),
+        }
+
+    def run(self, **kwargs):
+        import cv2
+        import analyze_d455
+        # patch.dict restores sys.modules on exit, evicting modules first
+        # imported inside it; import rendering dependencies beforehand.
+        from PIL import Image, ImageDraw, ImageFont  # noqa: F401
+        probe._load_korean_fonts()
+
+        keys = [-1] * (self.frame_count - 1) + [ord("q")]
+
+        def wait_key(delay):
+            if self.loop_error is not None:
+                raise self.loop_error
+            return keys.pop(0)
+
+        def capture_live(*args):
+            live = original_compute(*args)
+            self.live_results.append(live)
+            return live
+
+        original_compute = probe.compute_live_f1
+        models = {"face": "face-model", "mesh": "mesh-model", "pose": "pose-model"}
+        previous_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as directory:
+            os.chdir(directory)
+            try:
+                with mock.patch.dict(sys.modules, self._modules()), \
+                        mock.patch.object(analyze_d455, "ensure_models", return_value=models), \
+                        mock.patch.object(probe, "compute_live_f1", side_effect=capture_live), \
+                        mock.patch.object(cv2, "imshow", side_effect=lambda name, image: self.shown.append((name, image.shape))), \
+                        mock.patch.object(cv2, "waitKey", side_effect=wait_key), \
+                        mock.patch.object(cv2, "destroyAllWindows"), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    probe.run_probe(**kwargs)
+            finally:
+                self.created_files = sorted(os.listdir(directory))
+                os.chdir(previous_cwd)
+        return self
+
+    def main_window_shapes(self):
+        return [shape for name, shape in self.shown if name == probe.WINDOW_NAME]
+
+
+class LiveF1InputTests(unittest.TestCase):
+    def test_cli_f1_live_is_opt_in(self):
+        self.assertFalse(probe.parse_args([]).f1_live)
+        self.assertTrue(probe.parse_args(["--f1-live"]).f1_live)
+        args = probe.parse_args(["--views", "side", "--pyvista", "--f1-live"])
+        self.assertTrue(args.f1_live)
+        self.assertEqual(args.views, "side")
+        self.assertTrue(args.pyvista)
+        with mock.patch.object(probe, "run_probe") as run_probe:
+            self.assertEqual(probe.main(["--views", "side", "--f1-live"]), 0)
+        run_probe.assert_called_once_with(
+            None,
+            face_diag_csv_path=None,
+            show_3d_views="side",
+            panel_mode="summary",
+            pyvista_view=False,
+            pyvista_anchor="shoulder",
+            f1_live=True,
+            rf_demo_model_path=None,
+        )
+
+    def test_existing_3d_options_are_unchanged_by_f1_live(self):
+        for extra in ([], ["--f1-live"]):
+            with self.subTest(extra=extra):
+                self.assertEqual(probe.parse_args(["--views", *extra]).views, "side")
+                for mode in ("side", "debug", "skeleton", "avatar", "all"):
+                    self.assertEqual(
+                        probe.parse_args(["--views", mode, *extra]).views, mode
+                    )
+                args = probe.parse_args(
+                    ["--pyvista", "--pyvista-anchor", "camera", *extra]
+                )
+                self.assertEqual(args.pyvista_anchor, "camera")
+                with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+                    probe.parse_args(["--pyvista-anchor", "camera", *extra])
+
+    def test_frame_input_uses_original_pixel_coordinates(self):
+        frame = live_f1().frame
+        self.assertEqual(tuple(frame), probe.F1_INPUT_FIELDS)
+        self.assertTrue(frame["face_detected"])
+        self.assertEqual((frame["face_x"], frame["face_y"]), (650.0, 140.0))
+        self.assertTrue(frame["lsh_valid"])
+        self.assertTrue(frame["rsh_valid"])
+        self.assertAlmostEqual(frame["lsh_x"], 0.60 * IMAGE_W)
+        self.assertAlmostEqual(frame["lsh_y"], 0.40 * IMAGE_H)
+        self.assertAlmostEqual(frame["rsh_x"], 0.40 * IMAGE_W)
+        self.assertAlmostEqual(frame["rsh_y"], 0.40 * IMAGE_H)
+        self.assertTrue(frame["left_hip_valid"])
+        self.assertTrue(frame["right_hip_valid"])
+        self.assertAlmostEqual(frame["left_hip_x_px"], 0.60 * IMAGE_W)
+        self.assertAlmostEqual(frame["left_hip_y_px"], 0.80 * IMAGE_H)
+        self.assertAlmostEqual(frame["right_hip_x_px"], 0.44 * IMAGE_W)
+        self.assertAlmostEqual(frame["right_hip_y_px"], 0.82 * IMAGE_H)
+
+    def test_coordinates_are_not_mirrored(self):
+        frame = live_f1().frame
+        # Subject facing the camera: subject-left shoulder stays image-right.
+        self.assertGreater(frame["lsh_x"], frame["rsh_x"])
+        self.assertNotAlmostEqual(frame["lsh_x"], IMAGE_W - 0.60 * IMAGE_W)
+        # Mirroring the input flips fs_x sign; the probe must not do that.
+        result = live_f1().result
+        self.assertAlmostEqual(result.features["fs_x"], (650 - 640) / 256)
+
+    def test_subject_left_right_indices_11_12_23_24(self):
+        pose = live_pose_result(
+            i11=pose_landmark(0.61, 0.41),
+            i12=pose_landmark(0.39, 0.43),
+            i23=pose_landmark(0.57, 0.79),
+            i24=pose_landmark(0.45, 0.81),
+        )
+        frame = live_f1(pose=pose).frame
+        self.assertAlmostEqual(frame["lsh_x"], 0.61 * IMAGE_W)
+        self.assertAlmostEqual(frame["rsh_y"], 0.43 * IMAGE_H)
+        self.assertAlmostEqual(frame["left_hip_x_px"], 0.57 * IMAGE_W)
+        self.assertAlmostEqual(frame["right_hip_y_px"], 0.81 * IMAGE_H)
+        # Elbows (13/14) and nose (0) are never used as F1 inputs.
+        for value in frame.values():
+            self.assertNotIn(value, (0.70 * IMAGE_W, 0.30 * IMAGE_W, 0.51 * IMAGE_W))
+
+    def test_hand_computed_f1_values(self):
+        pose = live_pose_result(i12=pose_landmark(0.40, 0.42))
+        result = live_f1(pose=pose).result
+        sx, sy = (768 + 512) / 2, (288 + 302.4) / 2
+        hx, hy = (768 + 563.2) / 2, (576 + 590.4) / 2
+        d_sh = math.hypot(512 - 768, 302.4 - 288)
+        self.assertAlmostEqual(result.features["fs_x"], (650 - sx) / d_sh)
+        self.assertAlmostEqual(result.features["fs_y"], (140 - sy) / d_sh)
+        self.assertAlmostEqual(result.features["sh_x"], (sx - hx) / d_sh)
+        self.assertAlmostEqual(result.features["sh_y"], (sy - hy) / d_sh)
+        self.assertAlmostEqual(
+            result.features["so_beta"], math.atan2(14.4, -256) - math.pi
+        )
+        self.assertEqual(dict(result.family_available), {
+            "FS": True, "SH": True, "SO": True,
+        })
+
+    def test_largest_face_bbox_is_selected_first_on_ties(self):
+        small = face_detection(0, 0, 10, 10)
+        large = face_detection(100, 50, 60, 80)
+        tied = face_detection(400, 50, 80, 60)
+        self.assertIs(probe.largest_face_detection(
+            face_detector_result(small, large, tied)
+        ), large)
+        frame = live_f1(face_detector_result(small, large, tied)).frame
+        self.assertEqual((frame["face_x"], frame["face_y"]), (130.0, 90.0))
+        self.assertIsNone(probe.largest_face_detection(face_detector_result()))
+        self.assertIsNone(probe.largest_face_detection(None))
+
+    def test_face_is_detector_bbox_centre_not_landmarker_or_nose(self):
+        frame = live_f1().frame
+        nose_x = 0.51 * IMAGE_W
+        landmarker_centre = (0.5 * IMAGE_W, 0.5 * IMAGE_H)
+        self.assertEqual((frame["face_x"], frame["face_y"]), (650.0, 140.0))
+        self.assertNotEqual(frame["face_x"], nose_x)
+        self.assertNotEqual((frame["face_x"], frame["face_y"]), landmarker_centre)
+        # A FaceLandmarker result cannot be passed as F: it has no detections.
+        landmarker_like = face_result(faces=[face_landmarks()])
+        frame = live_f1(detector=landmarker_like).frame
+        self.assertFalse(frame["face_detected"])
+        self.assertIsNone(frame["face_x"])
+
+    def test_missing_face_keeps_sh_and_so(self):
+        result = live_f1(detector=face_detector_result()).result
+        self.assertIsNone(result.features["fs_x"])
+        self.assertIsNone(result.features["fs_y"])
+        self.assertEqual(result.family_reasons["FS"], ("face_detected:false",))
+        self.assertTrue(result.family_available["SH"])
+        self.assertTrue(result.family_available["SO"])
+        self.assertIsNotNone(result.features["sh_y"])
+        self.assertIsNotNone(result.features["so_beta"])
+
+    def test_missing_hip_keeps_fs_and_so(self):
+        pose = live_pose_result(i24=pose_landmark(0.44, 1.02))
+        live = live_f1(pose=pose)
+        self.assertFalse(live.frame["right_hip_valid"])
+        self.assertIsNone(live.frame["right_hip_x_px"])
+        self.assertIsNone(live.frame["right_hip_y_px"])
+        self.assertIsNone(live.result.features["sh_x"])
+        self.assertIsNone(live.result.features["sh_y"])
+        self.assertEqual(
+            live.result.family_reasons["SH"], ("right_hip_valid:false",)
+        )
+        self.assertTrue(live.result.family_available["FS"])
+        self.assertTrue(live.result.family_available["SO"])
+
+    def test_out_of_frame_hip_is_invalid_without_clamping(self):
+        cases = {
+            "x at 1.0": (1.0, 0.8, False),
+            "negative y": (0.6, -0.01, False),
+            "nan": (math.nan, 0.8, False),
+            "infinite": (0.6, math.inf, False),
+            "zero edge": (0.0, 0.0, True),
+            "just inside": (0.999, 0.999, True),
+        }
+        for name, (x, y, valid) in cases.items():
+            with self.subTest(name=name):
+                frame = live_f1(
+                    pose=live_pose_result(i23=pose_landmark(x, y))
+                ).frame
+                self.assertIs(frame["left_hip_valid"], valid)
+                if valid:
+                    self.assertAlmostEqual(frame["left_hip_x_px"], x * IMAGE_W)
+                    self.assertAlmostEqual(frame["left_hip_y_px"], y * IMAGE_H)
+                else:
+                    self.assertIsNone(frame["left_hip_x_px"])
+                    self.assertIsNone(frame["left_hip_y_px"])
+
+    def test_low_visibility_hip_is_not_thresholded(self):
+        pose = live_pose_result(i23=pose_landmark(0.6, 0.8, visibility=0.01, presence=0.02))
+        live = live_f1(pose=pose)
+        self.assertTrue(live.frame["left_hip_valid"])
+        self.assertTrue(live.result.family_available["SH"])
+        self.assertEqual(live.hip_diagnostics["left"]["visibility"], 0.01)
+        self.assertEqual(live.hip_diagnostics["left"]["presence"], 0.02)
+        self.assertNotIn("left_hip_visibility", live.frame)
+
+    def test_invalid_shoulder_flag_wins_over_numeric_coordinates(self):
+        pose = live_pose_result(i11=pose_landmark(1.05, 0.40))
+        live = live_f1(pose=pose)
+        self.assertFalse(live.frame["lsh_valid"])
+        # Canonical legacy numeric prefix is retained, but never trusted.
+        self.assertAlmostEqual(live.frame["lsh_x"], 1.05 * IMAGE_W)
+        self.assertTrue(all(
+            value is None for value in live.result.features.values()
+        ))
+        for family in ("FS", "SH", "SO"):
+            self.assertFalse(live.result.family_available[family])
+            self.assertIn("lsh_valid:false", live.result.family_reasons[family])
+
+    def test_no_pose_marks_all_body_observations_invalid(self):
+        live = live_f1(pose=types.SimpleNamespace(pose_landmarks=[]))
+        for field in ("lsh_valid", "rsh_valid", "left_hip_valid", "right_hip_valid"):
+            self.assertIs(live.frame[field], False)
+        for field in ("lsh_x", "rsh_y", "left_hip_x_px", "right_hip_y_px"):
+            self.assertIsNone(live.frame[field])
+        self.assertTrue(all(
+            value is None for value in live.result.features.values()
+        ))
+        self.assertFalse(live.hip_diagnostics["left"]["landmark_present"])
+
+    def test_zero_shoulder_width_is_unavailable_not_zero(self):
+        pose = live_pose_result(
+            i11=pose_landmark(0.5, 0.4), i12=pose_landmark(0.5, 0.4)
+        )
+        result = live_f1(pose=pose).result
+        self.assertTrue(all(value is None for value in result.features.values()))
+        for family in ("FS", "SH", "SO"):
+            self.assertIn("d_sh:zero", result.family_reasons[family])
+
+    def test_no_baseline_each_frame_is_independent(self):
+        upright = live_pose_result()
+        shifted = live_pose_result(
+            i11=pose_landmark(0.66, 0.45), i12=pose_landmark(0.46, 0.47)
+        )
+        alone = live_f1(pose=shifted).result
+        live_f1(pose=upright)
+        live_f1(pose=upright)
+        after_history = live_f1(pose=shifted).result
+        self.assertEqual(dict(after_history.features), dict(alone.features))
+        self.assertEqual(
+            dict(after_history.family_reasons), dict(alone.family_reasons)
+        )
+        # The F1 input carries only the current frame's raw observations.
+        self.assertEqual(tuple(live_f1().frame), probe.F1_INPUT_FIELDS)
+        # No calibration key: 'b' is not a probe control.
+        self.assertEqual(probe.handle_panel_key(ord("b"), "summary", 0), (False, 0))
+
+    def test_f1_reuses_formula_from_f1_features(self):
+        sentinel = object()
+        with mock.patch.object(
+            probe.f1_features, "compute_f1_5_frame", return_value=sentinel
+        ) as compute:
+            live = live_f1()
+        compute.assert_called_once()
+        self.assertEqual(dict(compute.call_args.args[0]), dict(live.frame))
+        self.assertIs(live.result, sentinel)
+
+
+class LiveF1DisplayTests(unittest.TestCase):
+    def test_panel_shows_values_banners_and_hip_state(self):
+        texts = f1_panel_texts(live_f1())
+        self.assertEqual(texts[0], "F1-5 LIVE — FEAT-009")
+        self.assertIn("CALIBRATION-FREE F1-5 — ENGINEERING ONLY", texts)
+        self.assertIn("NO POSTURE CLASSIFICATION", texts)
+        for label in ("fs_x: ", "fs_y: ", "sh_x: ", "sh_y: ", "so_beta (rad): "):
+            self.assertTrue(any(text.startswith(label) for text in texts), label)
+        self.assertIn("fs_x: +0.039", texts)
+        self.assertIn("FS status: AVAILABLE", texts)
+        self.assertIn("SH status: AVAILABLE", texts)
+        self.assertIn("SO status: AVAILABLE", texts)
+        self.assertIn("Left Hip: IN | vis 0.90 | pres 0.95", texts)
+        self.assertIn("Right Hip: IN | vis 0.90 | pres 0.95", texts)
+        self.assertIn(probe.F1_HIP_DIAGNOSTIC_NOTE, texts)
+
+    def test_missing_values_render_na_with_family_reason(self):
+        pose = live_pose_result(i23=pose_landmark(0.6, 1.2))
+        texts = f1_panel_texts(live_f1(face_detector_result(), pose))
+        for name in ("fs_x", "fs_y", "sh_x", "sh_y"):
+            self.assertIn(f"{name}: N/A", texts)
+            self.assertNotIn(f"{name}: +0.000", texts)
+        # Horizontal synthetic shoulders: a genuine zero is a value, not N/A.
+        self.assertIn("so_beta (rad): +0.000", texts)
+        self.assertIn("FS status: N/A — face_detected:false", texts)
+        self.assertIn("SH status: N/A — left_hip_valid:false", texts)
+        self.assertIn("SO status: AVAILABLE", texts)
+        self.assertIn("Left Hip: OUT | vis 0.90 | pres 0.95", texts)
+
+    def test_all_unavailable_still_shows_banners_and_no_zero(self):
+        texts = f1_panel_texts(live_f1(
+            face_detector_result(), types.SimpleNamespace(pose_landmarks=[])
+        ))
+        self.assertIn("CALIBRATION-FREE F1-5 — ENGINEERING ONLY", texts)
+        self.assertIn("NO POSTURE CLASSIFICATION", texts)
+        self.assertIn("so_beta (rad): N/A", texts)
+        self.assertIn("Left Hip: OUT (no landmark) | vis N/A | pres N/A", texts)
+        self.assertFalse(any("0.000" in text for text in texts))
+
+    def test_no_posture_class_names_are_displayed(self):
+        texts = " | ".join(f1_panel_texts(live_f1())).lower()
+        for label in ("upright", "forward head", "body forward", "body_forward"):
+            self.assertNotIn(label, texts)
+
+    def test_f1_strip_is_appended_without_changing_existing_display(self):
+        image = np.zeros((IMAGE_H, IMAGE_W, 3), dtype=np.uint8)
+        kwargs = dict(
+            pose_detected=True,
+            face_detected=True,
+            face_matrix=np.eye(4),
+            face_matrix_values=valid_matrix_values(),
+        )
+        for mode in ("summary", "debug"):
+            with self.subTest(mode=mode):
+                base = probe.draw_engineering_panel(
+                    image, readable_summary_result(), panel_mode=mode, **kwargs
+                )
+                with_f1 = probe.draw_engineering_panel(
+                    image, readable_summary_result(), panel_mode=mode,
+                    live_f1=live_f1(), **kwargs
+                )
+                self.assertEqual(base.shape, (760, 1911, 3))
+                self.assertEqual(
+                    with_f1.shape, (760 + probe.F1_PANEL_HEIGHT, 1911, 3)
+                )
+                np.testing.assert_array_equal(with_f1[:760], base)
+
+    def test_f1_layout_fits_korean_font_without_overlap(self):
+        from PIL import Image, ImageDraw
+
+        fonts = probe._load_korean_fonts()
+        self.assertIsNotNone(fonts)
+        worst = live_f1(face_detector_result(), types.SimpleNamespace(pose_landmarks=[]))
+        draw = ImageDraw.Draw(Image.new("RGB", (1911, probe.F1_PANEL_HEIGHT)))
+        for live in (live_f1(), worst):
+            boxes = []
+            for text, x, y, font_key, _, anchor in probe.f1_panel_layout_items(live, 1911):
+                box = draw.textbbox((x, y), text, font=fonts[font_key], anchor=anchor)
+                self.assertGreaterEqual(box[0], 0, msg=text)
+                self.assertGreaterEqual(box[1], 0, msg=text)
+                self.assertLessEqual(box[2], 1911, msg=text)
+                self.assertLessEqual(box[3], probe.F1_PANEL_HEIGHT, msg=text)
+                boxes.append((box, text))
+            for index, (first, first_text) in enumerate(boxes):
+                for second, second_text in boxes[index + 1:]:
+                    overlap = (
+                        first[0] < second[2] and second[0] < first[2]
+                        and first[1] < second[3] and second[1] < first[3]
+                    )
+                    self.assertFalse(overlap, msg=f"{first_text!r} / {second_text!r}")
+
+    def test_f1_strip_falls_back_to_ascii_without_korean_font(self):
+        import cv2
+
+        with mock.patch.object(probe, "_load_korean_fonts", return_value=None), \
+                mock.patch.object(probe, "_FONT_WARNING_EMITTED", True), \
+                mock.patch.object(cv2, "putText", wraps=cv2.putText) as put_text:
+            panel = probe.draw_f1_live_panel(live_f1(), 1911)
+        self.assertEqual(panel.shape, (probe.F1_PANEL_HEIGHT, 1911, 3))
+        drawn = [call.args[1] for call in put_text.call_args_list]
+        self.assertIn("F1-5 LIVE - FEAT-009", drawn)
+        self.assertTrue(all(text.isascii() for text in drawn))
+
+    def test_f1_values_never_enter_existing_csv_headers(self):
+        for name in (*probe.F1_INPUT_FIELDS, *probe.f1_features.F1_5_FEATURE_NAMES):
+            self.assertNotIn(name, probe.CSV_FIELDS)
+            self.assertNotIn(name, probe.FACE_DIAGNOSTIC_FIELDS)
+
+
+class LiveF1LoopTests(unittest.TestCase):
+    def test_default_off_creates_no_face_detector_and_keeps_display(self):
+        loop = FakeLiveLoop().run()
+        self.assertEqual(loop.detector_create_count, 0)
+        self.assertNotIn("face", [kind for kind, _ in loop.options])
+        self.assertEqual(loop.live_results, [])
+        self.assertEqual(loop.main_window_shapes(), [(760, 1911, 3)])
+        self.assertEqual(len(loop.pose.video_calls), 1)
+        self.assertEqual(loop.created_files, [])
+
+    def test_f1_live_reuses_pose_result_and_same_rgb_image(self):
+        loop = FakeLiveLoop(frame_count=3).run(f1_live=True)
+        self.assertEqual(loop.detector_create_count, 1)
+        self.assertEqual(len(loop.pose.video_calls), 3)
+        self.assertEqual(len(loop.face_landmarker.video_calls), 3)
+        self.assertEqual(len(loop.face_detector.image_calls), 3)
+        for frame in range(3):
+            pose_image = loop.pose.video_calls[frame][0]
+            self.assertIs(loop.face_detector.image_calls[frame], pose_image)
+            self.assertIs(loop.face_landmarker.video_calls[frame][0], pose_image)
+        self.assertEqual(len(loop.live_results), 3)
+        frame = loop.live_results[0].frame
+        self.assertEqual((frame["face_x"], frame["face_y"]), (650.0, 140.0))
+        self.assertEqual(
+            loop.main_window_shapes(),
+            [(760 + probe.F1_PANEL_HEIGHT, 1911, 3)] * 3,
+        )
+        self.assertEqual(loop.created_files, [])
+
+    def test_face_detector_uses_locked_model_and_canonical_options(self):
+        import analyze_d455
+
+        loop = FakeLiveLoop().run(f1_live=True)
+        face_options = [kwargs for kind, kwargs in loop.options if kind == "face"]
+        self.assertEqual(face_options, [{
+            "base_options": {"model_asset_path": "face-model"},
+            "min_detection_confidence": analyze_d455.FACE_MIN_DETECTION_CONFIDENCE,
+        }])
+        self.assertEqual(loop.face_detector.video_calls, [])
+
+    def test_f1_live_coexists_with_3d_views_and_csv(self):
+        loop = FakeLiveLoop().run(
+            csv_path="engineering.csv", show_3d_views="side", f1_live=True
+        )
+        names = [name for name, _ in loop.shown]
+        self.assertIn(probe.WINDOW_NAME, names)
+        self.assertIn(probe.viewer.WINDOW_NAME, names)
+        self.assertEqual(loop.created_files, ["engineering.csv"])
+
+    def test_csv_header_is_unchanged_with_f1_live(self):
+        previous_cwd = os.getcwd()
+        loop = FakeLiveLoop()
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "engineering.csv")
+            loop.run(csv_path=path, f1_live=True)
+            with open(path, encoding="utf-8") as source:
+                reader = csv.DictReader(source)
+                rows = list(reader)
+            self.assertEqual(tuple(reader.fieldnames), probe.CSV_FIELDS)
+            self.assertEqual(len(rows), 1)
+        self.assertEqual(os.getcwd(), previous_cwd)
+
+    def test_face_detector_closed_when_loop_raises(self):
+        loop = FakeLiveLoop(loop_error=RuntimeError("live loop failure"))
+        with self.assertRaisesRegex(RuntimeError, "live loop failure"):
+            loop.run(f1_live=True)
+        self.assertEqual(loop.face_detector.close_count, 1)
+        self.assertEqual(loop.pose.close_count, 1)
+        self.assertEqual(loop.face_landmarker.close_count, 1)
+        loop.pipeline.stop.assert_called_once()
+
+    def test_face_detector_closed_on_normal_exit(self):
+        loop = FakeLiveLoop().run(f1_live=True)
+        self.assertEqual(loop.face_detector.close_count, 1)
+
+
+# ------------------------------------------------- live F1-5 RF engineering demo
+# Synthetic artifacts/frames verify software behavior only; they are not
+# evidence of posture-classification accuracy.
+import json
+from pathlib import Path
+
+import f1_demo_rf
+import test_f1_demo_rf as demo_fixtures
+import train_f1_demo_rf
+
+
+class StubDemoModel:
+    """Stands in for F1DemoRFModel; records exactly what it is asked."""
+
+    def __init__(self, label="upright", *, error=None):
+        self.label = label
+        self.error = error
+        self.calls = []
+
+    def predict(self, features):
+        self.calls.append(features)
+        if self.error is not None:
+            raise self.error
+        return f1_demo_rf.F1DemoPrediction(
+            f1_demo_rf.PREDICTION_AVAILABLE, self.label, "model prediction"
+        )
+
+
+def stub_state(model):
+    return probe.RFDemoModelState(
+        probe.RF_MODEL_LOADED, model, "stub.json", "verified at startup"
+    )
+
+
+def rf_panel_texts(rf_demo, width=1911):
+    return [item[0] for item in probe.rf_demo_panel_layout_items(rf_demo, width)]
+
+
+class SequencePoseTask(FakeTask):
+    """Returns a different synthetic Pose result for each successive frame."""
+
+    def __init__(self, results):
+        super().__init__(results[0])
+        self.results = list(results)
+
+    def detect_for_video(self, image, timestamp_ms):
+        self.result = self.results[len(self.video_calls)]
+        return super().detect_for_video(image, timestamp_ms)
+
+
+class RFDemoArtifactCase(unittest.TestCase):
+    """Trains one tiny synthetic artifact with the real demo trainer."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls._tmp.name)
+        csv_path = cls.root / "synthetic_frames.csv"
+        demo_fixtures.write_canonical_csv(csv_path, demo_fixtures.synthetic_rows())
+        cls.model_path = cls.root / "f1_demo_rf.json"
+        cls.document = train_f1_demo_rf.train_f1_demo_rf(
+            [csv_path], cls.model_path, n_estimators=7, max_features=5,
+            random_seed=3,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def write_document(self, name, document, *, resign=True):
+        document = json.loads(json.dumps(document))
+        if resign:
+            signed = {
+                "artifact_format": document["artifact_format"],
+                "payload": document["payload"],
+            }
+            document["integrity"]["sha256"] = f1_demo_rf.artifact_integrity_sha256(signed)
+        path = self.root / name
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return path
+
+
+class RFDemoCliTests(unittest.TestCase):
+    def test_cli_default_is_unchanged(self):
+        args = probe.parse_args([])
+        self.assertIsNone(args.rf_demo_model)
+        self.assertFalse(args.f1_live)
+        with mock.patch.object(probe, "run_probe") as run_probe:
+            self.assertEqual(probe.main([]), 0)
+        run_probe.assert_called_once_with(
+            None,
+            face_diag_csv_path=None,
+            show_3d_views=None,
+            panel_mode="summary",
+            pyvista_view=False,
+            pyvista_anchor="shoulder",
+            f1_live=False,
+            rf_demo_model_path=None,
+        )
+
+    def test_f1_live_alone_is_unchanged(self):
+        self.assertIsNone(probe.parse_args(["--f1-live"]).rf_demo_model)
+        texts = f1_panel_texts(live_f1())
+        self.assertEqual(texts[1:3], list(probe.F1_LIVE_BANNERS))
+        self.assertIn("NO POSTURE CLASSIFICATION", texts)
+        image = np.zeros((IMAGE_H, IMAGE_W, 3), dtype=np.uint8)
+        display = probe.draw_engineering_panel(
+            image, readable_summary_result(), True, face_detected=True,
+            face_matrix=np.eye(4), face_matrix_values=valid_matrix_values(),
+            live_f1=live_f1(),
+        )
+        self.assertEqual(display.shape, (760 + probe.F1_PANEL_HEIGHT, 1911, 3))
+        with mock.patch.object(probe.f1_demo_rf, "load_f1_demo_model") as load:
+            loop = FakeLiveLoop().run(f1_live=True)
+        load.assert_not_called()
+        self.assertEqual(
+            loop.main_window_shapes(), [(760 + probe.F1_PANEL_HEIGHT, 1911, 3)]
+        )
+
+    def test_rf_demo_requires_f1_live(self):
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            probe.parse_args(["--rf-demo-model", "model.json"])
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            probe.parse_args(["--views", "side", "--rf-demo-model", "model.json"])
+        with self.assertRaisesRegex(ValueError, "requires f1_live"):
+            probe.run_probe(rf_demo_model_path="model.json")
+
+    def test_rf_demo_path_is_forwarded_with_existing_options(self):
+        argv = ["--views", "side", "--f1-live", "--rf-demo-model", "m.json"]
+        args = probe.parse_args(argv)
+        self.assertEqual(args.rf_demo_model, "m.json")
+        self.assertTrue(args.f1_live)
+        self.assertEqual(args.views, "side")
+        with mock.patch.object(probe, "run_probe") as run_probe:
+            self.assertEqual(probe.main(argv), 0)
+        run_probe.assert_called_once_with(
+            None,
+            face_diag_csv_path=None,
+            show_3d_views="side",
+            panel_mode="summary",
+            pyvista_view=False,
+            pyvista_anchor="shoulder",
+            f1_live=True,
+            rf_demo_model_path="m.json",
+        )
+        args = probe.parse_args(
+            ["--pyvista", "--pyvista-anchor", "camera", *argv]
+        )
+        self.assertEqual(args.pyvista_anchor, "camera")
+        self.assertEqual(args.views, "side")
+
+
+class RFDemoModelTests(RFDemoArtifactCase):
+    def test_valid_artifact_loads_once_into_verified_model(self):
+        with mock.patch.object(
+            probe.f1_demo_rf, "load_f1_demo_model",
+            wraps=probe.f1_demo_rf.load_f1_demo_model,
+        ) as load:
+            state = probe.load_rf_demo_model(self.model_path)
+        load.assert_called_once_with(self.model_path)
+        self.assertEqual(state.status, probe.RF_MODEL_LOADED)
+        self.assertIsInstance(state.model, f1_demo_rf.F1DemoRFModel)
+        self.assertEqual(state.artifact_name, "f1_demo_rf.json")
+        self.assertEqual(
+            state.model.metadata, self.document["payload"]["metadata"]
+        )
+
+    def test_missing_artifact_fails_closed(self):
+        state = probe.load_rf_demo_model(self.root / "absent.json")
+        self.assertEqual(state.status, probe.RF_MODEL_NOT_LOADED)
+        self.assertIsNone(state.model)
+        frame = probe.rf_demo_frame(state, live_f1())
+        self.assertEqual(frame.prediction, probe.RF_PREDICTION_UNAVAILABLE)
+        self.assertIsNone(frame.label)
+        self.assertTrue(frame.reason.startswith("MODEL NOT LOADED:"))
+        self.assertIn("Model: NOT LOADED | absent.json", rf_panel_texts(frame))
+
+    def test_invalid_artifacts_fail_closed(self):
+        corrupt = self.root / "corrupt.json"
+        corrupt.write_text("{not json", encoding="utf-8")
+        tampered = json.loads(json.dumps(self.document))
+        tampered["payload"]["metadata"]["class_labels"][0] = "lean_back"
+        wrong_order = json.loads(json.dumps(self.document))
+        wrong_order["payload"]["metadata"]["feature_names"][0:2] = ["fs_y", "fs_x"]
+        wrong_format = json.loads(json.dumps(self.document))
+        wrong_format["artifact_format"] = "aiot-f1-demo-rf/9.9.9"
+        cases = {
+            "corrupt json": (corrupt, "could not read"),
+            "integrity": (self.write_document("tampered.json", tampered, resign=False), "integrity"),
+            "feature order": (self.write_document("wrong_order.json", wrong_order), "feature_names"),
+            "format": (self.write_document("wrong_format.json", wrong_format), "artifact format"),
+            "directory": (self.root, ""),
+        }
+        for name, (path, detail) in cases.items():
+            with self.subTest(name=name):
+                state = probe.load_rf_demo_model(path)
+                self.assertEqual(state.status, probe.RF_MODEL_INVALID)
+                self.assertIsNone(state.model)
+                self.assertIn(detail, state.detail)
+                frame = probe.rf_demo_frame(state, live_f1())
+                self.assertEqual(frame.prediction, probe.RF_PREDICTION_UNAVAILABLE)
+                self.assertIsNone(frame.label)
+                self.assertTrue(frame.reason.startswith("MODEL INVALID:"))
+
+    def test_displayed_label_is_the_actual_model_output(self):
+        state = probe.load_rf_demo_model(self.model_path)
+        live = live_f1()
+        expected = state.model.predict(live.result)
+        self.assertEqual(expected.status, f1_demo_rf.PREDICTION_AVAILABLE)
+        frame = probe.rf_demo_frame(state, live)
+        self.assertEqual(frame.label, expected.label)
+        self.assertEqual(frame.prediction, probe.RF_DISPLAY_LABELS[expected.label])
+        self.assertEqual(frame.model_status, probe.RF_MODEL_LOADED)
+
+    def test_display_labels_cover_exactly_the_demo_classes(self):
+        self.assertEqual(tuple(probe.RF_DISPLAY_LABELS), f1_demo_rf.CLASS_LABELS)
+        self.assertEqual(
+            tuple(probe.RF_DISPLAY_LABELS.values()),
+            ("UPRIGHT", "FORWARD HEAD", "BODY FORWARD"),
+        )
+
+    def test_three_supported_labels_are_displayed(self):
+        for label, display in probe.RF_DISPLAY_LABELS.items():
+            with self.subTest(label=label):
+                model = StubDemoModel(label)
+                frame = probe.rf_demo_frame(stub_state(model), live_f1())
+                self.assertEqual(frame.prediction, display)
+                self.assertEqual(frame.label, label)
+                self.assertIn(f"Prediction: {display}", rf_panel_texts(frame))
+
+    def test_unsupported_or_failing_model_output_is_never_shown_as_label(self):
+        for model in (
+            StubDemoModel("lean_back"),
+            StubDemoModel(None),
+            StubDemoModel(error=RuntimeError("boom")),
+        ):
+            with self.subTest(label=model.label, error=model.error):
+                frame = probe.rf_demo_frame(stub_state(model), live_f1())
+                self.assertEqual(frame.prediction, probe.RF_PREDICTION_UNAVAILABLE)
+                self.assertIsNone(frame.label)
+
+    def test_missing_hip_makes_prediction_unavailable(self):
+        state = probe.load_rf_demo_model(self.model_path)
+        live = live_f1(pose=live_pose_result(i24=pose_landmark(0.44, 1.02)))
+        frame = probe.rf_demo_frame(state, live)
+        self.assertEqual(frame.prediction, probe.RF_PREDICTION_UNAVAILABLE)
+        self.assertIsNone(frame.label)
+        self.assertEqual(frame.reason, "missing sh_x, sh_y (right_hip_valid:false)")
+        self.assertEqual(frame.model_status, probe.RF_MODEL_LOADED)
+
+    def test_missing_face_makes_prediction_unavailable(self):
+        state = probe.load_rf_demo_model(self.model_path)
+        frame = probe.rf_demo_frame(state, live_f1(detector=face_detector_result()))
+        self.assertEqual(frame.prediction, probe.RF_PREDICTION_UNAVAILABLE)
+        self.assertIsNone(frame.label)
+        self.assertEqual(frame.reason, "missing fs_x, fs_y (face_detected:false)")
+
+    def test_no_stale_prediction_after_incomplete_frame(self):
+        state = probe.load_rf_demo_model(self.model_path)
+        complete = probe.rf_demo_frame(state, live_f1())
+        self.assertIsNotNone(complete.label)
+        for live in (
+            live_f1(detector=face_detector_result()),
+            live_f1(pose=types.SimpleNamespace(pose_landmarks=[])),
+        ):
+            frame = probe.rf_demo_frame(state, live)
+            self.assertIsNone(frame.label)
+            self.assertEqual(frame.prediction, probe.RF_PREDICTION_UNAVAILABLE)
+            self.assertNotIn(complete.prediction, " ".join(rf_panel_texts(frame)))
+        self.assertEqual(probe.rf_demo_frame(state, live_f1()), complete)
+
+    def test_no_baseline_calibration_or_frame_history(self):
+        model = StubDemoModel("forward_head")
+        state = stub_state(model)
+        upright = live_f1()
+        shifted = live_f1(pose=live_pose_result(
+            i11=pose_landmark(0.66, 0.45), i12=pose_landmark(0.46, 0.47)
+        ))
+        for live in (upright, shifted, upright):
+            probe.rf_demo_frame(state, live)
+        # Each call passes exactly that frame's own F1-5 result, nothing else.
+        self.assertEqual(
+            [id(call) for call in model.calls],
+            [id(upright.result), id(shifted.result), id(upright.result)],
+        )
+        real = probe.load_rf_demo_model(self.model_path)
+        alone = probe.rf_demo_frame(real, shifted)
+        probe.rf_demo_frame(real, upright)
+        self.assertEqual(probe.rf_demo_frame(real, shifted), alone)
+        metadata = json.dumps(self.document["payload"]["metadata"]).lower()
+        self.assertNotIn("baseline", metadata)
+        self.assertNotIn("calibration", metadata)
+
+    def test_rf_demo_is_separate_from_research_classifier(self):
+        import posture_prediction
+
+        self.assertNotEqual(f1_demo_rf.CLASS_LABELS, posture_prediction.LAB5_LABELS)
+        self.assertIn(
+            "not approved research M0/M1/M2",
+            self.document["payload"]["metadata"]["training"]["purpose"],
+        )
+
+
+class RFDemoDisplayTests(unittest.TestCase):
+    def frame(self, label="upright"):
+        return probe.rf_demo_frame(stub_state(StubDemoModel(label)), live_f1())
+
+    def test_rf_panel_shows_unvalidated_banners_state_and_prediction(self):
+        texts = rf_panel_texts(self.frame("body_forward"))
+        self.assertEqual(texts[0], "RF POSTURE DEMO — UNVALIDATED")
+        self.assertIn("ENGINEERING RF DEMO — ACCURACY NOT VALIDATED", texts)
+        self.assertIn(probe.RF_DEMO_BANNERS[1], texts)
+        self.assertIn("Model: LOADED | stub.json", texts)
+        self.assertIn("Prediction: BODY FORWARD", texts)
+        self.assertIn(f"Reason: {probe.RF_AVAILABLE_REASON}", texts)
+
+    def test_f1_strip_states_rf_mode_without_changing_its_values(self):
+        live = live_f1()
+        plain = probe.f1_panel_layout_items(live, 1911)
+        rf_mode = probe.f1_panel_layout_items(live, 1911, rf_demo_enabled=True)
+        self.assertEqual(len(plain), len(rf_mode))
+        differing = [(a, b) for a, b in zip(plain, rf_mode) if a != b]
+        self.assertEqual(len(differing), 1)
+        self.assertEqual(differing[0][0][0], "NO POSTURE CLASSIFICATION")
+        self.assertEqual(differing[0][1][0], probe.F1_LIVE_RF_DEMO_BANNERS[1])
+        self.assertEqual(differing[0][0][1:], differing[0][1][1:])
+
+    def test_rf_strip_is_appended_without_changing_existing_display(self):
+        image = np.zeros((IMAGE_H, IMAGE_W, 3), dtype=np.uint8)
+        kwargs = dict(
+            pose_detected=True, face_detected=True, face_matrix=np.eye(4),
+            face_matrix_values=valid_matrix_values(),
+        )
+        live = live_f1()
+        for mode in ("summary", "debug"):
+            with self.subTest(mode=mode):
+                base = probe.draw_engineering_panel(
+                    image, readable_summary_result(), panel_mode=mode, **kwargs
+                )
+                with_rf = probe.draw_engineering_panel(
+                    image, readable_summary_result(), panel_mode=mode,
+                    live_f1=live, rf_demo=self.frame(), **kwargs
+                )
+                self.assertEqual(with_rf.shape, (
+                    760 + probe.F1_PANEL_HEIGHT + probe.RF_DEMO_PANEL_HEIGHT,
+                    1911, 3,
+                ))
+                np.testing.assert_array_equal(with_rf[:760], base)
+                np.testing.assert_array_equal(
+                    with_rf[760:760 + probe.F1_PANEL_HEIGHT],
+                    probe.draw_f1_live_panel(live, 1911, rf_demo_enabled=True),
+                )
+
+    def test_rf_layout_fits_korean_font_without_overlap(self):
+        from PIL import Image, ImageDraw
+
+        fonts = probe._load_korean_fonts()
+        self.assertIsNotNone(fonts)
+        long_state = probe.RFDemoModelState(
+            probe.RF_MODEL_INVALID, None, "x" * 200 + ".json", "W" * 400
+        )
+        frames = (
+            self.frame("forward_head"),
+            probe.rf_demo_frame(long_state, live_f1()),
+            probe.rf_demo_frame(stub_state(StubDemoModel()), live_f1(
+                face_detector_result(), types.SimpleNamespace(pose_landmarks=[])
+            )),
+        )
+        height = probe.RF_DEMO_PANEL_HEIGHT
+        draw = ImageDraw.Draw(Image.new("RGB", (1911, height)))
+        for frame in frames:
+            boxes = []
+            for text, x, y, font_key, _, anchor in probe.rf_demo_panel_layout_items(frame, 1911):
+                box = draw.textbbox((x, y), text, font=fonts[font_key], anchor=anchor)
+                self.assertGreaterEqual(box[0], 0, msg=text)
+                self.assertGreaterEqual(box[1], 0, msg=text)
+                self.assertLessEqual(box[2], 1911, msg=text)
+                self.assertLessEqual(box[3], height, msg=text)
+                boxes.append((box, text))
+            for index, (first, first_text) in enumerate(boxes):
+                for second, second_text in boxes[index + 1:]:
+                    overlap = (
+                        first[0] < second[2] and second[0] < first[2]
+                        and first[1] < second[3] and second[1] < first[3]
+                    )
+                    self.assertFalse(overlap, msg=f"{first_text!r} / {second_text!r}")
+
+    def test_rf_strip_falls_back_to_ascii_without_korean_font(self):
+        import cv2
+
+        with mock.patch.object(probe, "_load_korean_fonts", return_value=None), \
+                mock.patch.object(probe, "_FONT_WARNING_EMITTED", True), \
+                mock.patch.object(cv2, "putText", wraps=cv2.putText) as put_text:
+            panel = probe.draw_rf_demo_panel(self.frame(), 1911)
+        self.assertEqual(panel.shape, (probe.RF_DEMO_PANEL_HEIGHT, 1911, 3))
+        drawn = [call.args[1] for call in put_text.call_args_list]
+        self.assertIn("RF POSTURE DEMO - UNVALIDATED", drawn)
+        self.assertIn("ENGINEERING RF DEMO - ACCURACY NOT VALIDATED", drawn)
+        self.assertTrue(all(text.isascii() for text in drawn))
+
+    def test_rf_values_never_enter_existing_csv_headers(self):
+        for name in ("prediction", "label", "rf_demo", "model_status", *f1_demo_rf.CLASS_LABELS):
+            self.assertNotIn(name, probe.CSV_FIELDS)
+            self.assertNotIn(name, probe.FACE_DIAGNOSTIC_FIELDS)
+
+
+class RFDemoLoopTests(RFDemoArtifactCase):
+    def run_rf(self, loop=None, **kwargs):
+        loop = loop or FakeLiveLoop()
+        kwargs.setdefault("f1_live", True)
+        kwargs.setdefault("rf_demo_model_path", str(self.model_path))
+        with mock.patch.object(
+            probe, "draw_engineering_panel", wraps=probe.draw_engineering_panel
+        ) as draw:
+            loop.run(**kwargs)
+        loop.rf_frames = [call.kwargs["rf_demo"] for call in draw.call_args_list]
+        return loop
+
+    def test_model_is_loaded_once_and_reused_across_frames(self):
+        original_predict = f1_demo_rf.F1DemoRFModel.predict
+        with mock.patch.object(
+            probe.f1_demo_rf, "load_f1_demo_model",
+            wraps=probe.f1_demo_rf.load_f1_demo_model,
+        ) as load, mock.patch.object(
+            probe.f1_demo_rf, "predict_f1_demo",
+            side_effect=AssertionError("per-frame artifact reload"),
+        ), mock.patch.object(
+            f1_demo_rf.F1DemoRFModel, "predict", autospec=True,
+            side_effect=original_predict,
+        ) as predict:
+            loop = self.run_rf(FakeLiveLoop(frame_count=3))
+        load.assert_called_once_with(str(self.model_path))
+        self.assertEqual(predict.call_count, 3)
+        models = {id(call.args[0]) for call in predict.call_args_list}
+        self.assertEqual(len(models), 1)
+        self.assertEqual(
+            [call.args[1] for call in predict.call_args_list],
+            [live.result for live in loop.live_results],
+        )
+        self.assertEqual(loop.main_window_shapes(), [(
+            760 + probe.F1_PANEL_HEIGHT + probe.RF_DEMO_PANEL_HEIGHT, 1911, 3,
+        )] * 3)
+        self.assertTrue(all(frame.label is not None for frame in loop.rf_frames))
+        self.assertEqual(loop.created_files, [])
+
+    def test_no_duplicate_mediapipe_inference(self):
+        loop = self.run_rf(FakeLiveLoop(frame_count=3))
+        self.assertEqual(loop.detector_create_count, 1)
+        self.assertEqual(len(loop.pose.video_calls), 3)
+        self.assertEqual(len(loop.face_landmarker.video_calls), 3)
+        self.assertEqual(len(loop.face_detector.image_calls), 3)
+        self.assertEqual(loop.face_detector.video_calls, [])
+        self.assertEqual(len(loop.live_results), 3)
+        self.assertEqual([kind for kind, _ in loop.options], ["pose", "mesh", "face"])
+
+    def test_missing_or_invalid_artifact_runs_without_inventing_labels(self):
+        corrupt = self.root / "loop_corrupt.json"
+        corrupt.write_text("{}", encoding="utf-8")
+        for path, status in (
+            (self.root / "absent.json", probe.RF_MODEL_NOT_LOADED),
+            (corrupt, probe.RF_MODEL_INVALID),
+        ):
+            with self.subTest(status=status):
+                loop = self.run_rf(FakeLiveLoop(frame_count=2), rf_demo_model_path=str(path))
+                self.assertEqual(len(loop.rf_frames), 2)
+                for frame in loop.rf_frames:
+                    self.assertEqual(frame.model_status, status)
+                    self.assertEqual(frame.prediction, probe.RF_PREDICTION_UNAVAILABLE)
+                    self.assertIsNone(frame.label)
+                self.assertEqual(loop.created_files, [])
+
+    def test_no_stale_predictions_across_live_frames(self):
+        loop = FakeLiveLoop(frame_count=4)
+        loop.pose = SequencePoseTask([
+            live_pose_result(),
+            live_pose_result(i24=pose_landmark(0.44, 1.02)),
+            types.SimpleNamespace(pose_landmarks=[]),
+            live_pose_result(),
+        ])
+        self.run_rf(loop)
+        labels = [frame.label for frame in loop.rf_frames]
+        self.assertIsNotNone(labels[0])
+        self.assertIsNone(labels[1])
+        self.assertIsNone(labels[2])
+        self.assertEqual(labels[3], labels[0])
+        self.assertEqual(loop.rf_frames[1].reason, "missing sh_x, sh_y (right_hip_valid:false)")
+        for frame in loop.rf_frames[1:3]:
+            self.assertEqual(frame.prediction, probe.RF_PREDICTION_UNAVAILABLE)
+
+    def test_existing_3d_viewers_are_unaffected(self):
+        def run(**extra):
+            fake_window = mock.Mock()
+            fake_window.update.return_value = True
+            with mock.patch.object(probe.pyvista_viewer, "require_pyvista") as require, \
+                    mock.patch.object(
+                        probe.pyvista_viewer, "PyVistaPostureViewer",
+                        return_value=fake_window,
+                    ) as viewer_class, \
+                    mock.patch.object(
+                        probe.viewer, "render_selected_views",
+                        wraps=probe.viewer.render_selected_views,
+                    ) as render:
+                loop = FakeLiveLoop(frame_count=2)
+                if "rf_demo_model_path" in extra:
+                    self.run_rf(loop, **extra)
+                else:
+                    loop.run(**extra)
+            require.assert_called_once()
+            viewer_class.assert_called_once_with(anchor_mode="camera")
+            fake_window.close.assert_called_once()
+            return loop, fake_window, render
+
+        common = dict(
+            show_3d_views="side", pyvista_view=True, pyvista_anchor="camera",
+            f1_live=True,
+        )
+        base, base_window, base_render = run(**common)
+        rf, rf_window, rf_render = run(
+            rf_demo_model_path=str(self.model_path), **common
+        )
+        shapes = lambda loop: [s for n, s in loop.shown if n == probe.viewer.WINDOW_NAME]
+        self.assertEqual(shapes(rf), shapes(base))
+        self.assertEqual(len(shapes(rf)), 2)
+        self.assertEqual(
+            [call.args[1] for call in rf_render.call_args_list], ["side", "side"]
+        )
+        self.assertEqual(rf_window.update.call_count, base_window.update.call_count)
+        for (rf_call, base_call) in zip(
+            rf_window.update.call_args_list, base_window.update.call_args_list
+        ):
+            self.assertEqual(rf_call.args[0].features, base_call.args[0].features)
+            self.assertEqual(rf_call.args[1], base_call.args[1])
+
+    def test_existing_csv_interfaces_unchanged_with_rf_demo(self):
+        previous_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as directory:
+            engineering = os.path.join(directory, "engineering.csv")
+            face = os.path.join(directory, "face.csv")
+            loop = self.run_rf(
+                FakeLiveLoop(frame_count=2), csv_path=engineering,
+                face_diag_csv_path=face,
+            )
+            with open(engineering, encoding="utf-8") as source:
+                reader = csv.DictReader(source)
+                rows = list(reader)
+            self.assertEqual(tuple(reader.fieldnames), probe.CSV_FIELDS)
+            self.assertEqual(len(rows), 2)
+            with open(face, encoding="utf-8") as source:
+                reader = csv.DictReader(source)
+                face_rows = list(reader)
+            self.assertEqual(tuple(reader.fieldnames), probe.FACE_DIAGNOSTIC_FIELDS)
+            self.assertEqual(len(face_rows), 2)
+            self.assertEqual(sorted(os.listdir(directory)), ["engineering.csv", "face.csv"])
+        self.assertEqual(loop.created_files, [])
+        self.assertEqual(os.getcwd(), previous_cwd)
+
+    def test_cleanup_preserved_when_loop_raises(self):
+        loop = FakeLiveLoop(loop_error=RuntimeError("live loop failure"))
+        with self.assertRaisesRegex(RuntimeError, "live loop failure"):
+            self.run_rf(loop)
+        self.assertEqual(loop.face_detector.close_count, 1)
+        self.assertEqual(loop.pose.close_count, 1)
+        self.assertEqual(loop.face_landmarker.close_count, 1)
+        loop.pipeline.stop.assert_called_once()
+
+    def test_cleanup_preserved_on_normal_exit(self):
+        loop = self.run_rf(FakeLiveLoop(frame_count=2))
+        self.assertEqual(loop.face_detector.close_count, 1)
+        self.assertEqual(loop.pose.close_count, 1)
+        self.assertEqual(loop.face_landmarker.close_count, 1)
+        loop.pipeline.stop.assert_called_once()
 
 
 if __name__ == "__main__":

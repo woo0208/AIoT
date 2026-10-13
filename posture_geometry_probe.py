@@ -1,24 +1,31 @@
 """Live, non-formal D455 probe for exploratory posture geometry.
 
 This tool is intentionally outside the production posture-decision path and the
-canonical frames schema.  It performs no posture classification.  Optional CSV
-output is explicitly exploratory engineering output and is disabled by default.
+canonical frames schema.  By default it performs no posture classification.  The
+opt-in ``--rf-demo-model`` mode shows the separate, unvalidated three-class
+F1-5 engineering RF demo (``f1_demo_rf``); it is not the LAB5 or an approved
+M0/M1/M2 research classifier and is display only.  Optional CSV output is
+explicitly exploratory engineering output and is disabled by default.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 import math
 from numbers import Real
 import os
+from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 import warnings
 
 import numpy as np
 
+import f1_demo_rf
+import f1_features
 import posture_geometry as geometry
 import posture_3d_viewer as viewer
 import posture_pyvista_viewer as pyvista_viewer
@@ -32,6 +39,58 @@ FACE_DIAGNOSTIC_ARTIFACT_KIND = (
 PANEL_HEIGHT = 760
 PANEL_WIDTH = 560
 DEBUG_PAGE_COUNT = 5
+F1_PANEL_HEIGHT = 184
+
+# Opt-in live F1-5 (FEAT-009) display.  Display only: never written to CSV.
+F1_LIVE_TITLE = "F1-5 LIVE — FEAT-009"
+F1_LIVE_BANNERS = (
+    "CALIBRATION-FREE F1-5 — ENGINEERING ONLY",
+    "NO POSTURE CLASSIFICATION",
+)
+F1_LIVE_RF_DEMO_BANNERS = (
+    F1_LIVE_BANNERS[0],
+    "F1-5 FEEDS UNVALIDATED RF DEMO BELOW",
+)
+F1_HIP_DIAGNOSTIC_NOTE = "Hip vis/pres: display only, not validity thresholds"
+
+# Opt-in three-class F1-5 engineering RF demo (f1_demo_rf).  Display only:
+# never written to any file, never smoothed, never carried across frames.
+RF_DEMO_PANEL_HEIGHT = 112
+RF_DEMO_TITLE = "RF POSTURE DEMO — UNVALIDATED"
+RF_DEMO_BANNERS = (
+    "ENGINEERING RF DEMO — ACCURACY NOT VALIDATED",
+    "Not a medical or research-validated posture diagnosis",
+)
+RF_MODEL_LOADED = "LOADED"
+RF_MODEL_NOT_LOADED = "NOT LOADED"
+RF_MODEL_INVALID = "INVALID"
+RF_PREDICTION_UNAVAILABLE = "PREDICTION UNAVAILABLE"
+# Display text for the model-returned label; not a decision rule.
+RF_DISPLAY_LABELS = MappingProxyType({
+    "upright": "UPRIGHT",
+    "forward_head": "FORWARD HEAD",
+    "body_forward": "BODY FORWARD",
+})
+RF_AVAILABLE_REASON = "current-frame F1-5 -> RF model output"
+RF_REASON_MAX_CHARS = 120
+# Exactly the frames-schema/1.0.0 fields read by f1_features.compute_f1_5_frame.
+F1_INPUT_FIELDS = (
+    "face_detected",
+    "face_x",
+    "face_y",
+    "lsh_valid",
+    "rsh_valid",
+    "lsh_x",
+    "lsh_y",
+    "rsh_x",
+    "rsh_y",
+    "left_hip_valid",
+    "right_hip_valid",
+    "left_hip_x_px",
+    "left_hip_y_px",
+    "right_hip_x_px",
+    "right_hip_y_px",
+)
 
 SUMMARY_LABELS_KO = {
     "title": "D455 자세 측정 — 개발용",
@@ -268,9 +327,28 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
               "shoulder midpoint; 'camera' locks it once and keeps it fixed in "
               "camera coordinates; display only, requires --pyvista"),
     )
+    parser.add_argument(
+        "--f1-live",
+        action="store_true",
+        help=("also compute and display calibration-free F1-5 (FEAT-009) "
+              "from each live frame using the canonical FaceDetector bbox "
+              "centre and the same PoseLandmarker result; engineering display "
+              "only, no posture classification, no file output"),
+    )
+    parser.add_argument(
+        "--rf-demo-model",
+        metavar="PATH",
+        default=None,
+        help=("also show the UNVALIDATED three-class F1-5 engineering RF demo "
+              "prediction from this explicit f1_demo_rf JSON artifact, loaded "
+              "and verified once at startup; requires --f1-live; display only, "
+              "no file output, not a research or medical classifier"),
+    )
     args = parser.parse_args(argv)
     if args.pyvista_anchor != pyvista_viewer.VIEW_ANCHOR_SHOULDER and not args.pyvista:
         parser.error("--pyvista-anchor requires --pyvista")
+    if args.rf_demo_model is not None and not args.f1_live:
+        parser.error("--rf-demo-model requires --f1-live")
     return args
 
 
@@ -1036,6 +1114,406 @@ def engineering_panel_diagnostic_lines(
     )
 
 
+def largest_face_detection(face_detector_result: Any) -> Any | None:
+    """Select the FaceDetector detection exactly as analyze_d455 does.
+
+    The largest bounding-box area wins; ``max`` keeps the first on ties.
+    """
+
+    detections = getattr(face_detector_result, "detections", None)
+    if not detections:
+        return None
+    return max(
+        detections,
+        key=lambda detection: (
+            detection.bounding_box.width * detection.bounding_box.height
+        ),
+    )
+
+
+def _first_pose_landmarks(pose_result: Any) -> Any | None:
+    poses = getattr(pose_result, "pose_landmarks", None)
+    return poses[0] if poses else None
+
+
+def _pose_landmark(landmarks: Any, index: int) -> Any | None:
+    if landmarks is None or len(landmarks) <= index:
+        return None
+    return landmarks[index]
+
+
+def f1_frame_input(
+    face_detector_result: Any,
+    pose_result: Any,
+    image_width: int,
+    image_height: int,
+) -> dict[str, Any]:
+    """Build the canonical-compatible F1-5 input fields for one live frame.
+
+    Mirrors analyze_d455 frames-schema/1.0.0 semantics on the original
+    (non-mirrored) color image: F is the largest FaceDetector bbox centre in
+    pixels; shoulders are Pose 11/12 whose pixel values are kept whenever a
+    pose exists while validity comes only from ``landmark_in_frame``; hips are
+    Pose 23/24 with pixel values only when in frame.  Unavailable values stay
+    ``None``.  No depth, visibility, presence or previous frame is used.
+    """
+
+    import analyze_d455 as canonical
+
+    row: dict[str, Any] = dict.fromkeys(F1_INPUT_FIELDS)
+    row["face_detected"] = bool(
+        getattr(face_detector_result, "detections", None)
+    )
+    detection = largest_face_detection(face_detector_result)
+    if detection is not None:
+        box = detection.bounding_box
+        row["face_x"] = box.origin_x + box.width / 2
+        row["face_y"] = box.origin_y + box.height / 2
+
+    landmarks = _first_pose_landmarks(pose_result)
+    for prefix, index in (
+        ("lsh", canonical.SHOULDER_L),
+        ("rsh", canonical.SHOULDER_R),
+    ):
+        landmark = _pose_landmark(landmarks, index)
+        row[f"{prefix}_valid"] = canonical.landmark_in_frame(landmark)
+        if landmark is not None:
+            row[f"{prefix}_x"] = landmark.x * image_width
+            row[f"{prefix}_y"] = landmark.y * image_height
+    for side, index in (("left", canonical.HIP_L), ("right", canonical.HIP_R)):
+        landmark = _pose_landmark(landmarks, index)
+        valid = canonical.landmark_in_frame(landmark)
+        row[f"{side}_hip_valid"] = valid
+        if valid:
+            row[f"{side}_hip_x_px"] = landmark.x * image_width
+            row[f"{side}_hip_y_px"] = landmark.y * image_height
+    return row
+
+
+def hip_display_diagnostics(pose_result: Any) -> dict[str, dict[str, Any]]:
+    """Hip visibility/presence for display only; never a validity threshold."""
+
+    import analyze_d455 as canonical
+
+    landmarks = _first_pose_landmarks(pose_result)
+    output: dict[str, dict[str, Any]] = {}
+    for side, index in (("left", canonical.HIP_L), ("right", canonical.HIP_R)):
+        landmark = _pose_landmark(landmarks, index)
+        output[side] = {
+            "landmark_present": landmark is not None,
+            "visibility": _finite_float(getattr(landmark, "visibility", None)),
+            "presence": _finite_float(getattr(landmark, "presence", None)),
+        }
+    return output
+
+
+@dataclass(frozen=True)
+class LiveF1Frame:
+    """One live frame's F1-5 input, FEAT-009 result and hip display values."""
+
+    frame: Mapping[str, Any]
+    result: f1_features.F1FrameResult
+    hip_diagnostics: Mapping[str, Mapping[str, Any]]
+
+
+def compute_live_f1(
+    face_detector_result: Any,
+    pose_result: Any,
+    image_width: int,
+    image_height: int,
+) -> LiveF1Frame:
+    """Compute F1-5 from the current frame only (no baseline or history)."""
+
+    frame = f1_frame_input(
+        face_detector_result, pose_result, image_width, image_height
+    )
+    return LiveF1Frame(
+        frame=MappingProxyType(frame),
+        result=f1_features.compute_f1_5_frame(frame),
+        hip_diagnostics=MappingProxyType(hip_display_diagnostics(pose_result)),
+    )
+
+
+def _f1_value_text(value: Any) -> str:
+    finite = _finite_float(value)
+    return "N/A" if finite is None else f"{finite:+.3f}"
+
+
+def _f1_family_status_text(result: f1_features.F1FrameResult, family: str) -> str:
+    if result.family_available.get(family) is True:
+        return f"{family} status: AVAILABLE"
+    reasons = result.family_reasons.get(family) or ()
+    if not reasons:
+        return f"{family} status: N/A"
+    return f"{family} status: N/A — {', '.join(reasons)}"
+
+
+def _f1_hip_status_text(live_f1: LiveF1Frame, side: str) -> str:
+    diagnostics = live_f1.hip_diagnostics[side]
+    if live_f1.frame[f"{side}_hip_valid"] is True:
+        state = "IN"
+    elif diagnostics["landmark_present"]:
+        state = "OUT"
+    else:
+        state = "OUT (no landmark)"
+
+    def score(value: Any) -> str:
+        return "N/A" if value is None else f"{value:.2f}"
+
+    return (
+        f"{side.capitalize()} Hip: {state} | "
+        f"vis {score(diagnostics['visibility'])} | "
+        f"pres {score(diagnostics['presence'])}"
+    )
+
+
+def f1_panel_layout_items(
+    live_f1: LiveF1Frame, width: int, *, rf_demo_enabled: bool = False
+) -> tuple[tuple[str, int, int, str, tuple[int, int, int], str], ...]:
+    """Text items for the F1-5 strip: (text, x, y, font, BGR, anchor).
+
+    ``rf_demo_enabled`` only swaps the second banner so the strip does not
+    claim "no classification" above the RF demo strip.
+    """
+
+    banners = F1_LIVE_RF_DEMO_BANNERS if rf_demo_enabled else F1_LIVE_BANNERS
+    text = (235, 235, 235)
+    muted = (170, 170, 170)
+    accent = (0, 210, 255)
+    good = (100, 220, 100)
+    caution = (0, 190, 255)
+    result = live_f1.result
+    right = width - 16
+    y0, step = 64, 23
+    items = [
+        (F1_LIVE_TITLE, 16, 10, "section", accent, "lt"),
+        (banners[0], right, 10, "body", caution, "rt"),
+        (banners[1], right, 34, "body", caution, "rt"),
+    ]
+    for row, name in enumerate(f1_features.F1_5_FEATURE_NAMES):
+        unit = f1_features.F1_5_FEATURE_UNITS[name]
+        label = f"{name} ({unit})" if unit == "rad" else name
+        value = result.features.get(name)
+        items.append((
+            f"{label}: {_f1_value_text(value)}",
+            16, y0 + row * step, "body",
+            caution if _finite_float(value) is None else text, "lt",
+        ))
+    for row, family in enumerate(f1_features.F1_FAMILIES):
+        available = result.family_available.get(family) is True
+        items.append((
+            _f1_family_status_text(result, family),
+            260, y0 + row * step, "body",
+            good if available else caution, "lt",
+        ))
+    for row, side in enumerate(("left", "right")):
+        inside = live_f1.frame[f"{side}_hip_valid"] is True
+        items.append((
+            _f1_hip_status_text(live_f1, side),
+            right, y0 + row * step, "body",
+            good if inside else caution, "rt",
+        ))
+    items.append((
+        F1_HIP_DIAGNOSTIC_NOTE, right, y0 + 2 * step + 4, "small", muted, "rt"
+    ))
+    return tuple(items)
+
+
+def draw_f1_live_panel(
+    live_f1: LiveF1Frame, width: int, *, rf_demo_enabled: bool = False
+) -> np.ndarray:
+    """Render the opt-in F1-5 strip shown below the existing display."""
+
+    return _draw_text_strip(
+        f1_panel_layout_items(live_f1, width, rf_demo_enabled=rf_demo_enabled),
+        F1_PANEL_HEIGHT,
+        width,
+    )
+
+
+def _draw_text_strip(
+    items: Sequence[tuple[str, int, int, str, tuple[int, int, int], str]],
+    height: int,
+    width: int,
+) -> np.ndarray:
+    panel = np.full((height, width, 3), 18, dtype=np.uint8)
+    panel[:2, :] = 70
+    fonts = _load_korean_fonts()
+    if fonts is not None:
+        from PIL import Image, ImageDraw
+
+        canvas = Image.fromarray(panel[:, :, ::-1])
+        draw = ImageDraw.Draw(canvas)
+        for text, x, y, font_key, bgr, anchor in items:
+            draw.text(
+                (x, y), text, font=fonts[font_key],
+                fill=tuple(reversed(bgr)), anchor=anchor,
+            )
+        return np.asarray(canvas)[:, :, ::-1].copy()
+
+    import cv2
+
+    _warn_font_fallback_once()
+    scales = {"section": .50, "body": .43, "small": .31}
+    for text, x, y, font_key, color, anchor in items:
+        # Hershey fonts are ASCII-only.
+        text = text.replace("—", "-")
+        scale = scales[font_key]
+        (text_width, height), _ = cv2.getTextSize(
+            text, cv2.FONT_HERSHEY_SIMPLEX, scale, 1
+        )
+        origin_x = x - text_width if anchor == "rt" else x
+        cv2.putText(
+            panel, text, (origin_x, y + height), cv2.FONT_HERSHEY_SIMPLEX,
+            scale, color, 1, cv2.LINE_AA,
+        )
+    return panel
+
+
+@dataclass(frozen=True)
+class RFDemoModelState:
+    """RF demo artifact state, resolved once at startup.
+
+    ``model`` is the validated ``f1_demo_rf.F1DemoRFModel`` only when
+    ``status`` is LOADED; otherwise it is ``None`` and nothing is predicted.
+    """
+
+    status: str
+    model: Any | None
+    artifact_name: str
+    detail: str
+
+
+def load_rf_demo_model(path: str | os.PathLike) -> RFDemoModelState:
+    """Load and fully verify the explicit artifact once; fail closed."""
+
+    name = os.path.basename(os.fspath(path)) or os.fspath(path)
+    try:
+        model = f1_demo_rf.load_f1_demo_model(path)
+    except FileNotFoundError:
+        return RFDemoModelState(
+            RF_MODEL_NOT_LOADED, None, name, f"artifact not found: {name}"
+        )
+    except f1_demo_rf.ArtifactValidationError as exc:
+        return RFDemoModelState(
+            RF_MODEL_INVALID, None, name, f"artifact rejected: {exc}"
+        )
+    except Exception as exc:
+        return RFDemoModelState(
+            RF_MODEL_INVALID, None, name, f"artifact load failed: {exc}"
+        )
+    return RFDemoModelState(RF_MODEL_LOADED, model, name, "verified at startup")
+
+
+@dataclass(frozen=True)
+class RFDemoFrame:
+    """One frame's RF demo display state; never reused for another frame."""
+
+    model_status: str
+    artifact_name: str
+    prediction: str
+    label: str | None
+    reason: str
+
+
+def _short_reason(reason: str, limit: int = RF_REASON_MAX_CHARS) -> str:
+    reason = " ".join(str(reason).split())
+    if len(reason) <= limit:
+        return reason
+    return reason[:limit - 3] + "..."
+
+
+def _rf_missing_feature_reason(result: f1_features.F1FrameResult) -> str | None:
+    missing = [
+        name for name in f1_features.F1_5_FEATURE_NAMES
+        if _finite_float(result.features.get(name)) is None
+    ]
+    if not missing:
+        return None
+    causes = sorted({
+        reason
+        for family in f1_features.F1_FAMILIES
+        for reason in result.family_reasons.get(family, ())
+    })
+    suffix = f" ({'; '.join(causes)})" if causes else ""
+    return f"missing {', '.join(missing)}{suffix}"
+
+
+def rf_demo_frame(
+    state: RFDemoModelState, live_f1: LiveF1Frame
+) -> RFDemoFrame:
+    """Predict from the current frame's F1-5 only.
+
+    No smoothing, voting, last-valid substitution, imputation or baseline:
+    an incomplete frame or unusable model is shown as unavailable.
+    """
+
+    def unavailable(reason: str) -> RFDemoFrame:
+        return RFDemoFrame(
+            state.status, state.artifact_name, RF_PREDICTION_UNAVAILABLE,
+            None, _short_reason(reason),
+        )
+
+    if state.status != RF_MODEL_LOADED or state.model is None:
+        return unavailable(f"MODEL {state.status}: {state.detail}")
+    try:
+        prediction = state.model.predict(live_f1.result)
+    except Exception as exc:
+        return unavailable(f"model execution failed: {exc}")
+    if prediction.status != f1_demo_rf.PREDICTION_AVAILABLE:
+        return unavailable(
+            _rf_missing_feature_reason(live_f1.result) or prediction.reason
+        )
+    display = RF_DISPLAY_LABELS.get(prediction.label)
+    if display is None:
+        return unavailable(f"unsupported model label: {prediction.label!r}")
+    return RFDemoFrame(
+        state.status, state.artifact_name, display, prediction.label,
+        RF_AVAILABLE_REASON,
+    )
+
+
+def rf_demo_panel_layout_items(
+    rf_demo: RFDemoFrame, width: int
+) -> tuple[tuple[str, int, int, str, tuple[int, int, int], str], ...]:
+    """Text items for the RF demo strip: (text, x, y, font, BGR, anchor)."""
+
+    muted = (170, 170, 170)
+    accent = (0, 210, 255)
+    good = (100, 220, 100)
+    caution = (0, 190, 255)
+    bad = (80, 100, 255)
+    right = width - 16
+    model_color = {
+        RF_MODEL_LOADED: good,
+        RF_MODEL_NOT_LOADED: caution,
+        RF_MODEL_INVALID: bad,
+    }.get(rf_demo.model_status, bad)
+    available = rf_demo.label is not None
+    return (
+        (RF_DEMO_TITLE, 16, 10, "section", accent, "lt"),
+        (RF_DEMO_BANNERS[0], right, 10, "body", caution, "rt"),
+        (RF_DEMO_BANNERS[1], right, 36, "small", muted, "rt"),
+        (
+            f"Model: {rf_demo.model_status} | {_short_reason(rf_demo.artifact_name, 48)}",
+            16, 38, "body", model_color, "lt",
+        ),
+        (
+            f"Prediction: {rf_demo.prediction}",
+            16, 62, "section", good if available else caution, "lt",
+        ),
+        (f"Reason: {rf_demo.reason}", 16, 88, "body", muted, "lt"),
+    )
+
+
+def draw_rf_demo_panel(rf_demo: RFDemoFrame, width: int) -> np.ndarray:
+    """Render the opt-in RF demo strip shown below the F1-5 strip."""
+
+    return _draw_text_strip(
+        rf_demo_panel_layout_items(rf_demo, width), RF_DEMO_PANEL_HEIGHT, width
+    )
+
+
 def draw_engineering_panel(
     image: Any,
     result: geometry.GeometryResult,
@@ -1046,8 +1524,15 @@ def draw_engineering_panel(
     face_matrix_values: Mapping[str, Any] | None = None,
     panel_mode: str = "summary",
     debug_page: int = 0,
+    live_f1: LiveF1Frame | None = None,
+    rf_demo: RFDemoFrame | None = None,
 ) -> Any:
-    """Add the summary or paged debug panel to an annotated BGR frame."""
+    """Add the summary or paged debug panel to an annotated BGR frame.
+
+    With ``live_f1`` the opt-in F1-5 strip is appended below, and with
+    ``rf_demo`` the opt-in RF demo strip below that; otherwise the display is
+    unchanged.
+    """
 
     import cv2
 
@@ -1070,7 +1555,19 @@ def draw_engineering_panel(
         )
     else:
         raise ValueError(f"unsupported panel mode: {panel_mode!r}")
-    return np.hstack((view, panel))
+    display = np.hstack((view, panel))
+    if live_f1 is not None:
+        display = np.vstack((
+            display,
+            draw_f1_live_panel(
+                live_f1, display.shape[1], rf_demo_enabled=rf_demo is not None
+            ),
+        ))
+    if rf_demo is not None:
+        display = np.vstack((
+            display, draw_rf_demo_panel(rf_demo, display.shape[1])
+        ))
+    return display
 
 
 def _open_csv(path: str | None) -> tuple[Any | None, csv.DictWriter | None]:
@@ -1125,8 +1622,13 @@ def run_probe(
     panel_mode: str = "summary",
     pyvista_view: bool = False,
     pyvista_anchor: str = pyvista_viewer.VIEW_ANCHOR_SHOULDER,
+    f1_live: bool = False,
+    rf_demo_model_path: str | None = None,
 ) -> None:
     """Run the live D455/MediaPipe loop.  Hardware dependencies load only here."""
+
+    if rf_demo_model_path is not None and not f1_live:
+        raise ValueError("rf_demo_model_path requires f1_live")
 
     import cv2
     import mediapipe as mp
@@ -1142,6 +1644,13 @@ def run_probe(
         # Fail before opening the camera when the optional viewer is absent.
         pyvista_viewer.require_pyvista()
 
+    rf_demo_state = None
+    if rf_demo_model_path is not None:
+        # Verified once; every frame reuses this same in-memory model.
+        rf_demo_state = load_rf_demo_model(rf_demo_model_path)
+        print(f"[probe] RF demo model {rf_demo_state.status}: "
+              f"{rf_demo_state.artifact_name} ({rf_demo_state.detail})")
+
     model_paths = analyze_d455.ensure_models()
     pose_options = vision.PoseLandmarkerOptions(
         base_options=mpt.BaseOptions(model_asset_path=model_paths["pose"]),
@@ -1154,6 +1663,13 @@ def run_probe(
         num_faces=analyze_d455.FACE_NUM_FACES,
         output_facial_transformation_matrixes=True,
     )
+    face_detector_options = None
+    if f1_live:
+        # Same locked model and options as analyze_d455 (default IMAGE mode).
+        face_detector_options = vision.FaceDetectorOptions(
+            base_options=mpt.BaseOptions(model_asset_path=model_paths["face"]),
+            min_detection_confidence=analyze_d455.FACE_MIN_DETECTION_CONFIDENCE,
+        )
 
     csv_handle = csv_writer = None
     face_diag_handle = face_diag_writer = None
@@ -1161,6 +1677,7 @@ def run_probe(
     profile = None
     pose_landmarker = None
     face_landmarker = None
+    face_detector = None
     pyvista_window = None
     try:
         csv_handle, csv_writer = _open_csv(csv_path)
@@ -1173,6 +1690,10 @@ def run_probe(
         color_intrinsics = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
         pose_landmarker = vision.PoseLandmarker.create_from_options(pose_options)
         face_landmarker = vision.FaceLandmarker.create_from_options(face_options)
+        if face_detector_options is not None:
+            face_detector = vision.FaceDetector.create_from_options(
+                face_detector_options
+            )
         if pyvista_view:
             pyvista_window = pyvista_viewer.PyVistaPostureViewer(
                 anchor_mode=pyvista_anchor
@@ -1181,7 +1702,14 @@ def run_probe(
         frame_index = 0
         debug_page = 0
         print("[probe] live RGB + aligned depth started; press q in the window to quit")
-        print("[probe] diagnostic-only: no posture classification and no production gate changes")
+        if rf_demo_state is None:
+            print("[probe] diagnostic-only: no posture classification and no production gate changes")
+        else:
+            print("[probe] ENGINEERING RF DEMO - ACCURACY NOT VALIDATED: "
+                  "display only, not written to any file; no production gate changes")
+        if face_detector is not None:
+            print("[probe] F1-5 live (FEAT-009): calibration-free engineering "
+                  "display only; not written to any file")
 
         while True:
             frames = pipeline.wait_for_frames()
@@ -1213,6 +1741,20 @@ def run_probe(
             )
             face_matrix = first_face_transformation_matrix(face_result)
             face_matrix_values = _face_matrix_csv_values(face_matrix)
+            live_f1 = None
+            rf_demo = None
+            if face_detector is not None:
+                # IMAGE-mode FaceDetector on the same RGB image; the Pose
+                # result above is reused rather than inferred again.
+                live_f1 = compute_live_f1(
+                    face_detector.detect(mp_image),
+                    pose_result,
+                    bgr.shape[1],
+                    bgr.shape[0],
+                )
+                if rf_demo_state is not None:
+                    # Same F1-5 result as the F1 strip; no extra inference.
+                    rf_demo = rf_demo_frame(rf_demo_state, live_f1)
             points = geometry.points_from_pose_landmarks(
                 landmarks,
                 bgr.shape[1],
@@ -1243,6 +1785,8 @@ def run_probe(
                 face_matrix_values=face_matrix_values,
                 panel_mode=panel_mode,
                 debug_page=debug_page,
+                live_f1=live_f1,
+                rf_demo=rf_demo,
             )
             cv2.imshow(WINDOW_NAME, display)
             if show_3d_views:
@@ -1291,6 +1835,8 @@ def run_probe(
             pose_landmarker.close()
         if face_landmarker is not None:
             face_landmarker.close()
+        if face_detector is not None:
+            face_detector.close()
         if profile is not None:
             pipeline.stop()
         if csv_handle is not None:
@@ -1311,6 +1857,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         panel_mode=args.panel_mode,
         pyvista_view=args.pyvista,
         pyvista_anchor=args.pyvista_anchor,
+        f1_live=args.f1_live,
+        rf_demo_model_path=args.rf_demo_model,
     )
     return 0
 
