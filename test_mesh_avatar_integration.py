@@ -9,6 +9,7 @@ import io
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import textwrap
 import types
@@ -20,6 +21,7 @@ from unittest import mock
 import mesh_avatar_bridge as bridge
 import posture_geometry_probe as probe
 import run_mesh_avatar
+from test_f1_demo_rf import feature_values, synthetic_rows, write_canonical_csv
 from test_posture_geometry_probe import (
     FakeLiveLoop,
     RFDemoArtifactCase,
@@ -320,6 +322,62 @@ class BrowserPredictionViewTests(unittest.TestCase):
             self.view(self.payload(bridge.unavailable_prediction("missing sh_x", frame_id=4)), 10)["reason"],
             "missing sh_x",
         )
+
+    def test_offline_rf_end_to_end_smoke(self):
+        """Synthetic engineering data only; labels are not real posture evidence."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows = synthetic_rows()
+            csv_path = root / "synthetic_engineering_frames.csv"
+            model_path = root / "synthetic_engineering_model.json"
+            write_canonical_csv(csv_path, rows)
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(Path(__file__).with_name("train_f1_demo_rf.py")),
+                    "--input", str(csv_path),
+                    "--output", str(model_path),
+                    "--trees", "31",
+                    "--max-features", "5",
+                    "--seed", "7",
+                ],
+                capture_output=True, text=True, check=True, timeout=60,
+            )
+            state = probe.load_rf_demo_model(model_path)
+            self.assertEqual(state.status, probe.RF_MODEL_LOADED)
+
+            cases = [
+                ("upright", rows[0]),
+                ("forward_head", rows[12]),
+                ("body_forward", rows[24]),
+                (None, dict(rows[0], face_detected="false", face_x="", face_y="")),
+            ]
+            empty_geometry = probe.geometry.GeometryResult(
+                points={}, proxies={}, features={}, points_3d={}
+            )
+            for frame_id, (synthetic_expected_label, row) in enumerate(cases, 1):
+                with self.subTest(synthetic_engineering_label=synthetic_expected_label):
+                    live = types.SimpleNamespace(result=feature_values(row))
+                    rf_demo = probe.rf_demo_frame(state, live)
+                    frame = probe.ProbeFrame(
+                        frame_id, float(frame_id), frame_id, empty_geometry, {}, live, rf_demo
+                    )
+                    payload = bridge.probe_frame_to_payload(frame)
+                    view = self.view(payload, 10)
+
+                    if synthetic_expected_label is None:
+                        self.assertEqual(rf_demo.prediction, probe.RF_PREDICTION_UNAVAILABLE)
+                        self.assertIsNone(rf_demo.label)
+                        self.assertEqual(payload["prediction"]["status"], "unavailable")
+                        self.assertEqual(view["text"], "PREDICTION UNAVAILABLE")
+                    else:
+                        expected_display = probe.RF_DISPLAY_LABELS[synthetic_expected_label]
+                        self.assertEqual(rf_demo.label, synthetic_expected_label)
+                        self.assertEqual(payload["prediction"]["label"], synthetic_expected_label)
+                        self.assertEqual(payload["prediction"]["display"], expected_display)
+                        self.assertEqual(view["text"], expected_display)
 
 
 if __name__ == "__main__":
