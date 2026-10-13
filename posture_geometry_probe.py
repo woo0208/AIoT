@@ -19,7 +19,7 @@ import math
 from numbers import Real
 import os
 from types import MappingProxyType
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 import warnings
 
 import numpy as np
@@ -1416,6 +1416,24 @@ class RFDemoFrame:
     reason: str
 
 
+@dataclass(frozen=True)
+class ProbeFrame:
+    """One completed probe frame, handed to an optional display callback.
+
+    Every field comes from the same RGB/depth frame: ``rf_demo`` is the
+    prediction already shown in the RF strip for this frame (``None`` when the
+    RF demo is not enabled), never a previous frame's.  Display only.
+    """
+
+    frame_index: int
+    device_timestamp_ms: float
+    mediapipe_timestamp_ms: int
+    result: geometry.GeometryResult
+    face_matrix_values: Mapping[str, Any]
+    live_f1: LiveF1Frame | None
+    rf_demo: RFDemoFrame | None
+
+
 def _short_reason(reason: str, limit: int = RF_REASON_MAX_CHARS) -> str:
     reason = " ".join(str(reason).split())
     if len(reason) <= limit:
@@ -1624,8 +1642,13 @@ def run_probe(
     pyvista_anchor: str = pyvista_viewer.VIEW_ANCHOR_SHOULDER,
     f1_live: bool = False,
     rf_demo_model_path: str | None = None,
+    frame_callback: Callable[[ProbeFrame], None] | None = None,
 ) -> None:
-    """Run the live D455/MediaPipe loop.  Hardware dependencies load only here."""
+    """Run the live D455/MediaPipe loop.  Hardware dependencies load only here.
+
+    ``frame_callback``, when given, receives each completed ``ProbeFrame``
+    after the existing windows are drawn (e.g. the browser mesh avatar).
+    """
 
     if rf_demo_model_path is not None and not f1_live:
         raise ValueError("rf_demo_model_path requires f1_live")
@@ -1802,6 +1825,16 @@ def run_probe(
             ):
                 pyvista_window = None
                 print("[probe] PyVista window closed; measurement loop continues")
+            if frame_callback is not None:
+                frame_callback(ProbeFrame(
+                    frame_index=frame_index,
+                    device_timestamp_ms=device_timestamp_ms,
+                    mediapipe_timestamp_ms=timestamp_ms,
+                    result=result,
+                    face_matrix_values=MappingProxyType(dict(face_matrix_values)),
+                    live_f1=live_f1,
+                    rf_demo=rf_demo,
+                ))
 
             if csv_writer is not None:
                 csv_writer.writerow(exploratory_csv_row(
