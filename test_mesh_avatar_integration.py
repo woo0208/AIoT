@@ -264,6 +264,29 @@ class BrowserNoHeuristicJudgementTests(unittest.TestCase):
         self.assertIn("ENGINEERING RF DEMO — ACCURACY NOT VALIDATED", page)
         self.assertIn('<div id="predText" class="pred-na">PREDICTION UNAVAILABLE</div>', page)
 
+    def test_dashboard_layout_and_synthetic_labels(self):
+        page = self.read("index.html")
+        for token in ("AIoT Posture Monitor", "ENGINEERING DEMO", 'id="viewFront"', 'id="viewSide"', 'id="modeChip"',
+                      'id="notice"', 'href="./style.css"'):
+            self.assertIn(token, page)
+        self.assertTrue((WEB_DIR / "style.css").exists())
+        app = self.read("app.js")
+        self.assertIn("'SYNTHETIC'", app)
+        self.assertIn("FBX 로드 실패", app)
+        # display-only layout: diagnostics fall back to N/A, never to invented values
+        self.assertIn("'N/A'", app)
+
+    def test_server_serves_stylesheet(self):
+        server = bridge.start_server(bridge.PoseStore(), port=0)
+        try:
+            base = f"http://127.0.0.1:{server.server_address[1]}"
+            with urllib.request.urlopen(base + "/style.css") as response:
+                self.assertEqual(response.status, 200)
+                self.assertIn(b"predText", response.read())
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_server_serves_prediction_module(self):
         server = bridge.start_server(bridge.PoseStore(), port=0)
         try:

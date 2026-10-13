@@ -1,0 +1,57 @@
+:root {
+  --bg: #14161a; --panel: #1b1f26; --line: #2f3641; --text: #e8eaed; --muted: #9aa3ad;
+  --ok: #6fdc8c; --warn: #f0c36d; --info: #7db8ff; --alert: #ff9e64;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden;
+  font-family: system-ui, "Malgun Gothic", sans-serif; font-size: 14px; }
+/* the WebGL canvas fills the window behind the UI; the avatar views are drawn into the .view rectangles */
+canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+.app { position: fixed; inset: 0; display: grid; grid-template-rows: auto auto 1fr auto; gap: 10px; padding: 12px 16px; pointer-events: none; }
+
+.top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: rgba(27, 31, 38, .9); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; }
+.title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { margin: 0; font-size: 20px; font-weight: 700; }
+.sub { font-size: 13px; color: var(--muted); }
+.eng { font-size: 12px; font-weight: 600; color: var(--warn); letter-spacing: .03em; }
+.top-status { display: flex; align-items: center; gap: 14px; }
+.chip { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.chip.mode-synth { color: var(--info); border-color: var(--info); }
+.chip.mode-live { color: var(--ok); border-color: var(--ok); }
+.conn { display: flex; align-items: center; gap: 6px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.dot.ok { background: var(--ok); } .dot.wait { background: var(--warn); } .dot.demo { background: var(--info); }
+.status-ok { color: var(--ok); } .status-wait { color: var(--warn); } .status-demo { color: var(--info); }
+
+.notice { background: rgba(60, 46, 20, .92); border: 1px solid var(--warn); color: var(--warn); border-radius: 8px; padding: 8px 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.notice[hidden] { display: none; }
+/* explicit rows: a hidden .notice leaves the grid, which would otherwise shift .stage into the auto row (0 height) */
+.top { grid-row: 1; } .notice { grid-row: 2; } .stage { grid-row: 3; } .bottom { grid-row: 4; }
+
+.stage { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-height: 0; }
+.view { position: relative; min-height: 0; border: 1px solid var(--line); border-radius: 8px; }
+.lbl { position: absolute; left: 10px; top: 8px; font-size: 14px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: rgba(20, 22, 26, .75); }
+.lbl small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+
+.bottom { display: grid; grid-template-columns: minmax(300px, 1.2fr) 2fr; gap: 10px; align-items: stretch; }
+.pred { background: rgba(27, 31, 38, .92); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; min-width: 0; }
+.pred-banner { font-size: 12px; font-weight: 700; color: var(--warn); }
+#predText { font-size: clamp(24px, 3.4vw, 40px); font-weight: 800; margin: 4px 0; line-height: 1.1; }
+.pred-upright { color: var(--ok); } .pred-fh, .pred-bf { color: var(--alert); } .pred-na { color: var(--muted); }
+.pred-reason { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+
+.diag { display: flex; flex-wrap: wrap; gap: 6px 22px; align-content: center; margin: 0; padding: 10px 14px; min-width: 0;
+  background: rgba(27, 31, 38, .92); border: 1px solid var(--line); border-radius: 8px; }
+.diag > div { min-width: 90px; }
+.diag dt { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.diag dd { margin: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.adv { grid-column: 1 / -1; font-size: 11px; color: var(--muted); pointer-events: auto; }
+.adv summary { cursor: pointer; width: fit-content; }
+.adv:not([open]) { line-height: 1.2; }
+
+@media (max-width: 900px) {
+  .stage { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  .bottom { grid-template-columns: 1fr; }
+}
+@media (max-height: 640px) { .adv { display: none; } }

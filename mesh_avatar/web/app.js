@@ -75,7 +75,15 @@ const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
 const statusEl = document.getElementById('status');
 const infoEl = document.getElementById('info');
-function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls; }
+const noticeEl = document.getElementById('notice');
+const dotEl = document.getElementById('connDot');
+const modeChipEl = document.getElementById('modeChip');
+function setStatus(text, cls) {
+  statusEl.textContent = text; statusEl.className = cls;
+  dotEl.className = 'dot ' + cls.replace('status-', '');
+}
+// persistent readable message (e.g. missing FBX); display only
+function setNotice(text) { noticeEl.textContent = text || ''; noticeEl.hidden = !text; }
 
 // camera frame (+X right, +Y down, +Z away) -> avatar world (Y up, avatar faces +Z, avatar-left = +X)
 // First undo the camera's downward pitch about its X axis (camera frame -> level frame), then flip axes.
@@ -362,7 +370,7 @@ new FBXLoader().load('./models/' + MODEL_FILE, (obj) => {
     'RightArm', 'RightForeArm', 'RightHand', 'LeftUpLeg', 'LeftLeg', 'LeftFoot', 'LeftToeBase',
     'RightUpLeg', 'RightLeg', 'RightFoot', 'RightToeBase'];
   const missing = need.filter((n) => !bones[n]);
-  if (missing.length) { setStatus('뼈대 누락: ' + missing.join(', '), 'status-wait'); return; }
+  if (missing.length) { setStatus('뼈대 누락', 'status-wait'); setNotice('뼈대 누락: ' + missing.join(', ')); return; }
 
   // normalise to a 1.75 m human, feet on the floor, in T-pose
   obj.updateMatrixWorld(true);
@@ -400,8 +408,9 @@ new FBXLoader().load('./models/' + MODEL_FILE, (obj) => {
 }, undefined, (e) => {
   console.error(e);
   // The model is not in Git and is never downloaded automatically; RF panel keeps updating without it.
-  setStatus('FBX 로드 실패 — mesh_avatar/web/models/' + MODEL_FILE + ' 없음 또는 손상. '
-    + '자동 다운로드하지 않습니다: 직접 받아 넣으세요 (mesh_avatar/README.md). RF 예측 표시는 계속됩니다.', 'status-wait');
+  setStatus('FBX 로드 실패', 'status-wait');
+  setNotice('FBX 로드 실패 — mesh_avatar/web/models/' + MODEL_FILE + ' 없음 또는 손상. '
+    + '자동 다운로드하지 않습니다: 직접 받아 넣으세요 (mesh_avatar/README.md). RF 예측 표시는 계속됩니다.');
 });
 
 // ---------- data ----------
@@ -474,13 +483,48 @@ function demoJoints(t) {
 }
 
 // ---------- render ----------
-function resize() {
-  const w = innerWidth, h = innerHeight;
-  renderer.setSize(w, h, false);
-  frontCam.aspect = sideCam.aspect = (w / 2) / h;
-  frontCam.updateProjectionMatrix(); sideCam.updateProjectionMatrix();
+// Display only: each avatar view is drawn into its own dashboard rectangle (.view); scene and joints are untouched.
+const viewFrontEl = document.getElementById('viewFront');
+const viewSideEl = document.getElementById('viewSide');
+const BG = new THREE.Color(LIGHT_BG ? 0xdfe3e8 : 0x14161a);
+function fitCamera(cam, rect) {
+  cam.aspect = Math.max(rect.width, 1) / Math.max(rect.height, 1);
+  // narrow rectangles widen the vertical FOV so the model is never clipped sideways
+  cam.fov = 2 * THREE.MathUtils.radToDeg(Math.atan(Math.tan(THREE.MathUtils.degToRad(16)) * Math.max(1, 0.75 / cam.aspect)));
+  cam.updateProjectionMatrix();
 }
+function drawView(cam, el) {
+  const r = el.getBoundingClientRect();
+  if (r.width < 4 || r.height < 4) return;
+  fitCamera(cam, r);
+  const y = innerHeight - r.bottom;
+  renderer.setViewport(r.left, y, r.width, r.height);
+  renderer.setScissor(r.left, y, r.width, r.height);
+  renderer.render(scene, cam);
+}
+function resize() { renderer.setSize(innerWidth, innerHeight, false); }
 addEventListener('resize', resize); resize();
+
+// compact diagnostics: only values actually available; otherwise N/A
+const dEl = (id) => document.getElementById(id);
+function setDiag(id, text) { dEl(id).textContent = text; }
+function updateDiagnostics(now, j, have) {
+  let mode = 'N/A', cls = 'chip', stream = 'N/A', ageText = 'N/A';
+  if (DEMO) { mode = 'SYNTHETIC'; cls = 'chip mode-synth'; stream = '브라우저 데모 (카메라 없음)'; }
+  else if (lastPoseAt) {
+    const age = now - lastPoseAt;
+    mode = synthetic ? 'SYNTHETIC' : 'LIVE';
+    cls = synthetic ? 'chip mode-synth' : 'chip mode-live';
+    stream = age > HOLD_MS ? '끊김' : (synthetic ? '합성 데이터 (카메라 없음)' : '카메라 수신 중');
+    ageText = Math.round(age) + ' ms';
+  }
+  modeChipEl.textContent = mode; modeChipEl.className = cls;
+  setDiag('dStream', stream); setDiag('dAge', ageText);
+  const ms = latestPayload && latestPayload.prediction && latestPayload.prediction.model_status;
+  setDiag('dModel', !DEMO && ms ? String(ms) : 'N/A');
+  setDiag('dJoints', `${have}/${JN.length}`);
+  setDiag('dFps', fps ? fps + ' fps' : 'N/A');
+}
 
 function frame(now) {
   requestAnimationFrame(frame);
@@ -493,9 +537,10 @@ function frame(now) {
     shoulderGuide.computeLineDistances();
   }
 
-  const w = innerWidth, h = innerHeight, dpr = renderer.getPixelRatio();
-  renderer.setViewport(0, 0, w / 2, h); renderer.setScissor(0, 0, w / 2, h); renderer.render(scene, frontCam);
-  renderer.setViewport(w / 2, 0, w / 2, h); renderer.setScissor(w / 2, 0, w / 2, h); renderer.render(scene, sideCam);
+  renderer.setViewport(0, 0, innerWidth, innerHeight); renderer.setScissor(0, 0, innerWidth, innerHeight);
+  renderer.setClearColor(BG); renderer.clear();
+  drawView(frontCam, viewFrontEl);
+  drawView(sideCam, viewSideEl);
 
   fpsCount++;
   if (now - fpsT > 1000) { fps = fpsCount; fpsCount = 0; fpsT = now; }
@@ -506,6 +551,7 @@ function frame(now) {
     else if (age > 1000) setStatus('데이터 끊김 (' + Math.round(age / 1000) + 's)', 'status-wait');
     else setStatus(synthetic ? '연결됨 · SYNTHETIC (가짜 데이터)' : '연결됨 · 실시간', synthetic ? 'status-demo' : 'status-ok');
   }
-  infoEl.textContent = `${fps} fps · 관절 ${have}/${JN.length} · 카메라 기울기 보정 ${camPitchDeg}° ([ ] 조정, 0 초기화)`
+  updateDiagnostics(now, j, have);
+  infoEl.textContent = `카메라 기울기 보정 ${camPitchDeg}° ([ ] 조정, 0 초기화)`
     + ` · 머리: ${headSource} · 목: ${neckSource}` + ` · 평활 ${SMOOTH < 1 ? SMOOTH : '꺼짐'} · 고개 보정 ${NEUTRAL_NOSE_DOWN_DEG ? NEUTRAL_NOSE_DOWN_DEG + '°' : '꺼짐'}`;
 }

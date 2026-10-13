@@ -3,41 +3,47 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Posture Mesh Avatar</title>
-<style>
-  html, body { margin: 0; height: 100%; background: #14161a; color: #e8eaed; font-family: system-ui, "Malgun Gothic", sans-serif; overflow: hidden; }
-  canvas { display: block; width: 100vw; height: 100vh; }
-  .hud { position: fixed; left: 14px; top: 12px; font-size: 13px; line-height: 1.5; pointer-events: none; text-shadow: 0 1px 2px #000; }
-  .hud b { font-size: 15px; }
-  .tag { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 12px; opacity: .75; }
-  .lbl { position: fixed; top: 12px; font-size: 14px; font-weight: 600; text-shadow: 0 1px 2px #000; }
-  #lblFront { left: 25%; transform: translateX(-50%); }
-  #lblSide  { left: 75%; transform: translateX(-50%); }
-  .status-ok { color: #6fdc8c; } .status-wait { color: #f0c36d; } .status-demo { color: #7db8ff; }
-  /* RF prediction panel: displays the probe's same-frame engineering RF output only */
-  .pred { position: fixed; left: 14px; bottom: 40px; max-width: min(460px, calc(100vw - 28px)); pointer-events: none;
-          background: rgba(20, 22, 26, .85); border: 1px solid #3a4250; border-radius: 6px; padding: 8px 12px; }
-  .pred-banner { font-size: 12px; font-weight: 700; color: #f0c36d; }
-  #predText { font-size: 24px; font-weight: 800; margin: 2px 0; }
-  .pred-upright { color: #6fdc8c; } .pred-fh, .pred-bf { color: #ff9e64; } .pred-na { color: #9aa3ad; }
-  .pred-reason { font-size: 12px; opacity: .75; overflow-wrap: anywhere; }
-</style>
+<title>AIoT Posture Monitor</title>
+<link rel="stylesheet" href="./style.css">
 </head>
 <body>
 <canvas id="c"></canvas>
-<div class="lbl" id="lblFront">정면 (카메라 시점)</div>
-<div class="lbl" id="lblSide">측면</div>
-<div class="hud">
-  <b>Posture Mesh Avatar</b><br>
-  <span id="status" class="status-wait">연결 대기 중…</span><br>
-  <span id="info"></span>
+<div class="app">
+  <header class="top">
+    <div class="title">
+      <h1>AIoT Posture Monitor</h1>
+      <span class="sub">Posture Mesh Avatar</span>
+      <span class="eng">ENGINEERING DEMO · 시각화 전용</span>
+    </div>
+    <div class="top-status">
+      <span class="chip" id="modeChip">MODE N/A</span>
+      <span class="conn"><span class="dot" id="connDot"></span><span id="status" class="status-wait">연결 대기 중…</span></span>
+    </div>
+  </header>
+  <div class="notice" id="notice" hidden></div>
+  <main class="stage">
+    <section class="view" id="viewFront"><div class="lbl">정면 · FRONT <small>카메라 시점</small></div></section>
+    <section class="view" id="viewSide"><div class="lbl">측면 · SIDE</div></section>
+  </main>
+  <footer class="bottom">
+    <div class="pred" id="pred">
+      <div class="pred-banner">ENGINEERING RF DEMO — ACCURACY NOT VALIDATED</div>
+      <div id="predText" class="pred-na">PREDICTION UNAVAILABLE</div>
+      <div id="predReason" class="pred-reason">no probe frame yet</div>
+    </div>
+    <dl class="diag" id="diag">
+      <div><dt>Stream</dt><dd id="dStream">N/A</dd></div>
+      <div><dt>Frame age</dt><dd id="dAge">N/A</dd></div>
+      <div><dt>RF model</dt><dd id="dModel">N/A</dd></div>
+      <div><dt>Joints</dt><dd id="dJoints">N/A</dd></div>
+      <div><dt>Render</dt><dd id="dFps">N/A</dd></div>
+    </dl>
+    <details class="adv">
+      <summary>display details</summary>
+      <span id="info"></span>
+    </details>
+  </footer>
 </div>
-<div class="pred" id="pred">
-  <div class="pred-banner">ENGINEERING RF DEMO — ACCURACY NOT VALIDATED</div>
-  <div id="predText" class="pred-na">PREDICTION UNAVAILABLE</div>
-  <div id="predReason" class="pred-reason">no probe frame yet</div>
-</div>
-<div class="tag">시각화 전용 — 측정된 관절 방향을 메시에 표시한 것이며 측정값이 아닙니다.</div>
 <script type="importmap">
 { "imports": { "three": "./vendor/three/build/three.module.js" } }
 </script>
