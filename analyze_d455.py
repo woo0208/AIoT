@@ -57,6 +57,7 @@ warnings.filterwarnings("ignore", message=".*Glyph.*")
 
 import cv2
 import numpy as np
+import patch8_prelock
 
 DATA_DIR = "data"
 OUT_DIR = "analysis"
@@ -169,12 +170,23 @@ def analysis_environment(reasons):
         except Exception as error:
             versions[field] = None
             provenance_unknown(reasons, "environment." + field, error)
-    for package in ("mediapipe", "pyrealsense2", "opencv-python", "numpy", "matplotlib"):
-        try:
-            versions[package] = importlib.metadata.version(package)
-        except Exception as error:
-            versions[package] = None
-            provenance_unknown(reasons, "environment." + package, error)
+    errors = {}
+    packages = ("mediapipe", "pyrealsense2", *patch8_prelock.OPENCV_DISTRIBUTIONS, "numpy", "matplotlib")
+    versions.update(patch8_prelock.package_versions(packages, lambda package, error: errors.setdefault(package, error)))
+    for package in ("mediapipe", "pyrealsense2", "numpy", "matplotlib"):
+        if package in errors:
+            provenance_unknown(reasons, "environment." + package, errors[package])
+    valid_opencv = [package for package in patch8_prelock.OPENCV_DISTRIBUTIONS
+                    if versions[package] not in (None, "error")]
+    if len(valid_opencv) != 1:
+        for package in patch8_prelock.OPENCV_DISTRIBUTIONS:
+            if package in errors:
+                provenance_unknown(reasons, "environment." + package, errors[package])
+    elif any(not isinstance(errors.get(package), importlib.metadata.PackageNotFoundError)
+             for package in patch8_prelock.OPENCV_DISTRIBUTIONS if package in errors):
+        for package in patch8_prelock.OPENCV_DISTRIBUTIONS:
+            if package in errors and not isinstance(errors[package], importlib.metadata.PackageNotFoundError):
+                provenance_unknown(reasons, "environment." + package, errors[package])
     return versions
 
 

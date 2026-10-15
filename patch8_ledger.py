@@ -69,7 +69,9 @@ STAGES = ("pre_reservation", "post_reservation")
 DECLARATIONS = ("operator_initiated", "not_operator_initiated", "unknown")
 TERMINATION_FIELDS = frozenset(("exit_code", "signal", "orchestrator_timeout_kill", "operator_signal_observed",
                                 "static_exit_status", "recovered", "reservation_observed_s"))
-REQUIRED_PACKAGE_KEYS = ("mediapipe", "pyrealsense2", "opencv-python", "numpy")
+REQUIRED_PACKAGE_KEYS = ("mediapipe", "pyrealsense2", "numpy")
+OPENCV_DISTRIBUTION_KEYS = ("opencv-python", "opencv-contrib-python")
+PACKAGE_IDENTITY_KEYS = ("mediapipe", "pyrealsense2", *OPENCV_DISTRIBUTION_KEYS, "numpy")
 CAPTURE_ENVIRONMENT_KEYS = ("capture_host", "os", "python", "packages", "realsense_sdk_version",
                             "d455_serial", "d455_firmware", "usb_type", "depth_scale_m",
                             "stream_profiles", "device_options")
@@ -317,9 +319,13 @@ def _identity_text(value):
     return _text(value) and value.strip().lower() not in {"error", "unknown", "unavailable", "none", "null"}
 
 
-def _packages(value):
-    return (isinstance(value, dict) and
-            all(_identity_text(value.get(key)) for key in REQUIRED_PACKAGE_KEYS))
+def _normalized_packages(value):
+    if not isinstance(value, dict) or not all(_identity_text(value.get(key)) for key in REQUIRED_PACKAGE_KEYS):
+        return None
+    opencv_values = [value.get(key) for key in OPENCV_DISTRIBUTION_KEYS]
+    if sum(item is not None for item in opencv_values) != 1 or not any(map(_identity_text, opencv_values)):
+        return None
+    return {key: value.get(key) for key in PACKAGE_IDENTITY_KEYS}
 
 
 def _stream_profiles(value):
@@ -344,14 +350,15 @@ def capture_environment_identity(value):
     """Normalized CAP-005 §9 capture identity; excludes non-authority diagnostic extras."""
     if not isinstance(value, dict) or not all(key in value for key in CAPTURE_ENVIRONMENT_KEYS):
         return None
+    packages = _normalized_packages(value.get("packages"))
     if not (all(_identity_text(value.get(key)) for key in
                     ("capture_host", "os", "python", "realsense_sdk_version", "d455_serial",
                      "d455_firmware", "usb_type")) and
-            _packages(value.get("packages")) and _finite(value.get("depth_scale_m")) and
+            packages is not None and _finite(value.get("depth_scale_m")) and
             value["depth_scale_m"] > 0 and _stream_profiles(value.get("stream_profiles")) and
             _device_options(value.get("device_options"))):
         return None
-    return {key: ({package: value["packages"][package] for package in REQUIRED_PACKAGE_KEYS}
+    return {key: (packages
                   if key == "packages" else
                   {option: value["device_options"][option] for option in REQUIRED_DEVICE_OPTION_KEYS}
                   if key == "device_options" else value[key]) for key in CAPTURE_ENVIRONMENT_KEYS}
@@ -361,11 +368,12 @@ def analysis_environment_identity(value):
     """Normalized measured analysis-side identity required by CAP-005 §9."""
     if not isinstance(value, dict) or not all(key in value for key in ANALYSIS_ENVIRONMENT_KEYS):
         return None
+    packages = _normalized_packages(value.get("packages"))
     if not (all(_identity_text(value.get(key)) for key in
                     ("analysis_host", "os", "python", "realsense_sdk_version")) and
-            _packages(value.get("packages"))):
+            packages is not None):
         return None
-    return {key: ({package: value["packages"][package] for package in REQUIRED_PACKAGE_KEYS}
+    return {key: (packages
                   if key == "packages" else value[key]) for key in ANALYSIS_ENVIRONMENT_KEYS}
 
 

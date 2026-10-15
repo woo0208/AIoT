@@ -40,6 +40,8 @@ POWER_EVIDENCE_KINDS = ("host_power_event", "ups_power_event", "device_power_eve
 STATIC_EXIT_STATUS = {0: "completed", 10: "operator_abort", 11: "record_start_failed", 12: "stream_failure"}
 STATIC_EXIT_CODES = {name: code for code, name in STATIC_EXIT_STATUS.items()}
 STATIC_SDK_FAILURE_STATUSES = ("record_start_failed", "stream_failure")
+OPENCV_DISTRIBUTIONS = ("opencv-python", "opencv-contrib-python")
+ENVIRONMENT_PACKAGES = ("pyrealsense2", *OPENCV_DISTRIBUTIONS, "numpy", "mediapipe", "pillow")
 
 
 # ---------------------------------------------------------------- recording identity binding (§39)
@@ -166,13 +168,24 @@ def enumerate_devices(rs=None):
     return {"probe_ok": True, "devices": sorted(devices, key=lambda d: str(d["serial"]))}
 
 
-def package_versions():
+def package_versions(packages=ENVIRONMENT_PACKAGES, on_error=None):
+    """Collect distribution identities identically for capture, analysis and provenance.
+
+    A missing distribution is represented by null.  Other metadata failures retain an
+    invalid sentinel so they cannot be mistaken for the expected absent OpenCV alternative.
+    """
     versions = {}
-    for package in ("pyrealsense2", "opencv-python", "numpy", "mediapipe", "pillow"):
+    for package in packages:
         try:
             versions[package] = importlib.metadata.version(package)
-        except Exception:
+        except importlib.metadata.PackageNotFoundError as error:
             versions[package] = None
+            if on_error is not None:
+                on_error(package, error)
+        except Exception as error:
+            versions[package] = "error"
+            if on_error is not None:
+                on_error(package, error)
     return versions
 
 
