@@ -396,7 +396,7 @@ class Patch5Tests(unittest.TestCase):
                 self.assertEqual(row["lineage_manifest_path"], "sample_lineage.jsonl")
                 self.assertEqual(row["lineage_manifest_sha256"], manifest["sample_lineage"]["sha256"])
                 self.assertIn("root_provenance", row)
-        self.assertEqual(len(manifest["outputs"]), 3)
+        self.assertEqual(len(manifest["outputs"]), 5)
         for output in manifest["outputs"]:
             self.assertEqual(output["sha256"], hashlib.sha256(Path(output["path"]).read_bytes()).hexdigest())
             self.assertEqual(Path(output["path"]).read_bytes(), (self.out / output["kind"]).read_bytes())
@@ -423,7 +423,8 @@ class Patch5Tests(unittest.TestCase):
         self.assertEqual(manifest["status"], "completed")
         self.assertTrue(any("optional plot failure" in e for e in manifest["errors"]))
         self.assertFalse((directory / "fig5_rf_compare.png").exists())
-        self.assertEqual({o["kind"] for o in manifest["outputs"]}, {"rf_results.csv", "rf_results.txt"})
+        self.assertEqual({o["kind"] for o in manifest["outputs"]},
+                         {"rf_results.csv", "rf_results.txt", *rf.LOSO_AUDIT_OUTPUTS})
 
     def test_failed_run_keeps_manifest_and_does_not_publish(self):
         with patch.object(rf, "load_paper", side_effect=RuntimeError("synthetic load failure")):

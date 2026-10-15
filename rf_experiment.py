@@ -69,6 +69,15 @@ LINEAGE_FIELDS = (
 )
 RESULT_LINEAGE_FIELDS = ("experiment_run_id", "dataset_manifest_sha256",
                          "lineage_manifest_path", "lineage_manifest_sha256")
+PREDICTION_FIELDS = (
+    "experiment_run_id", "dataset_track", "feature_mode", "sample_index", "subject",
+    "held_out_subject", "seed", "model", "lambda", "true_label_id", "predicted_label_id", "correct",
+)
+CONFUSION_FIELDS = (
+    "experiment_run_id", "dataset_track", "feature_mode", "seed", "model", "lambda",
+    "true_label_id", "predicted_label_id", "count",
+)
+LOSO_AUDIT_OUTPUTS = ("loso_predictions.csv", "confusion_matrices.csv")
 
 
 def file_identity(path):
@@ -279,6 +288,116 @@ def write_sample_lineage(directory, rows):
             stream.write(json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
     return dict(schema_version=LINEAGE_SCHEMA, path=path.name,
                 sha256=file_identity(path)["sha256"], row_count=len(rows))
+
+
+def loso_model_lambdas(lams):
+    """Mirror fit_models identities, including its dictionary key collision behavior."""
+    return {"M0": None, "M1": None, **{f"M2(λ={lam:g})": float(lam) for lam in lams}}
+
+
+def validate_loso_predictions(rows, directory, manifest):
+    """Require exactly one held-out prediction per lineage sample/model/seed."""
+    path = Path(directory) / "sample_lineage.jsonl"
+    verify_file(path, manifest["sample_lineage"]["sha256"])
+    samples, lineage_keys = {}, set()
+    with path.open(encoding="utf-8") as stream:
+        for line in stream:
+            source = json.loads(line)
+            validate_sample_lineage_row(source, lineage_keys)
+            track, mode = source["dataset_track"], source["feature_mode"]
+            if track == "ours_external" or (track == "paper_loso" and
+                                             manifest["options"]["skip_paper_loso"]):
+                continue
+            samples.setdefault((track, mode), {})[source["sample_index"]] = source
+    options = manifest["options"]
+    expected_configs = ({("paper_loso", mode) for mode in options["features"]}
+                        if not options["skip_paper_loso"] else set())
+    if options["multiposture"]:
+        expected_configs.add(("multiposture_loso", "all"))
+    if set(samples) != expected_configs:
+        raise ValueError("LOSO prediction configurations do not match sample lineage")
+    models = loso_model_lambdas(options["lams"])
+    seen = set()
+    for row in rows:
+        if set(row) != set(PREDICTION_FIELDS):
+            raise ValueError("invalid LOSO prediction fields")
+        config = row["dataset_track"], row["feature_mode"]
+        source = samples.get(config, {}).get(row["sample_index"])
+        if (source is None or row["experiment_run_id"] != manifest["experiment_run_id"] or
+                source["experiment_run_id"] != row["experiment_run_id"] or
+                row["subject"] != source["subject"] or row["held_out_subject"] != source["subject"] or
+                type(row["true_label_id"]) is not int or row["true_label_id"] != source["label"] or
+                type(row["predicted_label_id"]) is not int or
+                not 0 <= row["true_label_id"] < 5 or not 0 <= row["predicted_label_id"] < 5 or
+                type(row["sample_index"]) is not int or type(row["seed"]) is not int or
+                not 0 <= row["seed"] < options["seeds"] or row["model"] not in models or
+                row["lambda"] != models.get(row["model"]) or type(row["correct"]) is not int or
+                row["correct"] != int(row["true_label_id"] == row["predicted_label_id"])):
+            raise ValueError("LOSO prediction does not match lineage/fold/model identity")
+        key = (*config, row["seed"], row["model"], row["sample_index"])
+        if key in seen:
+            raise ValueError("duplicate LOSO prediction key")
+        seen.add(key)
+    if len(seen) != sum(len(s) for s in samples.values()) * options["seeds"] * len(models):
+        raise ValueError("missing LOSO predictions")
+
+
+def confusion_matrix_rows(predictions):
+    """Count recorded predictions only: true rows, predicted columns, all 25 cells.
+
+    Both loaders use IDs 0..4. MultiPosture remains a separate track: its ID 1
+    means TLF, not paper forward_head. No display-name relabeling occurs here.
+    """
+    matrices = {}
+    group_fields = CONFUSION_FIELDS[:6]
+    for row in predictions:
+        key = tuple(row[k] for k in group_fields)
+        matrix = matrices.setdefault(key, np.zeros((5, 5), dtype=int))
+        matrix[row["true_label_id"], row["predicted_label_id"]] += 1
+    return [dict(zip(group_fields, key), true_label_id=true, predicted_label_id=predicted,
+                 count=int(matrix[true, predicted]))
+            for key, matrix in matrices.items() for true in range(5) for predicted in range(5)]
+
+
+def write_loso_audit(directory, predictions, manifest):
+    validate_loso_predictions(predictions, directory, manifest)
+    for name, fields, rows in (
+            (LOSO_AUDIT_OUTPUTS[0], PREDICTION_FIELDS, predictions),
+            (LOSO_AUDIT_OUTPUTS[1], CONFUSION_FIELDS, confusion_matrix_rows(predictions))):
+        path = Path(directory) / name
+        with path.open("x", encoding="utf-8-sig", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+        manifest["outputs"].append(dict(kind=name, **file_identity(path)))
+
+
+def verify_loso_audit(directory, manifest):
+    """Verify pinned bytes and recheck serialized predictions/matrices before completion."""
+    records = []
+    for name, fields in zip(LOSO_AUDIT_OUTPUTS, (PREDICTION_FIELDS, CONFUSION_FIELDS)):
+        path = Path(directory) / name
+        outputs = [o for o in manifest["outputs"] if o["kind"] == name]
+        if len(outputs) != 1 or outputs[0] != dict(kind=name, **file_identity(path)):
+            raise ValueError(f"LOSO audit output identity mismatch: {name}")
+        with path.open(encoding="utf-8-sig", newline="") as stream:
+            reader = csv.DictReader(stream)
+            if tuple(reader.fieldnames or ()) != fields:
+                raise ValueError(f"invalid LOSO audit header: {name}")
+            rows = list(reader)
+        if any(None in r or any(v is None for v in r.values()) for r in rows):
+            raise ValueError(f"malformed LOSO audit row: {name}")
+        records.append(rows)
+    predictions, matrices = records
+    for row in predictions:
+        for field in ("sample_index", "seed", "true_label_id", "predicted_label_id", "correct"):
+            row[field] = int(row[field])
+        row["lambda"] = float(row["lambda"]) if row["lambda"] else None
+    validate_loso_predictions(predictions, directory, manifest)
+    expected = [{k: "" if v is None else str(v) for k, v in row.items()}
+                for row in confusion_matrix_rows(predictions)]
+    if matrices != expected:
+        raise ValueError("confusion matrices do not match recorded LOSO predictions")
 
 
 def write_experiment_manifest(directory, manifest):
@@ -748,7 +867,8 @@ def transform(X, groups, is_ref, mode):
 
 
 # ================================================================ 실험
-def loso(X, y, g, K, trees, seeds, lams, name, log, ref_mask=None, feature_set="all"):
+def loso(X, y, g, K, trees, seeds, lams, name, log, ref_mask=None, feature_set="all",
+         prediction_rows=None, experiment_run_id=None, dataset_track=None):
     subs = sorted(set(g), key=lambda s: (len(s), s))
     names = None
     acc = {}        # model -> list over seeds of overall acc
@@ -761,6 +881,9 @@ def loso(X, y, g, K, trees, seeds, lams, name, log, ref_mask=None, feature_set="
     t0 = time.time()
     for seed in range(seeds):
         preds = {}
+        if prediction_rows is not None:
+            held_out = np.empty(len(y), dtype=object)
+            coverage = np.zeros(len(y), dtype=int)
         for si, s in enumerate(subs):
             te, tr = g == s, g != s
             models, _ = fit_models(X[tr], y[tr], K, trees, seed, lams)
@@ -768,7 +891,22 @@ def loso(X, y, g, K, trees, seeds, lams, name, log, ref_mask=None, feature_set="
             names = list(models)
             for m, fn in models.items():
                 preds.setdefault(m, np.empty(len(y), int))[te] = fn(X[te])
+            if prediction_rows is not None:
+                held_out[te] = s
+                coverage[te] += 1
             print(f"   [{name}] seed {seed + 1}/{seeds}, fold {si + 1}/{len(subs)} ({time.time() - t0:.0f}s)", end="\r")
+        if prediction_rows is not None:
+            if not np.all(coverage == 1):
+                raise ValueError("LOSO test folds must cover each sample exactly once")
+            for m in names:
+                lam = getattr(models[m], "lam", loso_model_lambdas(lams)[m])
+                for index in range(len(y)):
+                    prediction_rows.append(dict(
+                        experiment_run_id=experiment_run_id, dataset_track=dataset_track,
+                        feature_mode=feature_set, sample_index=index, subject=str(g[index]),
+                        held_out_subject=str(held_out[index]), seed=seed, model=m,
+                        **{"lambda": lam}, true_label_id=int(y[index]),
+                        predicted_label_id=int(preds[m][index]), correct=int(preds[m][index] == y[index])))
         for m in names:
             acc.setdefault(m, []).append(float(np.mean(preds[m] == y)))
             f1.setdefault(m, []).append(macro_f1(y, preds[m], K))
@@ -984,7 +1122,8 @@ def main():
         verify_inputs(manifest["inputs"])
         verify_dataset_selection(manifest)
         verify_file(directory / "sample_lineage.jsonl", manifest["sample_lineage"]["sha256"])
-        for name in ("rf_results.csv", "rf_results.txt", "fig5_rf_compare.png"):
+        verify_loso_audit(directory, manifest)
+        for name in ("rf_results.csv", "rf_results.txt", "fig5_rf_compare.png", *LOSO_AUDIT_OUTPUTS):
             path = directory / name
             if name != "fig5_rf_compare.png" or path.exists():
                 item = dict(kind=name, **file_identity(path))
@@ -1024,6 +1163,7 @@ def execute_experiment(a, directory, manifest):
     log(" 분류기 비교: M0(일반 RF) / M1(원 논문 입력 가중) / M2(분할 점수 가중, 본 팀 제안)")
     log("=" * 78)
     rows = []
+    predictions = []
     paper_sources, ours_sources, multi_sources, lineage = [], [], [], []
     Xp0, yp, gp = load_paper(a.paper, lineage=paper_sources, artifact=manifest["inputs"]["paper"])
     if len(paper_sources) != len(yp):
@@ -1068,7 +1208,9 @@ def execute_experiment(a, directory, manifest):
         if not a.skip_paper_loso:
             rows += [dict(r, features=fs) for r in
                      loso(Xp, yp, gp, 5, a.trees, a.seeds, a.lams, f"[A] 원 논문 Dataset.xlsx ({fs})", log,
-                          ref_mask=ref_p if fs == "relative" else None, feature_set=fs)]
+                          ref_mask=ref_p if fs == "relative" else None, feature_set=fs,
+                          prediction_rows=predictions, experiment_run_id=manifest["experiment_run_id"],
+                          dataset_track="paper_loso")]
         if a.ours or a.ours_frames or a.dataset_manifest is not None:
             if len(yo):
                 Xo = transform(Xo0, go, ref_o, fs)
@@ -1080,8 +1222,11 @@ def execute_experiment(a, directory, manifest):
     Xp = transform(Xp0, gp, ref_p, "all")
     if a.multiposture:
         rows += loso(Xm, ym, gm, 5, min(a.trees, 200), a.seeds, a.lams,
-                     f"[B] MultiPosture (별도 트랙, {a.stride}프레임 간격)", log)
+                     f"[B] MultiPosture (별도 트랙, {a.stride}프레임 간격)", log,
+                     prediction_rows=predictions, experiment_run_id=manifest["experiment_run_id"],
+                     dataset_track="multiposture_loso")
         log("   * MultiPosture의 '앞으로(TLF)'는 몸통 기울임이라 원 논문 거북목과 다른 자세 (클래스 번호만 같은 자리)")
+    write_loso_audit(directory, predictions, manifest)
     log("\n* 모든 모델은 같은 직접 구현 RF(트리 수·max_features=2·시드 동일)로 비교 (v4 §3.2)")
     log("* M2의 λ는 탐색적으로 여러 값을 모두 보고함. 최종 결론은 학습 fold 안에서 λ를 고른 결과로 내야 함")
     keys = sorted({k for r in rows for k in r}) + list(RESULT_LINEAGE_FIELDS)
