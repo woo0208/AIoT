@@ -1,7 +1,7 @@
 # AIoT Research Master
 
-- 문서 버전: `v1.11`
-- 기준일: `2026-10-07`
+- 문서 버전: `v1.13`
+- 기준일: `2026-10-15` (v1.13은 branch `fix/patch8-opencv-distribution`에서 Patch 8 상태·교차 참조만 동기화. `v1.12`는 branch `feat/rf-loso-prediction-audit`의 F1 `FEAT-009` 동기화이며 본 branch에 포함되지 않음 — §23 참조. 그 밖의 상태 서술은 v1.11 기준)
 - 상태: **CURRENT / Living Document**
 - 권장 위치: `docs/research/AIoT_RESEARCH_MASTER.md`
 - 역할: **현재 연구 방향·범위·용어·로드맵의 Single Source of Truth**
@@ -10,6 +10,7 @@
   - `docs/research/RESEARCH_DECISION_LOG.md` — 의사결정 이력
   - `docs/history/*` — 과거 상태·소급 복원
   - `docs/foundation/*` — Foundation 변경 기록
+  - `docs/research/PATCH_08_WINDOWS_COMPATIBILITY_AND_AUDIT.md` — Patch 8 Windows 호환성 수정·후속 독립 기술 감사 이력 (설계 계약 아님)
   - 향후 `docs/experiments/EXPERIMENT_PROTOCOL.md` — 실제 실험 절차
 
 ---
@@ -98,8 +99,10 @@ Patch 6 documentation closure는 commit `950d2ce`에서 완료했고, merge comm
 2026-10-07 `CAP-005`에서 Foundation Patch 8 D455 Measurement-Quality and End-to-End Validation을 Design Freeze했고 `OPEN-006`을 해소했다 (`OPEN-006` RESOLVED BY CAP-005).
 V5.1.1 Design Freeze draft는 independent READ-ONLY audit에서 `BLOCKER 0 / IMPORTANT 0 / MINOR 1`을 받았고, 상세 authority는
 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`다.
-Patch 8은 **DESIGN-FROZEN**이며 implementation, implementation audit, execution registration, formal D455 hardware execution은 모두 PENDING이다.
-Design Freeze는 actual D455 validation 수행·PASS 또는 Patch 8 COMPLETE를 의미하지 않는다.
+Design Freeze 이후 Patch 8 implementation은 `b71a5ac` → `f5d3cf5` → `dc2c5c8`에서 완료됐고, `dc2c5c8` 기준 independent implementation audit `BLOCKER 0 / IMPORTANT 0` 이후 2026-10-08 `CAP-007`이 Patch 8을 **IMPLEMENTED / AUDITED / EXECUTION DEFERRED**로 기록했다.
+이후 Windows 호환성 수정 `60026cf` / `3873f0d`와 그 independent READ-ONLY technical audit (`dc2c5c8..3873f0d`, PASS — `BLOCKER 0 / IMPORTANT 0 / MINOR 7 / DOC_DRIFT 5`)는 2026-10-15 `CAP-008`에 후속 이력으로 기록했다.
+Execution authorization / registration과 formal D455 hardware execution은 수행되지 않았다 (`CAP-007` execution deferral 유지). Technical audit PASS는 execution authorization이 아니다.
+Design Freeze·구현·코드 감사는 actual D455 validation 수행·PASS 또는 Patch 8 COMPLETE를 의미하지 않는다.
 
 이미 구현·검증된 Patch 1~5 provenance/schema/model-lock/lineage 동작은 그대로 유지한다.
 Patch 6는 selection mechanism을 구현했지만 formal scientific selection policy의 내용 자체를 임의로 확정하지 않는다.
@@ -112,11 +115,14 @@ Patch 6는 selection mechanism을 구현했지만 formal scientific selection po
 
 ## 1.1 Repository 기준
 
-본 v1.11 / Patch 8 CAP-005 Design Freeze integration의 **canonical baseline**:
+본 v1.13 / Patch 8 post-audit documentation synchronization의 **repository 기준**:
 
 ```text
-current branch: main
-HEAD / origin/main: b2e090f = docs: finalize Patch 7 post-merge status
+current branch: fix/patch8-opencv-distribution (Patch 8 Windows compatibility fix branch; main 아님)
+HEAD: 3873f0d = fix(patch8): support OpenCV distribution identity
+HEAD lineage: b2e090f → d47a9ed → 576f945 → b71a5ac → f5d3cf5 → dc2c5c8 → 60026cf → 3873f0d (merge commit 없음)
+local main ref: 이 로컬 저장소에 없음 — Patch 8 commit의 main 통합 여부는 로컬에서 확인 불가 (UNVERIFIED — local main ref unavailable)
+last recorded main baseline (v1.11, 2026-10-07): main / b2e090f = docs: finalize Patch 7 post-merge status
 Patch 7 main merge baseline: 1e99e06 = merge: integrate Patch 7 repository integrity checker
 Patch 6 main merge baseline: 2058db1 = merge: integrate Patch 6 selection manifest
 Patch 4.5 main integration baseline: 15128ff
@@ -192,13 +198,26 @@ Patch 8 Design Freeze baseline: main / b2e090f / working tree clean
 Patch 8 Design Freeze semantic source: V5.1.1 audited draft
 Patch 8 Design Freeze audit: BLOCKER 0 / IMPORTANT 0 / MINOR 1 (wording; folded into Foundation §62)
 Patch 8 Foundation document: docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md
-Patch 8 Design Freeze commit: CURRENT CHANGE (documentation-only)
-Patch 8 state: DESIGN-FROZEN
-Patch 8 implementation: PENDING
-Patch 8 implementation audit: PENDING
-Patch 8 execution authorization / registration: PENDING — execution registry / execution_id not created
-Patch 8 hardware execution: PENDING — formal D455 validation not performed
+Patch 8 Design Freeze commit: d47a9ed = docs: freeze Patch 8 D455 validation design
+Patch 8 forward slot sequence clarification: CAP-006 / 576f945
+Patch 8 implementation: DONE — b71a5ac → f5d3cf5 → dc2c5c8
+Patch 8 implementation audit: DONE — dc2c5c8 / BLOCKER 0 / IMPORTANT 0 (CAP-007)
+Patch 8 status record: CAP-007 — IMPLEMENTED / AUDITED / EXECUTION DEFERRED (원 commit 0d281d6 / feat/rf-loso-prediction-audit; v1.13 sync에서 본 branch Decision Log에 원문 통합)
+Patch 8 Windows provenance path fix: 60026cf
+Patch 8 OpenCV distribution identity fix: 3873f0d
+Patch 8 Windows-fix independent READ-ONLY technical audit: dc2c5c8..3873f0d — PASS / BLOCKER 0 / IMPORTANT 0 / MINOR 7 / DOC_DRIFT 5 (CAP-008)
+Patch 8 execution code candidate: 3873f0d — candidate only; audited_implementation_commit으로 pin되지 않음
+Patch 8 state: DESIGN-FROZEN / IMPLEMENTED / AUDITED / EXECUTION DEFERRED
+Patch 8 execution authorization / registration: NOT AUTHORIZED — CAP-007 deferral 유지; execution registry / execution_id not created
+Patch 8 hardware execution: NOT PERFORMED — formal D455 validation not performed
+Patch 8 measurement-quality result: NOT DETERMINED
+Patch 8 main integration: UNVERIFIED — local main ref unavailable
+Patch 8 feat/rf-loso-prediction-audit integration: NOT DONE — separate branch integration required
 ```
+
+본 branch는 `dc2c5c8`에서 `feat/rf-loso-prediction-audit`와 분기했다.
+그 branch에는 `CAP-007` 원 commit `0d281d6`, 다른 방식의 Windows 경로 수정 `e8630b6`, F1 `FEAT-009` (Decision Log / Master `v1.12`)와 이후 F0/F1 연구 산출물이 있으며 본 branch에는 포함되지 않는다.
+본 v1.13은 그 branch의 연구 상태를 반영·평가·삭제하지 않으며, 두 branch의 통합은 별도 작업이다 (`analyze_d455.py` 동일 줄 충돌 예상; `docs/research/PATCH_08_WINDOWS_COMPATIBILITY_AND_AUDIT.md` §9).
 
 `110cce6`은 Patch 4 software implementation의 기준점이고,
 `144a264`는 Patch 4 documentation/authority closure, `872dfe6`은 Patch 4 status sync,
@@ -259,7 +278,9 @@ formal scientific selection policy 자체는 여전히 별도 decision이며, Pa
 Patch 7 repository-wide READ-ONLY integrity checker / hardening은 `cc39b7d`에서 구현·push 완료됐다. Final independent READ-ONLY implementation audit은 `PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0 / MINOR 6`이다. Documentation closure `98a8917` 및 독립 documentation-closure audit 이후 main merge `1e99e06`, immediate post-merge pytest 454 passed / 1571 subtests 및 unittest 454 tests / OK, origin/main 동기화를 완료했다. Patch 7은 COMPLETE / MAIN-INTEGRATED이며 다음 required Foundation scope는 Patch 8이다.
 
 Patch 8은 2026-10-07 `CAP-005` Design Freeze로 DESIGN-FROZEN 상태다 (`OPEN-006` RESOLVED BY CAP-005).
-Patch 8 implementation, implementation audit, execution registration, formal D455 hardware end-to-end validation은 아직 수행하지 않았다.
+Patch 8 implementation(`dc2c5c8`까지)과 independent implementation audit는 완료됐고 `CAP-007`이 execution을 DEFERRED로 기록했다. Windows 호환성 수정 `60026cf` / `3873f0d`의 independent READ-ONLY technical audit도 PASS다 (`CAP-008`).
+Execution authorization / registration과 formal D455 hardware end-to-end validation은 아직 수행하지 않았다.
+Windows 호환성 수정 과정의 비정식 점검(D455 USB 3.2 인식, RGB·Depth frame 수신, MediaPipe landmark viewer 실행; 사용자 보고)도 Patch 8 formal measurement가 아니다.
 다만 2026-10-02 실제 D455로 Early Hardware Preflight를 수행했으며,
 이는 non-formal engineering evidence로만 유지하고 Patch 8 또는 formal research evidence로 승격하지 않는다.
 
@@ -300,7 +321,8 @@ merge 직후 full regression `330 tests PASS`를 재확인했다. Patch 6는 COM
 Patch 1–7은 COMPLETE / MAIN-INTEGRATED 상태다. Patch 7 implementation `cc39b7d`, documentation closure `98a8917`, main merge `1e99e06`을 완료했다. Final independent READ-ONLY implementation audit은 `PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0 / MINOR 6`이며 documentation-closure audit도 통과했다. Immediate post-merge pytest 454 passed / 1571 subtests, unittest 454 tests / OK 및 origin/main 동기화를 확인했다. 다음 required Foundation은 Patch 8이다.
 
 Patch 8은 2026-10-07 `CAP-005`로 Design Freeze되어 DESIGN-FROZEN 상태이며 `OPEN-006`은 RESOLVED BY CAP-005다.
-다음 Patch 8 단계는 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`를 따르는 implementation → regression tests → independent implementation audit → execution authorization / registration → formal D455 hardware execution 순서이며, 모두 PENDING이다.
+`docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`를 따르는 implementation → regression tests → independent implementation audit는 `dc2c5c8`까지 완료됐고 (`CAP-007`), Windows 호환성 수정 `60026cf` / `3873f0d`와 그 independent technical audit PASS가 후속 이력으로 기록됐다 (`CAP-008`).
+남은 execution authorization / registration → formal D455 hardware execution은 `CAP-007` execution deferral에 따라 보류 중이며 승인되지 않았다.
 
 아직 F1/F2 핵심 수식을 구현하는 단계가 아니며 real D455 formal validation은 Patch 8 범위로서 아직 수행되지 않았다.
 
@@ -1218,7 +1240,7 @@ hardware validation    = pending / Patch 8
 Patch 4에서 F1/F2 derived geometry·feature formula를 구현하지 않고,
 `capture_d455.py`에 새 shoulder/hip/arm coverage acceptance gate를 추가하지 않는다.
 formal framing/coverage는 `OPEN-005`, D455 hardware stability validation은 Patch 8의 후속 범위다.
-Patch 8 validation protocol은 `CAP-005`로 Design Freeze되었고 (`OPEN-006` RESOLVED BY CAP-005) implementation / hardware execution은 pending이다.
+Patch 8 validation protocol은 `CAP-005`로 Design Freeze되었고 (`OPEN-006` RESOLVED BY CAP-005) implementation / audit는 완료됐으나 (`CAP-007` / `CAP-008`) execution은 DEFERRED이며 hardware execution은 수행되지 않았다.
 
 ---
 
@@ -1570,7 +1592,7 @@ N-5는 explicit recorded parent provenance가 없는 legacy CSV run에 대해 `P
 
 ---
 
-## Patch 8 — DESIGN-FROZEN / IMPLEMENTATION PENDING / HARDWARE EXECUTION PENDING
+## Patch 8 — DESIGN-FROZEN / IMPLEMENTED / AUDITED / EXECUTION DEFERRED / HARDWARE EXECUTION NOT PERFORMED
 
 ```text
 Actual D455 End-to-End Smoke / Validation
@@ -1578,16 +1600,42 @@ Actual D455 End-to-End Smoke / Validation
 
 ```text
 Authority                       CAP-005 — CONFIRMED / Resolves OPEN-006 / Supersedes None
+Clarification                   CAP-006 — rounds 101–113 = SEQ_CORE (576f945)
+Status records                  CAP-007 — IMPLEMENTED / AUDITED / EXECUTION DEFERRED (audited implementation HEAD dc2c5c8)
+                                CAP-008 — Windows compatibility fixes + technical audit (3873f0d); status record only
 Foundation document             docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md
 Design Freeze baseline          main / b2e090f
+Design Freeze commit            d47a9ed
 Design Freeze audit             BLOCKER 0 / IMPORTANT 0 / MINOR 1 (wording; folded)
-Patch 8 state                   DESIGN-FROZEN
-implementation                  PENDING
-implementation audit            PENDING
-execution registration          PENDING — registry / execution_id not created
-hardware execution              PENDING — not performed
+Patch 8 state                   DESIGN-FROZEN / IMPLEMENTED / AUDITED / EXECUTION DEFERRED
+implementation                  DONE — b71a5ac → f5d3cf5 → dc2c5c8
+implementation audit            DONE — dc2c5c8: BLOCKER 0 / IMPORTANT 0 (CAP-007)
+Windows compatibility fixes     DONE — 60026cf (provenance path) / 3873f0d (OpenCV distribution identity)
+Windows-fix technical audit     PASS — dc2c5c8..3873f0d: BLOCKER 0 / IMPORTANT 0 / MINOR 7 / DOC_DRIFT 5 (CAP-008)
+execution code candidate        3873f0d — candidate only; not pinned
+execution authorization         NOT AUTHORIZED — CAP-007 deferral in effect
+execution registration          NOT DONE — registry / execution_id not created
+hardware execution              NOT PERFORMED
 Patch 8 result                  NOT DETERMINED
+main integration                UNVERIFIED — local main ref unavailable
+branch integration              NOT DONE — separate branch integration required; feat/rf-loso-prediction-audit와 별도 (analyze_d455.py 충돌 예상)
 ```
+
+다음 상태를 서로 혼동하지 않는다. `Code Audited`는 `Execution Authorized`를 의미하지 않는다.
+
+```text
+Design Frozen                     YES             CAP-005 / CAP-006
+Implemented                       YES             dc2c5c8 (+ Windows fixes 60026cf / 3873f0d)
+Code Audited                      YES             dc2c5c8 (CAP-007); dc2c5c8..3873f0d technical audit PASS (CAP-008)
+Windows Compatibility Verified    YES (limited)   software tests + one Windows PC environment identity (user-provided evidence);
+                                                  headless OpenCV variant absence not verified
+Execution Authorized              NO
+Hardware Measurement Completed    NO
+Measurement Quality Passed        NOT DETERMINED
+```
+
+Windows 호환성 수정·감사 상세, MINOR 7 / DOC_DRIFT 5 추적, OpenCV 설치 주의사항, branch 통합 주의사항은 `docs/research/PATCH_08_WINDOWS_COMPATIBILITY_AND_AUDIT.md`에 기록한다. 그 문서는 설계 계약이 아니며 CAP-005 값을 변경하지 않는다.
+Formal execution 시작은 `CAP-007` deferral 해제와 audited implementation commit을 pin하는 새 append-only authorization entry 및 execution registry 등록을 요구한다. 구현자가 임의로 formal D455 측정을 시작하지 않는다.
 
 software unit test와 구분한다.
 
@@ -1813,7 +1861,7 @@ runtime/FPS를 새 핵심 연구축으로 승격
 
 24. `PROV-004`에 따라 Patch 4.5 MediaPipe model artifact contract는 `mediapipe-model-lock/1.0.0`으로 freeze되었고 commit `aef7f34`에서 구현 완료됐다. raw inference는 locked artifact verification을 통과해야 하며, `--from-csv` historical reprocessing에는 current model lock/provisioning을 강제하지 않는다.
 
-25. `CAP-005`에 따라 Patch 8 D455 measurement-quality / end-to-end validation protocol은 Design Freeze되었고 `OPEN-006`을 해소했다. 상세 authority는 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`다. Patch 8은 DESIGN-FROZEN이며 implementation / implementation audit / execution registration / hardware execution은 pending이다. 이는 actual D455 validation PASS나 F1/F2 feature 확정을 의미하지 않는다.
+25. `CAP-005`에 따라 Patch 8 D455 measurement-quality / end-to-end validation protocol은 Design Freeze되었고 `OPEN-006`을 해소했다. 상세 authority는 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`다. Patch 8은 DESIGN-FROZEN이며, 이후 implementation·independent audit 완료와 execution deferral은 `CAP-007`, Windows 호환성 수정·technical audit은 `CAP-008`에 기록됐다. Execution authorization / registration과 hardware execution은 수행되지 않았다. 이는 actual D455 validation PASS나 F1/F2 feature 확정을 의미하지 않는다.
 ```
 
 ---
@@ -1872,7 +1920,7 @@ Patch 5   lineage                       DONE — implementation/audit/closure/ma
 Patch 6   selection mechanism           DONE — implementation/audit/documentation closure/main merge/post-merge regression
 formal selection_policy_version contents PENDING
 Patch 7   integrity                     DONE — implementation/audit/documentation closure/audit/main merge/post-merge regression
-Patch 8   actual D455 E2E validation    PENDING — DESIGN-FROZEN (CAP-005); implementation / audit / registration / hardware execution PENDING
+Patch 8   actual D455 E2E validation    PENDING — DESIGN-FROZEN (CAP-005); implemented / audited (CAP-007, CAP-008); execution DEFERRED / NOT AUTHORIZED; hardware execution NOT PERFORMED
 EXPERIMENT_PROTOCOL freeze              PENDING
 ```
 
@@ -2149,27 +2197,36 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
    → documentation-only Design Freeze integration in this v1.11 change
    → OPEN-002 ~ OPEN-005 remain DEFERRED; Patch 4 / 4.5 / 5 / 6 / 7 authority unchanged
 
-31. Patch 8 implementation                                                        PENDING
+31. Patch 8 implementation                                                        DONE
+   → b71a5ac → f5d3cf5 → dc2c5c8 (audited implementation HEAD per CAP-007)
    → CAP-005 Foundation §90 implementation scope / §91 MUST NOT
 
-32. Patch 8 regression tests                                                      PENDING
+32. Patch 8 regression tests                                                      DONE (user-provided evidence)
+   → 60026cf / 3873f0d 기준 Patch 8 regression 151 PASS (사용자 제공 실행 로그; documentation sync에서 재실행 안 함)
+   → dc2c5c8 시점의 test 수치는 CAP-007에 기록되지 않음
 
-33. Patch 8 independent READ-ONLY implementation audit                           PENDING
-   → required: BLOCKER 0 / IMPORTANT 0 before hardware execution
+33. Patch 8 independent READ-ONLY implementation audit                           DONE — dc2c5c8 / CAP-007
+   → BLOCKER 0 / IMPORTANT 0; status IMPLEMENTED / AUDITED / EXECUTION DEFERRED
+   → Windows compatibility follow-up fixes: 60026cf / 3873f0d
+   → follow-up independent READ-ONLY technical audit dc2c5c8..3873f0d: PASS / BLOCKER 0 / IMPORTANT 0 / MINOR 7 / DOC_DRIFT 5 (CAP-008)
+   → technical audit PASS ≠ execution authorization
 
-34. Patch 8 execution authorization / registration                               PENDING
+34. Patch 8 execution authorization / registration                               DEFERRED — NOT AUTHORIZED
+   → CAP-007 execution deferral in effect
    → execution registry / execution_id not yet created
+   → audited_implementation_commit pin 미결정 (execution code candidate 3873f0d)
 
 35. Patch 8 formal D455 hardware execution                                        PENDING — NOT PERFORMED
 
 36. Patch 8 Foundation Record closure / main integration                          PENDING
+   → feat/rf-loso-prediction-audit와의 통합은 별도 작업 (analyze_d455.py 동일 줄 충돌 예상)
 ```
 
 ---
 
 # 22. Source Basis
 
-본 v1.11은 다음을 통합한 **현재 기준 문서**다.
+본 문서(v1.13 기준)는 다음을 통합한 **현재 기준 문서**다.
 
 ```text
 - 실제 현재 repository / Git history
@@ -2213,6 +2270,11 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 - `docs/foundation/PATCH_07_integrity_checker_hardening.md` §52 Implementation Closure
 - Patch 7 final post-merge status sync `b2e090f`
 - Patch 8 `CAP-005` Design Freeze and `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md` (V5.1.1 semantic source; independent Design Freeze audit BLOCKER 0 / IMPORTANT 0 / MINOR 1)
+- Patch 8 `CAP-006` / `576f945` 및 implementation commits `b71a5ac` / `f5d3cf5` / `dc2c5c8`
+- `CAP-007` (원 commit `0d281d6`, branch `feat/rf-loso-prediction-audit`; v1.13에서 본 branch Decision Log에 원문 통합)
+- Patch 8 Windows compatibility fixes `60026cf` / `3873f0d`, independent READ-ONLY technical audit (`dc2c5c8..3873f0d`: BLOCKER 0 / IMPORTANT 0 / MINOR 7 / DOC_DRIFT 5), `CAP-008`
+- `docs/research/PATCH_08_WINDOWS_COMPATIBILITY_AND_AUDIT.md`
+- Windows 호환성 수정 관련 사용자 제공 실행 로그·환경 관측 (본 documentation sync에서 재실행하지 않음; formal D455 measurement 아님)
 - RealSense D455 official product specification / product page (Ideal Range 0.6 m to 6 m), https://www.realsenseai.com/products/real-sense-depth-camera-d455f/, accessed 2026-10-07
 - OSHA eTools: Computer Workstations — Monitors (preferred viewing distance 20–40 inches / approximately 50–100 cm; ergonomic evidence only, not D455 accuracy), https://www.osha.gov/etools/computer-workstations/components/monitors/, accessed 2026-10-07
 - 2026-10-02 actual D455 Early Hardware Preflight의 local engineering evidence (formal research data 아님)
@@ -2247,3 +2309,4 @@ Worklog를 연구의 최종 권위 문서로 사용하지 않는다.
 | `v1.9` | 2026-10-06 | Patch 7 implementation `cc39b7d` 및 final independent READ-ONLY implementation audit `PASS WITH MINOR FINDINGS / BLOCKER 0 / IMPORTANT 0 / MINOR 6`을 반영. Python 3.12.2에서 targeted 124 / affected 332 / full pytest 454 passed (1571 subtests, 0 skipped), unittest 454 tests OK evidence를 기록하고 closure documentation을 동기화했다. Patch 1–7 implementation은 완료됐으며 Patch 7 main integration / post-merge regression은 pending이다. 이후 다음 Foundation은 기존 scope의 Patch 8이다. |
 | `v1.10` | 2026-10-06 | Patch 7 documentation closure `98a8917` 및 독립 documentation-closure audit 이후 main merge `1e99e06`, origin/main 동기화, immediate post-merge pytest 454 passed / 1571 subtests 및 unittest 454 tests OK를 반영했다. Current baseline을 `main` / `1e99e06`으로 갱신하고 Patch 7을 COMPLETE / MAIN-INTEGRATED로 동기화했다. Implementation audit 0/0/6과 documentation-closure audit 0/0/1을 구분하며 stale current-HEAD 문구를 해소했다. 다음 required Foundation은 기존 scope의 Patch 8이다. |
 | `v1.11` | 2026-10-07 | `CAP-005` Foundation Patch 8 D455 Measurement-Quality and End-to-End Validation Design Freeze integration을 반영했다. V5.1.1 Design Freeze draft의 independent READ-ONLY audit `BLOCKER 0 / IMPORTANT 0 / MINOR 1` 이후 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`를 canonical Foundation document로 추가하고 단일 MINOR(E2-R1 wording)를 §62 clarification으로 반영했다. `OPEN-006`은 RESOLVED BY CAP-005이며 D455 validation exact protocol 항목을 미확정 목록에서 제거했다. Current baseline을 `main` / `b2e090f`로 갱신했다. Patch 8은 DESIGN-FROZEN이고 implementation / implementation audit / execution registration / hardware execution은 PENDING이다. `OPEN-002`~`OPEN-005`는 DEFERRED이며 Patch 4/4.5/5/6/7 authority는 변경하지 않았다. Patch 8 COMPLETE가 아니다. |
+| `v1.13` | 2026-10-15 | Branch `fix/patch8-opencv-distribution` (HEAD `3873f0d`)에서 Patch 8 상태와 교차 참조만 동기화했다. Patch 8 implementation `b71a5ac` → `f5d3cf5` → `dc2c5c8`, `dc2c5c8` independent implementation audit `BLOCKER 0 / IMPORTANT 0`, `CAP-007` IMPLEMENTED / AUDITED / EXECUTION DEFERRED (원 commit `0d281d6`; 본 branch Decision Log에 원문 통합), Windows 호환성 수정 `60026cf` / `3873f0d`와 independent READ-ONLY technical audit PASS (`BLOCKER 0 / IMPORTANT 0 / MINOR 7 / DOC_DRIFT 5`, `CAP-008`)를 §0 / §1.1 / §1.2 / Patch 4 교차 참조 / Patch 8 절 / §16 / §18 / §21 / §22에 반영하고 `docs/research/PATCH_08_WINDOWS_COMPATIBILITY_AND_AUDIT.md`를 연결했다. §1.1 repository 기준을 현재 branch / HEAD로 갱신하고 local `main` ref 부재를 기록했다. Execution authorization 없음, CAP-007 deferral 유지, execution registry / `execution_id` 없음, formal D455 execution 없음, measurement quality 미판정. `v1.12` (branch `feat/rf-loso-prediction-audit`의 `FEAT-009` 동기화)는 본 branch에 포함되지 않으며 번호 충돌을 피하기 위해 재사용하지 않았다. 본 변경은 F0 / F1 / F2 서술, `FEAT-009`, 다른 branch 연구 결과, CAP-005 값, `OPEN-002`~`OPEN-005`를 변경하지 않았다. Patch 8 COMPLETE가 아니다. |

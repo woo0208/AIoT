@@ -45,7 +45,7 @@ This read order is not a single precedence chain. Route conflicts by authority:
 - Patch 5 lineage contracts → `PROV-005` + `docs/foundation/PATCH_05_end_to_end_lineage_hardening.md`; implemented at commit `dd0464e` and main-integrated at merge commit `ae86d58` as `summary-schema/1.0.0`, `rf-sample-lineage/1.0.0`, and `rf-experiment-provenance/1.0.0`, with 252 tests PASS both pre-merge final and post-merge regression, and independent audit BLOCKER 0 / IMPORTANT 0
 - Patch 6 selection contracts → `PROV-006` + `PROV-007` + `docs/foundation/PATCH_06_selection_manifest_recapture_inclusion.md`; implemented at commit `9c5fff9` as `selection-event/1.0.0` and `dataset-selection-manifest/1.0.0`, with single-terminal per-slot linear supersession, canonical `round` (`^[1-9][0-9]*$`), RF `--dataset-manifest` linkage, documentation closure commit `950d2ce`, main merge `2058db1`, 330 tests PASS both committed-state and immediate post-merge regression, and independent re-audit BLOCKER 0 / IMPORTANT 0; Patch 6 is COMPLETE / MAIN-INTEGRATED
 - Patch 7 integrity contract → `PROV-008` with `PROV-009` / `PROV-010` / `PROV-011` + `docs/foundation/PATCH_07_integrity_checker_hardening.md`; repository-wide READ-ONLY integrity checker / hardening implemented at `cc39b7d`, documentation-closed at `98a8917`, main-integrated at `1e99e06`; final independent READ-ONLY implementation audit PASS WITH MINOR FINDINGS, BLOCKER 0 / IMPORTANT 0 / MINOR 6; Patch 7 is COMPLETE / MAIN-INTEGRATED
-- Patch 8 D455 measurement-quality / end-to-end validation design → `CAP-005` + `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`; CAP-005 is CONFIRMED and resolves `OPEN-006`; Patch 8 is DESIGN-FROZEN, with implementation, implementation audit, execution registration, and formal D455 hardware execution all PENDING (no formal Patch 8 hardware execution has been performed); future Patch 8 implementation must use that Foundation document as the frozen design authority
+- Patch 8 D455 measurement-quality / end-to-end validation design → `CAP-005` (+ `CAP-006` slot-sequence clarification) + `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`; CAP-005 is CONFIRMED and resolves `OPEN-006`, and the Design Freeze remains the frozen design authority for any Patch 8 code change; Patch 8 implementation status → `CAP-007` (IMPLEMENTED / AUDITED / EXECUTION DEFERRED; audited implementation HEAD `dc2c5c8`, independent audit BLOCKER 0 / IMPORTANT 0) and `CAP-008` (Windows compatibility fixes `60026cf` / `3873f0d` on branch `fix/patch8-opencv-distribution`, HEAD `3873f0d`; independent READ-ONLY technical audit `dc2c5c8..3873f0d` PASS, BLOCKER 0 / IMPORTANT 0 / MINOR 7 / DOC_DRIFT 5; status record only) + `docs/research/PATCH_08_WINDOWS_COMPATIBILITY_AND_AUDIT.md`; formal execution is NOT authorized, no execution registry / `execution_id` exists, and no formal Patch 8 hardware execution has been performed
 - other unimplemented/future schema designs → confirm their status in `RESEARCH_DECISION_LOG.md` before treating them as implemented or frozen contracts
 
 The Step 1.5 Patch 4 field details were pre-freeze proposals. After `DATA-003`
@@ -350,10 +350,17 @@ categories include:
 - RGB-landmark + aligned-depth combination stability,
 - distance-dependent feature stability.
 
-Current status: `CAP-005` is CONFIRMED and resolves `OPEN-006`. Patch 8 is
-DESIGN-FROZEN; Patch 8 implementation, implementation audit, execution
-registration, and formal D455 hardware execution are PENDING. Actual D455
-formal validation has not been performed and has not passed.
+Current status: `CAP-005` is CONFIRMED and resolves `OPEN-006`; the Patch 8
+Design Freeze remains in force. Patch 8 is implemented and code-audited
+(`CAP-007`; audited implementation HEAD `dc2c5c8`), and the Windows
+compatibility fixes `60026cf` / `3873f0d` passed an independent READ-ONLY
+technical audit (`CAP-008`; BLOCKER 0 / IMPORTANT 0 / MINOR 7). A code audit is
+not execution authorization: formal execution remains DEFERRED under
+`CAP-007`, no execution registry or `execution_id` exists, and you must not
+start formal D455 measurement on your own initiative. Actual D455 formal
+validation has not been performed and has not passed; Windows
+environment-identity checks and non-formal D455 / viewer checks are not
+Patch 8 measurements.
 
 The exact distance grid, repetitions, metrics, thresholds, and validation
 protocol are frozen research decisions recorded in `CAP-005` and
@@ -542,7 +549,8 @@ At the current canonical state:
 - Patch 7 pre-merge implementation verification on Python 3.12.2 is targeted 124 passed / 139 subtests / 0 skipped, affected suites 332 passed / 529 subtests / 0 skipped, full pytest 454 passed / 1571 subtests / 0 skipped, and unittest 454 tests / OK,
 - Patch 7 independent documentation-closure READ-ONLY audit passed with BLOCKER 0 / IMPORTANT 0 / MINOR 1 and SAFE TO MERGE PATCH 7 TO MAIN recommendation; its stale-HEAD note is resolved by the Patch 7 final status sync `b2e090f` and is separate from the six implementation MINOR findings,
 - Patch 7 main integration and origin/main synchronization at `1e99e06` are complete; immediate post-merge regression passed: pytest 454 passed / 1571 subtests, unittest 454 tests / OK; the next required Foundation scope is Patch 8,
-- Foundation Patch 8 Design Freeze is recorded by `CAP-005` (CONFIRMED; resolves `OPEN-006`; supersedes none) with `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md` as the frozen Patch 8 design authority; Patch 8 is DESIGN-FROZEN, and Patch 8 implementation, implementation audit, execution registration, and formal D455 hardware execution are PENDING,
+- Foundation Patch 8 Design Freeze is recorded by `CAP-005` (CONFIRMED; resolves `OPEN-006`; supersedes none), clarified by `CAP-006`, with `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md` as the frozen Patch 8 design authority; Patch 8 implementation `b71a5ac` → `f5d3cf5` → `dc2c5c8` passed an independent implementation audit (BLOCKER 0 / IMPORTANT 0), and `CAP-007` records Patch 8 as IMPLEMENTED / AUDITED / EXECUTION DEFERRED,
+- Patch 8 Windows compatibility fixes `60026cf` (provenance path) and `3873f0d` (OpenCV distribution identity) are on branch `fix/patch8-opencv-distribution` (HEAD `3873f0d`); the independent READ-ONLY technical audit of `dc2c5c8..3873f0d` is PASS with BLOCKER 0 / IMPORTANT 0 / MINOR 7 / DOC_DRIFT 5 (`CAP-008`, status record only); `3873f0d` is an execution-code candidate only, Patch 8 execution authorization / registration has NOT been granted, no execution registry or `execution_id` exists, and integration into `main` is UNVERIFIED (local `main` / `origin/main` refs unavailable); integration with `feat/rf-loso-prediction-audit` is NOT DONE (separate Git histories),
 - real D455 formal hardware validation remains Patch 8 scope and has not been performed, `OPEN-006` is RESOLVED BY CAP-005, `OPEN-002` through `OPEN-005` remain DEFERRED, and formal collection has not started,
 - do not reopen `OPEN-001`, `DATA-003`, `PROV-004`, `PROV-005`, `PROV-006`, `PROV-007`, or `CAP-005`, and do not alter frozen contracts implicitly in later work.
 

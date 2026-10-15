@@ -1,7 +1,7 @@
 # Research Decision Log
 
-- 문서 버전: `v1.11`
-- 기준일: `2026-10-07`
+- 문서 버전: `v1.13`
+- 기준일: `2026-10-15` (branch `fix/patch8-opencv-distribution` 기준. `v1.12`는 branch `feat/rf-loso-prediction-audit`의 `FEAT-009` version row이며 본 branch에는 포함되지 않음 — §11 `v1.13` 참조)
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
 - 역할: 현재 Research Master에 반영된 중요한 연구·데이터·실험·거버넌스 결정을 **왜 그렇게 결정했는지** 기록
@@ -1403,6 +1403,7 @@ final-test 결과를 본 parameter 변경
 | `v1.9` | 2026-10-06 | Patch 7 Round 3 independent READ-ONLY re-audit의 remaining IMPORTANT finding을 반영하여 `PROV-011`을 append. selection event의 `include`/`exclude`/`recapture` action 자체가 아니라 각 artifact reference의 실제 role(`historical evidence` vs `selected/consumed canonical source`)에 따라 completed-owner requirement를 적용하도록 명확화 |
 | `v1.10` | 2026-10-07 | `CAP-005`를 append하여 Foundation Patch 8 D455 Measurement-Quality and End-to-End Validation을 Design Freeze하고 `OPEN-006`을 해소. candidate-range derivation, 0.60–1.00 m static grid와 mandatory 0.70/0.80 anchors, physical setup, execution governance, single-shot/retry/result firewall, static/production protocol identity, closed pre-lock classification, static/3D/distance-stability metrics, exact five-series depth temporal-SD rule, forward availability population, body-only-negative semantics, exact slot-131 predicate, reconciliation, integrity closure를 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`에 고정했다. Patch 8은 DESIGN-FROZEN이며 implementation / implementation audit / execution registration / hardware execution은 pending이다. `OPEN-002`~`OPEN-005`는 계속 DEFERRED이고 Patch 4/4.5/5/6/7 authority는 변경하지 않는다 |
 | `v1.11` | 2026-10-07 | Patch 8 implementation 중 확인된 pre-execution design-authority gap `P8-I1`을 반영하여 `CAP-006`을 append (Clarifies `CAP-005`, Supersedes None). CAP-005가 capture sequence를 명시하지 않았던 forward validation rounds 101–103 / 111–113이 `SEQ_CORE`를 사용함을 명확화하고, 121 = `SEQ_CORE` (§80) / 131 = `SEQ_FULL` (§81)은 그대로 유지한다. formal Patch 8 execution, `execution_id` 발급, Patch 8 결과 관찰은 없었다. production forward gate, `capture-forward-face-v2.0.0`, SEQ_CORE/SEQ_FULL 정의, §75/§76/§79/§80/§81, schema, threshold, `OPEN-002`~`OPEN-005`는 변경하지 않는다 |
+| `v1.13` | 2026-10-15 | Branch `fix/patch8-opencv-distribution` (HEAD `3873f0d`)의 Patch 8 post-audit documentation sync. (1) `CAP-007` lineage 통합: `CAP-007`은 2026-10-08 commit `0d281d6` (`docs: record Patch 8 audited deferred status`, branch `feat/rf-loso-prediction-audit`)에서 append됐으나 `dc2c5c8`에서 분기한 본 branch에는 없었다. 원문을 `0d281d6`과 동일한 text로 §12의 `CAP-006` 다음에 통합했으며 본문·Status·audited implementation HEAD `dc2c5c8`·execution deferral을 변경하지 않았다. `0d281d6`에는 CAP-007 version row가 없었으며, 2026-10-08 날짜의 소급 row를 만들지 않고 본 row가 그 통합을 기록한다. (2) `CAP-008` append (STATUS RECORD ONLY; Supersedes / Clarifies / Resolves None): Windows compatibility fix `60026cf` / `3873f0d`와 `dc2c5c8..3873f0d` independent READ-ONLY technical audit (PASS; BLOCKER 0 / IMPORTANT 0 / MINOR 7 / DOC_DRIFT 5)를 CAP-007과 구분된 후속 이력으로 기록했다. Execution authorization 없음, CAP-007 deferral 유지, execution registry / `execution_id` 없음, formal D455 execution 없음. (3) Version numbering: `v1.12`는 `feat/rf-loso-prediction-audit`의 `FEAT-009` row (2026-10-11, commit `d8b67d9`)가 이미 사용하므로, 번호 충돌을 피하기 위해 본 branch는 `v1.12`를 재사용하지 않고 `v1.13`을 사용한다. `FEAT-009`는 본 branch에 포함되지 않으며 본 변경은 그 entry를 추가·평가·변경하지 않는다. `CAP-005`/`CAP-006`, Foundation document, schema, threshold, `OPEN-002`~`OPEN-005`는 변경하지 않는다 |
 
 ---
 
@@ -6570,5 +6571,138 @@ Clarifies:
 
 Resolves:
 - Patch 8 implementation gap `P8-I1`: pre-execution design-authority gap — `SEQ_CORE` vs `SEQ_FULL` unspecified for rounds 101–113
+
+---
+
+## CAP-007 — Patch 8 Audited Implementation / Execution Deferral Status
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-08
+**Decision timing:** Post-implementation audit; before execution authorization or formal D455 execution
+
+### Status
+
+- Patch 8 implementation is complete at audited implementation HEAD `dc2c5c8520c40c73ff2b008f24f373dced1485bc`.
+- Final independent implementation audit: `BLOCKER 0 / IMPORTANT 0`; Patch 8 software implementation is **READY**.
+- No formal D455 Patch 8 execution has occurred, and no `execution_id` has been created.
+- Formal execution is intentionally deferred before authorization while the posture-decision approach is reconsidered based on new research guidance toward anatomical geometry / relative posture rather than absolute user-camera distance. This entry does not define the new posture algorithm.
+- This does not supersede `CAP-005` or `CAP-006`; Patch 1–7 remain unchanged.
+- Patch 8 status: **IMPLEMENTED / AUDITED / EXECUTION DEFERRED**.
+
+Supersedes:
+- None
+
+---
+
+## CAP-008 — Patch 8 Windows Compatibility Fixes / Post-CAP-007 Technical Audit Status
+
+**Status:** CONFIRMED — **STATUS RECORD ONLY** (새 연구 결정, execution authorization, CAP-007 deferral 해제 아님)
+**Logged:** 2026-10-15
+**Decision timing:** `CAP-007` (2026-10-08) 이후 — Windows compatibility fix commit `60026cf` / `3873f0d` 및 그 independent READ-ONLY technical audit 이후, execution authorization / registration 및 formal Patch 8 D455 execution **이전**. 기록 기준 branch `fix/patch8-opencv-distribution`, HEAD `3873f0d4f2de5e9c4ced72e76a44c429fdb948e4`. 2026-10-15 independent READ-ONLY technical audit 시점에 HEAD는 `3873f0d`였고 working tree는 clean이었다 (감사 시점 상태이며, 이후 documentation 편집 중의 working tree 상태를 뜻하지 않는다). 사용자의 2026-10-15 documentation synchronization 지시에 따라 기록한다.
+
+### Context
+
+`CAP-007`은 Patch 8 implementation을 audited implementation HEAD `dc2c5c8`에 고정하고 formal execution을 authorization 전에 의도적으로 DEFERRED했다.
+그 이후 Windows 11 PC에서 Patch 8 tooling을 비정식으로 점검하는 과정에서 Windows compatibility 결함 두 건이 확인됐고 다음 commit으로 수정됐다.
+
+```text
+dc2c5c8  fix: enforce Patch 8 environment identity          ← CAP-007 audited implementation HEAD
+60026cf  fix(patch8): normalize provenance paths on Windows
+3873f0d  fix(patch8): support OpenCV distribution identity   ← branch fix/patch8-opencv-distribution HEAD
+```
+
+본 entry는 CAP-007 이후의 사실을 **CAP-007과 구분된 후속 이력**으로 기록한다.
+본 entry의 `CONFIRMED`는 관측된 Windows 호환성 변경과 independent technical audit finding을 기록한 status record로서만 적용되며, Patch 8 execution을 승인하거나 `CAP-005`를 supersede하거나 `CAP-007` execution deferral을 해제하지 않는다.
+`CAP-007`의 본문·Status·audited implementation HEAD(`dc2c5c8`)·execution deferral은 변경하지 않는다.
+`CAP-007` 원문은 2026-10-08 commit `0d281d6` (branch `feat/rf-loso-prediction-audit`)에 append됐으며, 본 branch에는 Version Log `v1.13` 동기화에서 동일 text로 통합됐다.
+
+### Recorded status
+
+1. `60026cf` — Windows provenance path.
+   `analyze_d455.py`가 compatibility sidecar의 `analysis_manifest` 값을 `os.path.relpath()`로 만들 때 Windows에서 backslash path가 저장되어, POSIX repository-relative path를 요구하는 artifact path 해석과 closure integrity에서 `SCHEMA_INVALID`가 발생했다.
+   수정은 해당 식 한 곳에서 `os.sep`을 `/`로 정규화하는 것이며 POSIX 동작, hash 계산, manifest / ledger / integrity 규칙은 변경하지 않았다.
+2. `3873f0d` — OpenCV distribution identity.
+   사용자 보고에 따르면 MediaPipe는 `opencv-contrib-python`을 의존성으로 요구하며, 관측된 Windows 환경에는 `opencv-contrib-python`만 설치되어 있고 `opencv-python`은 설치되어 있지 않았다. `dc2c5c8`의 environment identity는 `opencv-python` 배포판 version만 필수로 요구했으므로 actual Windows capture environment identity가 실패했다.
+   수정 후 capture / analysis identity는 `opencv-python` / `opencv-contrib-python` 중 **정확히 하나**가 유효한 version을 가질 때만 성립한다. 둘 다 없음, 둘 다 있음, metadata 조회 오류는 fail-closed다. Capture, analysis, analysis provenance는 동일한 `patch8_prelock.package_versions()` 수집 규칙을 사용한다. 신규 synthetic test `test_patch8_opencv_contract.py` (10 tests)를 추가했다.
+3. Independent READ-ONLY technical audit (`dc2c5c8..3873f0d`): **PASS — BLOCKER 0 / IMPORTANT 0 / MINOR 7 / DOC_DRIFT 5**.
+   Audit은 test를 재실행하지 않았고, `dc2c5c8` 이전부터 있던 Patch 8 전체를 처음부터 재감사하지 않았다 (그 부분은 `CAP-007`의 audit 결과에 의존).
+   Audit은 CAP-005 Foundation §9가 기록 대상을 "OpenCV version"으로만 명시하고 특정 PyPI 배포판을 지정하지 않으므로, 이번 수정이 §9를 충족하는 fail-closed compatibility fix이며 `Supersedes: CAP-005`가 필요하지 않다고 판단했다. 이 판단은 audit evidence로 기록하며 연구 책임자의 별도 clarification 결정으로 기록하지 않는다.
+4. Execution code candidate는 `3873f0d`다. 이는 **candidate**일 뿐이며 Foundation §15 / §20의 `audited_implementation_commit`으로 pin되지 않았다. `CAP-007`이 고정한 audited implementation HEAD는 계속 `dc2c5c8`이다.
+5. Execution governance: `CAP-007` execution deferral은 **유지**된다. Execution authorization / registration은 없다. `docs/research/PATCH_08_EXECUTION_REGISTRY.md`와 `execution_id`는 생성되지 않았고 `validation/` runtime output도 없다. Formal Patch 8 D455 execution은 수행되지 않았고 measurement-quality PASS / FAIL은 판정되지 않았다.
+
+Patch 8 status distinction (2026-10-15):
+
+```text
+Design Frozen                     YES             CAP-005 (d47a9ed) + CAP-006 (576f945)
+Implemented                       YES             b71a5ac → f5d3cf5 → dc2c5c8
+Code Audited                      YES             dc2c5c8: BLOCKER 0 / IMPORTANT 0 (CAP-007)
+Windows compatibility fixes       YES             60026cf / 3873f0d
+Windows-fix technical audit       PASS            dc2c5c8..3873f0d: BLOCKER 0 / IMPORTANT 0 / MINOR 7 / DOC_DRIFT 5
+Windows Compatibility Verified    YES (limited)   software tests + environment identity on one Windows PC (user-provided evidence)
+Execution Authorized              NO              CAP-007 deferral in effect; no registry / execution_id
+Hardware Measurement Completed    NO              formal Patch 8 D455 execution not performed
+Measurement Quality Passed        NOT DETERMINED
+```
+
+`Code Audited`와 `Windows Compatibility Verified`는 `Execution Authorized`를 의미하지 않는다.
+
+### Rationale
+
+- CAP-007 이후 audited implementation commit과 다른 code(`3873f0d`)가 생겼으므로, 어떤 commit이 어떤 audit를 받았는지와 execution 상태를 구분된 append-only 이력으로 남겨야 한다.
+- CAP-007을 재작성하거나 audited commit을 `3873f0d`로 덮어쓰면 `dc2c5c8` audit의 역사적 의미가 사라진다.
+- Technical audit PASS를 execution authorization과 분리해야 Foundation §12–§15 / §20 governance (audited implementation commit pin → execution registration → formal execution)가 유지된다.
+
+### Evidence / Source
+
+Repository evidence (본 documentation sync에서 read-only Git 명령으로 확인):
+
+- commit chain `b2e090f → d47a9ed → 576f945 → b71a5ac → f5d3cf5 → dc2c5c8 → 60026cf → 3873f0d` (merge commit 없음)
+- `0d281d6:docs/research/RESEARCH_DECISION_LOG.md` — `CAP-007` 원문. 본 branch의 CAP-007 통합 직후 Decision Log는 `0d281d6` blob과 동일했다
+- `dc2c5c8..3873f0d` 변경 파일: `analyze_d455.py`, `patch8_ledger.py`, `patch8_prelock.py`, `test_patch8_opencv_contract.py` (신규)
+- 정적 test 정의 수 (실행 아님): `test_patch8_opencv_contract.py` 10; `test_patch8_ledger.py` 38 + `test_patch8_metrics.py` 44 + `test_patch8_orchestration.py` 44 + `test_patch8_prelock.py` 25 = 151; `test_analysis_provenance.py` 52
+- `docs/research/PATCH_08_EXECUTION_REGISTRY.md` 없음; worktree에 `validation/` 없음 (ignored 포함)
+
+User-provided execution evidence (본 documentation sync에서 재실행·재측정하지 않음):
+
+- 관측 환경: Windows 11, Python 3.12.10, Intel RealSense D455 (USB 3.2 인식), `pyrealsense2` 2.59.1.11053, MediaPipe 1.0.1, NumPy 2.5.4, `opencv-contrib-python` 5.0.0.93, `opencv-python` 미설치
+- `60026cf`: Patch 8 regression 151 PASS; integrity check PASS
+- `3873f0d`: OpenCV contract 10 PASS; Patch 8 regression 151 PASS; analysis provenance 52 PASS; integrity check PASS; actual Windows capture environment identity PASS; actual Windows analysis environment identity PASS; same-PC environment match PASS
+- 비정식 점검: RGB·Depth frame 수신과 MediaPipe landmark viewer 실행. Patch 8 formal measurement가 아니며 formal slot / ledger / `execution_id`를 사용한 실행으로 기록하지 않는다 (사용자 보고 기준; 본 sync에서 독립 검증하지 않음)
+
+Audit evidence:
+
+- Independent READ-ONLY technical audit report, 2026-10-15 (Claude Code session; repository artifact 아님). Finding별 근거와 추적 상태는 `docs/research/PATCH_08_WINDOWS_COMPATIBILITY_AND_AUDIT.md`에 기록한다.
+
+Agreement between AI agents는 experimental evidence가 아니다. 본 entry는 D455 measurement 결과를 포함하지 않는다.
+
+### Not decided by this entry
+
+```text
+Patch 8 execution authorization / registration
+CAP-007 execution deferral 해제 여부와 시점 (posture-decision approach 재검토 포함)
+향후 execution의 audited_implementation_commit pin (dc2c5c8 / 3873f0d / 이후 commit)
+CAP-005 §9 implementation identity 형태를 별도 Clarifies entry로 기록할지 여부
+F-3 "error" sentinel 표현과 Patch 3 §27 (null + unknown reason) 정리 방향
+T1–T9 synthetic test 보강 (code 변경이므로 별도 patch + 재감사 필요)
+feat/rf-loso-prediction-audit와의 통합 방법 (analyze_d455.py 동일 줄 수정: e8630b6 vs 60026cf)
+analyze_d455.py / capture_d455.py 설치 안내 docstring 수정
+```
+
+### Impact
+
+- `CAP-007`은 본 branch에 원문 그대로 통합됐으며 계속 유효하다. CAP-007의 audited implementation HEAD는 `dc2c5c8`로 남고, `3873f0d` audit은 별도의 후속 technical audit이다.
+- `CAP-005`, `CAP-006`, `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`, Patch 1–7 authority, `frames-schema/1.0.0`, `summary-schema/1.0.0`, `patch8-validation-control/1.0.0`, `mediapipe_model_lock.json`, grid / anchors / thresholds / sequences는 변경하지 않는다.
+- `OPEN-006`은 RESOLVED BY CAP-005 그대로이며 `OPEN-002`, `OPEN-003`, `OPEN-004`, `OPEN-005`는 계속 DEFERRED다.
+- Formal execution authorization 전에 각 capture / analysis PC에서 OpenCV 계열 배포판(headless 변형 포함)이 정확히 하나인지 read-only로 확인해야 한다 (audit F-2 권고).
+- 본 entry는 Patch 8 execution, formal D455 measurement, 또는 Patch 8 PASS를 승인하거나 의미하지 않는다.
+
+Supersedes:
+- None
+
+Clarifies:
+- None — independent audit이 제안한 "Clarifies CAP-005 §9 implementation identity form"은 연구 책임자 결정이 필요하므로 본 entry에서 채택하지 않는다.
+
+Resolves:
+- None (research OPEN item 아님. 본 branch Decision Log의 CAP-007 누락 documentation drift는 v1.13 통합으로 해소)
 
 ---
