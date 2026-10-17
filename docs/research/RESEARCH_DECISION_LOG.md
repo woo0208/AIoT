@@ -1,7 +1,7 @@
 # Research Decision Log
 
-- 문서 버전: `v1.13`
-- 기준일: `2026-10-15` (branch `fix/patch8-opencv-distribution` 기준. `v1.12`는 branch `feat/rf-loso-prediction-audit`의 `FEAT-009` version row이며 본 branch에는 포함되지 않음 — §11 `v1.13` 참조)
+- 문서 버전: `v1.14`
+- 기준일: `2026-10-16` (branch `fix/patch8-opencv-distribution` 기준. `v1.12`는 branch `feat/rf-loso-prediction-audit`의 `FEAT-009` version row이며 본 branch에는 포함되지 않음 — §11 `v1.13`/`v1.14` 참조)
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
 - 역할: 현재 Research Master에 반영된 중요한 연구·데이터·실험·거버넌스 결정을 **왜 그렇게 결정했는지** 기록
@@ -1404,6 +1404,7 @@ final-test 결과를 본 parameter 변경
 | `v1.10` | 2026-10-07 | `CAP-005`를 append하여 Foundation Patch 8 D455 Measurement-Quality and End-to-End Validation을 Design Freeze하고 `OPEN-006`을 해소. candidate-range derivation, 0.60–1.00 m static grid와 mandatory 0.70/0.80 anchors, physical setup, execution governance, single-shot/retry/result firewall, static/production protocol identity, closed pre-lock classification, static/3D/distance-stability metrics, exact five-series depth temporal-SD rule, forward availability population, body-only-negative semantics, exact slot-131 predicate, reconciliation, integrity closure를 `docs/foundation/PATCH_08_actual_d455_end_to_end_validation.md`에 고정했다. Patch 8은 DESIGN-FROZEN이며 implementation / implementation audit / execution registration / hardware execution은 pending이다. `OPEN-002`~`OPEN-005`는 계속 DEFERRED이고 Patch 4/4.5/5/6/7 authority는 변경하지 않는다 |
 | `v1.11` | 2026-10-07 | Patch 8 implementation 중 확인된 pre-execution design-authority gap `P8-I1`을 반영하여 `CAP-006`을 append (Clarifies `CAP-005`, Supersedes None). CAP-005가 capture sequence를 명시하지 않았던 forward validation rounds 101–103 / 111–113이 `SEQ_CORE`를 사용함을 명확화하고, 121 = `SEQ_CORE` (§80) / 131 = `SEQ_FULL` (§81)은 그대로 유지한다. formal Patch 8 execution, `execution_id` 발급, Patch 8 결과 관찰은 없었다. production forward gate, `capture-forward-face-v2.0.0`, SEQ_CORE/SEQ_FULL 정의, §75/§76/§79/§80/§81, schema, threshold, `OPEN-002`~`OPEN-005`는 변경하지 않는다 |
 | `v1.13` | 2026-10-15 | Branch `fix/patch8-opencv-distribution` (HEAD `3873f0d`)의 Patch 8 post-audit documentation sync. (1) `CAP-007` lineage 통합: `CAP-007`은 2026-10-08 commit `0d281d6` (`docs: record Patch 8 audited deferred status`, branch `feat/rf-loso-prediction-audit`)에서 append됐으나 `dc2c5c8`에서 분기한 본 branch에는 없었다. 원문을 `0d281d6`과 동일한 text로 §12의 `CAP-006` 다음에 통합했으며 본문·Status·audited implementation HEAD `dc2c5c8`·execution deferral을 변경하지 않았다. `0d281d6`에는 CAP-007 version row가 없었으며, 2026-10-08 날짜의 소급 row를 만들지 않고 본 row가 그 통합을 기록한다. (2) `CAP-008` append (STATUS RECORD ONLY; Supersedes / Clarifies / Resolves None): Windows compatibility fix `60026cf` / `3873f0d`와 `dc2c5c8..3873f0d` independent READ-ONLY technical audit (PASS; BLOCKER 0 / IMPORTANT 0 / MINOR 7 / DOC_DRIFT 5)를 CAP-007과 구분된 후속 이력으로 기록했다. Execution authorization 없음, CAP-007 deferral 유지, execution registry / `execution_id` 없음, formal D455 execution 없음. (3) Version numbering: `v1.12`는 `feat/rf-loso-prediction-audit`의 `FEAT-009` row (2026-10-11, commit `d8b67d9`)가 이미 사용하므로, 번호 충돌을 피하기 위해 본 branch는 `v1.12`를 재사용하지 않고 `v1.13`을 사용한다. `FEAT-009`는 본 branch에 포함되지 않으며 본 변경은 그 entry를 추가·평가·변경하지 않는다. `CAP-005`/`CAP-006`, Foundation document, schema, threshold, `OPEN-002`~`OPEN-005`는 변경하지 않는다 |
+| `v1.14` | 2026-10-16 | CAP-009 연구 범위 명확화 결정을 연구 담당 사용자 승인에 따라 CONFIRMED로 기록. CAP-001 face-only 0.08–0.12m 촬영 게이트와 CAP-002, CAP-003~006, CAP-005 Design Freeze는 유지하고, F0/F1/F2 상대 기하학 기반 특징·분류 성능 연구를 별도 경로로 분리한다. Patch 8 PASS의 해석 범위를 measurement-quality / E2E로 제한한다. CAP-007 EXECUTION DEFERRED 유지; 실행 코드 pin, Registry, execution_id, D455 실측은 승인하지 않음. 본 버전은 Decision Log 기록만 갱신하며 기존 결정 본문이나 실행 코드를 변경하지 않는다 |
 
 ---
 
@@ -6706,3 +6707,103 @@ Resolves:
 - None (research OPEN item 아님. 본 branch Decision Log의 CAP-007 누락 documentation drift는 v1.13 통합으로 해소)
 
 ---
+
+## CAP-009 — Patch 8 Execution Deferral Research-Scope Clarification
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-16
+**Decision timing:** Research-scope clarification approved on 2026-10-16; before formal D455 execution authorization
+**Clarifies:** CAP-007
+**Supersedes:** None
+
+### 1. Background
+
+CAP-007은 연구 방향을 사용자-카메라 거리 중심 자세 판정에서 해부학적 상대 기하학 기반 자세 분석으로 재검토하기 위해 Patch 8 정식 실행을 보류했다.
+
+이후 F0/F1 연구에서는 calibration-free body-relative 2D geometry를 별도 연구 대상으로 정립했으며, FEAT-009는 F1 핵심 특징 계산 계약을 승인했다.
+
+그러나 이러한 연구 방향 변경이 CAP-001 촬영 게이트까지 변경하는지에 대한 후속 결정은 기록되어 있지 않았다.
+
+### 2. Decision
+
+**A. 연구 범위의 분리**
+
+해부학적 상대 기하학 기반 자세 판정 연구는 F0/F1/F2의 특징 정의, 분류 방법 및 성능 평가 영역에서 진행한다.
+
+CAP-001의 기존 촬영 게이트는 과학적 자세 분류기가 아닌 촬영 프로토콜 준수 조건으로 유지한다.
+
+**B. 기존 촬영 계약 유지**
+
+다음 계약은 변경하지 않는다.
+
+- CAP-001: face-only 전방 이동량 0.08–0.12m
+- CAP-002: 어깨·골반 움직임을 새로운 촬영 hard gate로 사용하지 않음
+- CAP-003/004: D455 측정품질 검증 목적
+- CAP-005: Patch 8 Design Freeze
+- CAP-006: 실행 슬롯 sequence clarification
+- `capture-forward-face-v2.0.0`
+- 기존 Patch 1–7 provenance 및 integrity 계약
+
+**C. F1/F2 연구 독립성**
+
+F1/F2 추론에서 개인별 upright baseline을 필수로 요구하지 않는다는 FEAT-002의 결정을 유지한다.
+
+기존 촬영 sequence의 upright reference는 데이터 수집을 위한 프로토콜 요소이며, F1/F2의 추론 입력으로 자동 승격하지 않는다.
+
+**D. Patch 8 결과의 해석 제한**
+
+Patch 8 PASS는 CAP-005에 정의된 특정 피험자·촬영 조건의 측정품질 및 E2E 계약 충족만을 의미한다.
+
+다음을 증명하지 않는다.
+
+- F1 특징의 정확성 및 거리별 안정성
+- F1의 2D landmark jitter 및 반복성
+- F1/F2 자세 분류 성능
+- 일반 인구에 대한 일반화 성능
+- 임상적 자세 판별 타당성
+- 최종 정식 실험 프로토콜의 적합성
+
+별도 F1 측정품질 검증이나 모델 평가가 필요한 경우 독립된 연구 계약에서 결정한다.
+
+### 3. Rationale
+
+CAP-001은 직전 upright 대비 얼굴의 전방 이동량을 통제한다. 반면 F1은 신체 부위 간 상대 기하학적 관계를 계산한다.
+
+두 방식은 서로 다른 목적을 가진다.
+
+기존 촬영 게이트의 적용이 새로운 F1 특징 계산 계약을 직접 대체하거나 변경하지 않으며, 현재 확인된 연구 기록에는 CAP-001 또는 CAP-005를 폐기하는 명시적인 결정이 없다.
+
+따라서 Patch 8의 검증 범위를 유지하고 F1의 과학적 타당성 검증을 별도로 진행하는 방안을 채택한다.
+
+### 4. Execution Governance
+
+본 연구 결정은 CAP-007의 자세 판정 재검토 범위를 명확히 하기 위한 것이다.
+
+**본 항목 자체는 CAP-007의 EXECUTION DEFERRED 상태를 해제하지 않는다.**
+
+정식 D455 실행에는 별도로 다음 사항이 필요하다.
+
+- 구현 감사 및 실행 코드 고정
+- Execution Registry 승인 게이트 문제 해결
+- 연구윤리·동의 조건 확인
+- 실제 실행 환경 및 사전 검증 확인
+- 별도의 실행 승인 기록과 사전 등록
+
+### 5. Non-Decisions
+
+본 항목은 다음을 결정하지 않는다.
+
+- F1/F2 전체 Design Freeze
+- F1 sample aggregation 및 missing-data 정책
+- F1/F2 최종 classifier와 LOSO 평가
+- 새로운 자세 촬영 gate
+- CAP-005 threshold 또는 slot 변경
+- 정식 피험자 수·실험 라운드
+- Execution authorization
+- audited implementation commit pin
+- execution_id 생성
+- 공식 D455 측정 시작
+
+**Supersedes:** None
+**Clarifies:** CAP-007
+**Execution State:** DEFERRED — UNCHANGED
