@@ -394,6 +394,11 @@ def start_analysis_run(path, args, batch_id):
         base = os.path.splitext(path)[0]
         inputs["capture_metadata"] = artifact_info(base + "_camera.json", reasons)
         capture = read_json(base + "_camera.json") if os.path.exists(base + "_camera.json") else {}
+        if capture.get("protocol_version") == "capture-f1-engineering/0.1-unapproved":
+            if not getattr(args, "f1", False):
+                raise ValueError("F1 research recording requires the f1 analysis command")
+            if capture.get("capture_status") != "completed":
+                raise ValueError("F1 research recording is not completed")
         inputs["markers"] = artifact_info(base + "_markers.csv", reasons)
         inputs["markers"].update(csv_identity(base + "_markers.csv"))
         inputs["quality"] = artifact_info(base + "_quality.json", reasons)
@@ -1400,7 +1405,11 @@ def run_analysis(files, args):
                 snapshot = archive_output(path, directory, manifest, "source_frames")
                 if snapshot["sha256"] is None or snapshot["sha256"] != manifest["inputs"]["frames"]["sha256"]:
                     raise ValueError("source frames changed before reprocessing")
-                rows = load_frames_csv(args.subjects, paths=[snapshot["path"]])
+                if getattr(args, "f1", False):
+                    from f1_csv_adapter import load_f1_frame_records
+                    rows, _ = load_f1_frame_records(snapshot["path"])
+                else:
+                    rows = load_frames_csv(args.subjects, paths=[snapshot["path"]])
             else:
                 record_model_artifacts(manifest, models, lock)
                 rows = process_recording(path, models, max(1, args.step), provenance=manifest, output_dir=directory)
@@ -1437,9 +1446,13 @@ def run_analysis(files, args):
         compatibility_dir = OUT_DIR
         try:
             OUT_DIR = batch_dir
-            summary = summarize(all_rows, {m["recording_id"]: m for _, _, m in runs})
-            report(summary)
-            plot_all(all_rows, summary)
+            if getattr(args, "f1", False):
+                summary = []
+                write_f1_analysis(all_rows, batch_dir, support=args.support, model_path=args.model)
+            else:
+                summary = summarize(all_rows, {m["recording_id"]: m for _, _, m in runs})
+                report(summary)
+                plot_all(all_rows, summary)
         finally:
             OUT_DIR = compatibility_dir
         shared = []
@@ -1454,7 +1467,8 @@ def run_analysis(files, args):
                         row_count=len(summary) if filename == "summary_steps.csv" else None,
                         analysis_run_ids=contributors)
             shared.append(item)
-            shutil.copyfile(path, os.path.join(compatibility_dir, filename))
+            if not getattr(args, "f1", False):
+                shutil.copyfile(path, os.path.join(compatibility_dir, filename))
         for path, directory, manifest in runs:
             manifest["outputs"].extend(shared)
             manifest["provenance_unknown_reasons"].update(reasons)
@@ -1489,8 +1503,110 @@ def run_analysis(files, args):
         raise
 
 
+def write_f1_analysis(rows, directory, *, support=None, model_path=None):
+    """FEAT-009 frame output; optional, explicitly chosen engineering diagnostics.
+
+    Reuses the Gate 1.9 adapter, Gate 1.8 aggregator and existing three-class
+    demo RF from source commit 6fd01b2. No upright-relative summary is used.
+    """
+    import f1_csv_adapter as adapter
+    from f1_sample_aggregator import aggregate_f1_sample, SUPPORT_POLICIES
+    from f1_demo_rf import load_f1_demo_model, CLASS_LABELS
+
+    if support is not None and support not in SUPPORT_POLICIES:
+        raise ValueError("explicit support must be joint or family")
+    recordings = {}
+    for row in rows:
+        recordings.setdefault((row["recording_id"], row["analysis_run_id"]), []).append(row)
+    records = tuple(record for group in recordings.values() for record in adapter.records_from_rows(group))
+    if not records:
+        raise ValueError("no F1 frames")
+    model = load_f1_demo_model(model_path) if model_path else None
+    evaluation = None
+    if model:
+        training_inputs = model.metadata.get("training", {}).get("input_csvs")
+        if not isinstance(training_inputs, list) or not training_inputs or any(
+                not isinstance(item, dict) or not item.get("recording_id") for item in training_inputs):
+            raise ValueError("evaluation requires model training recording identities")
+        train_ids = {item["recording_id"] for item in training_inputs}
+        if train_ids & {r.recording_id for r in records}:
+            raise ValueError("evaluation recordings overlap model training recordings")
+        evaluation = {"purpose": "engineering demo only; not formal LOSO/generalization evidence",
+                      "unit": "individual frame (correlated within recording)",
+                      "class_labels": list(CLASS_LABELS), "confusion_matrix_true_by_predicted":
+                      [[0] * len(CLASS_LABELS) for _ in CLASS_LABELS],
+                      "evaluated_frames": 0, "unavailable_frames": 0, "unsupported_label_frames": 0}
+    frames = []
+    for record in records:
+        item = {"analysis_run_id": record.analysis_run_id, "recording_id": record.recording_id,
+                "frame_index": record.frame_index, "subject": record.subject, "round": record.round,
+                "step": record.step, "label": record.label, "features": dict(record.result.features),
+                "family_available": dict(record.result.family_available),
+                "family_reasons": dict(record.result.family_reasons)}
+        if model:
+            prediction = model.predict(record.result)
+            item["prediction"] = vars(prediction)
+            if record.label not in CLASS_LABELS:
+                evaluation["unsupported_label_frames"] += 1
+            elif prediction.label is None:
+                evaluation["unavailable_frames"] += 1
+            else:
+                evaluation["evaluated_frames"] += 1
+                evaluation["confusion_matrix_true_by_predicted"][CLASS_LABELS.index(record.label)][
+                    CLASS_LABELS.index(prediction.label)] += 1
+        frames.append(item)
+    samples = None
+    if support is not None:
+        samples = []
+        for group in adapter.group_by_sample(records).values():
+            result = aggregate_f1_sample(group, support=support)
+            samples.append({"sample_key": result.sample_key, "aggregation_spec": result.aggregation_spec,
+                            "support_policy": result.support_policy, "features": dict(result.features),
+                            "n_frames": result.n_frames, "feature_n_used": dict(result.feature_n_used),
+                            "selected_frame_indices": dict(result.selected_frame_indices),
+                            "undefined_reasons": dict(result.undefined_reasons),
+                            "so_beta_resultant": result.so_beta_resultant})
+    payload = {"feature_contract": "FEAT-009/F1-5", "personal_calibration": False,
+               "aggregation_status": "NOT_REQUESTED" if support is None else "ENGINEERING_UNAPPROVED",
+               "frames": frames, "samples": samples, "evaluation": evaluation}
+    if model:
+        payload["model"] = {"artifact": artifact_info(model_path, {}), "metadata": model.metadata}
+    payload["implementation"] = {name: artifact_info(os.path.join(os.path.dirname(__file__), name), {})
+                                 for name in ("f1_features.py", "f1_csv_adapter.py",
+                                              "f1_sample_aggregator.py", "f1_demo_rf.py")}
+    path = os.path.join(directory, "f1_analysis.json")
+    with open(path, "x", encoding="utf-8") as stream:
+        json.dump(payload, stream, indent=2, ensure_ascii=False, allow_nan=False)
+    return payload
+
+
+def f1_main(argv):
+    global OUT_DIR
+    parser = argparse.ArgumentParser(description="F1-5 analysis without personal calibration")
+    parser.add_argument("--input", nargs="+", required=True, help="explicit native recording or canonical CSV paths")
+    parser.add_argument("--from-csv", action="store_true")
+    parser.add_argument("--output-dir", default="research_analysis")
+    parser.add_argument("--step", type=int, default=1, help="reuse legacy extraction stride/trim settings")
+    parser.add_argument("--support", choices=("joint", "family"),
+                        help="optional UNAPPROVED engineering aggregation; no default")
+    parser.add_argument("--model", help="existing three-class demo RF JSON; explicit held-out recording evaluation")
+    args = parser.parse_args(argv)
+    args.f1, args.legacy_pilot, args.subjects = True, False, []
+    if args.step < 1:
+        parser.error("--step must be positive")
+    previous = OUT_DIR
+    try:
+        OUT_DIR = args.output_dir
+        os.makedirs(OUT_DIR, exist_ok=True)
+        run_analysis(args.input, args)
+    finally:
+        OUT_DIR = previous
+
+
 # ---------------------------------------------------------------- 실행
 def main():
+    if sys.argv[1:2] == ["f1"]:
+        return f1_main(sys.argv[2:])
     ap = argparse.ArgumentParser(description="바른자세 녹화 파일 분석")
     ap.add_argument("subjects", nargs="+", help="참가자 ID (예: P01 P02)")
     ap.add_argument("--step", type=int, default=1, help="N프레임마다 1장 분석 (기본 1 = 전부)")

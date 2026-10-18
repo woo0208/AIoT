@@ -25,6 +25,137 @@ REPORT_FILES = {"metrics": "patch8_metrics_report.json",
 EXTERNAL_CONDITIONS = ("A_cap005_committed", "B_implementation_completed", "C_implementation_audit",
                        "D_execution_pre_registered", "E_clean_execution_workspace",
                        "Y_ledger_report_hashes_recorded")
+PUBLICATION_LOCK = "patch8_publication.lock"
+COMPUTED_CONDITIONS = frozenset((
+    "ledger_verified", "no_open_attempt", "execution_not_failed", "model_identity", "pre_hardware_integrity",
+    "camera_pose_recheck", "J_all_static_points_executed", "K_three_canonical_takes_per_point", "L_anchor_0_70",
+    "M_anchor_0_80", "N_static_envelope_derived", "P_forward_slots_101_103", "Q_forward_slots_111_113",
+    "R_body_only_121", "S_slot_131", "U_recording_reconciliation", "V_analysis_reconciliation",
+    "X_closure_integrity", "outcome_consistency", "retry_evidence_integrity"))
+
+
+def publication_exists(directory):
+    return any((Path(directory) / name).exists() for name in (*REPORT_FILES.values(), PUBLICATION_LOCK))
+
+
+def publication_readiness(state, reports):
+    """Evidence completion is distinct from acceptance. Never turn missing data into a final FAIL."""
+    conditions = reports["execution"]["computed_conditions"]
+    takes = reports["metrics"].get("static_takes")
+    checks = dict(
+        not_terminated=state.execution_failure is None,
+        sessions_closed=bool(state.sessions) and state.open_session is None,
+        no_open_attempt=state.open_attempt() is None,
+        all_slots_completed=all(state.canonical_attempt(r) is not None and
+                                state.canonical_attempt(r).ended is not None and
+                                (p8.SLOTS[r].kind == p8.STATIC or state.canonical_attempt(r).outcome is not None)
+                                for r in p8.SLOTS),
+        static_results_computed=isinstance(takes, dict) and set(takes) == set(p8.STATIC_ROUNDS) and
+                                all(isinstance(t, dict) and t.get("evaluated") is True for t in takes.values()))
+    for key in ("ledger_verified", "model_identity", "pre_hardware_integrity", "camera_pose_recheck",
+                "U_recording_reconciliation", "V_analysis_reconciliation", "X_closure_integrity",
+                "outcome_consistency", "retry_evidence_integrity"):
+        checks[key] = conditions[key]
+    return dict(complete=all(checks.values()), checks=checks)
+
+
+def prepare_publication(state, reports):
+    """Keep the existing PASS serialization; add explicit completion/provenance to FAIL evidence."""
+    execution = reports["execution"]
+    readiness = publication_readiness(state, reports)
+    if state.execution_failure is not None:
+        raise RuntimeError("TERMINATED execution has no final report")
+    if not readiness["complete"]:
+        missing = ", ".join(k for k, v in readiness["checks"].items() if not v)
+        raise RuntimeError("INCOMPLETE execution has no final report: " + missing)
+    if execution["computed_result"] == "FAIL":
+        execution.update(result="FAIL", publication_kind="COMPUTED_FAIL_EVIDENCE",
+                         failed_conditions=sorted(k for k, v in execution["computed_conditions"].items() if not v),
+                         completion=readiness,
+                         protocol_identity=dict(static=p8.STATIC_PROTOCOL_VERSION,
+                                                production=p8.PRODUCTION_PROTOCOL_VERSION),
+                         code_identity=state.baseline_code,
+                         supporting_reports={kind: hashlib.sha256(report_bytes(reports[kind])).hexdigest()
+                                             for kind in ("metrics", "reconciliation")})
+
+
+def verify_published_bundle(directory):
+    """Check immutable result ↔ final ledger event ↔ evaluated prefix; no PASS from mere existence."""
+    directory = Path(directory)
+    data = (directory / p8.LEDGER_FILENAME).read_bytes()
+    events, state = ledger.parse_ledger_bytes(data)
+    if len(state.reports) != 1 or events[-1] != state.reports[0]:
+        raise ValueError("exactly one final report_published event required")
+    event = state.reports[0]
+    if event["report_path"] != REPORT_FILES["execution"]:
+        raise ValueError("unrecognized official report path")
+    final_bytes = (directory / REPORT_FILES["execution"]).read_bytes()
+    if hashlib.sha256(final_bytes).hexdigest() != event["report_sha256"]:
+        raise ValueError("published report SHA-256 mismatch")
+    value = ledger._strict_json(final_bytes)
+    if not isinstance(value, dict) or final_bytes != report_bytes(value):
+        raise ValueError("official report must be canonical JSON")
+    prefix = data[:-len(ledger.event_line(event))]
+    prefix_events, prefix_state = ledger.parse_ledger_bytes(prefix)
+    expected_ledger = dict(event_count=len(prefix_events), last_event_sha256=prefix_events[-1]["event_sha256"],
+                           sha256=hashlib.sha256(prefix).hexdigest())
+    conditions = value.get("computed_conditions")
+    result = value.get("computed_result")
+    if (directory.name != state.execution_id or value.get("execution_id") != state.execution_id or
+            value.get("ledger_format_version") != p8.LEDGER_FORMAT_VERSION or value.get("ledger") != expected_ledger or
+            value.get("attempts") != attempt_rows(prefix_state) or not isinstance(conditions, dict) or
+            set(conditions) != COMPUTED_CONDITIONS or any(type(v) is not bool for v in conditions.values()) or
+            result not in ("PASS", "FAIL") or (result == "PASS") != all(conditions.values()) or
+            value.get("execution_failure") is not None or prefix_state.execution_failure is not None):
+        raise ValueError("report result/ledger/provenance mismatch")
+    supporting = {kind: ledger._strict_json((directory / REPORT_FILES[kind]).read_bytes())
+                  for kind in ("metrics", "reconciliation")}
+    if any(not isinstance(v, dict) or v.get("execution_id") != state.execution_id for v in supporting.values()):
+        raise ValueError("supporting report execution_id mismatch")
+    if result == "FAIL":
+        expected_hashes = {kind: hashlib.sha256((directory / REPORT_FILES[kind]).read_bytes()).hexdigest()
+                           for kind in supporting}
+        if (value.get("result") != "FAIL" or value.get("publication_kind") != "COMPUTED_FAIL_EVIDENCE" or
+                value.get("failed_conditions") != sorted(k for k, v in conditions.items() if not v) or
+                value.get("code_identity") != prefix_state.baseline_code or
+                value.get("protocol_identity") != dict(static=p8.STATIC_PROTOCOL_VERSION,
+                                                       production=p8.PRODUCTION_PROTOCOL_VERSION) or
+                value.get("supporting_reports") != expected_hashes):
+            raise ValueError("FAIL evidence identity/reasons/hash mismatch")
+        readiness = publication_readiness(prefix_state, dict(execution=value, **supporting))
+        if not readiness["complete"] or value.get("completion") != readiness:
+            raise ValueError("FAIL evidence is incomplete")
+    elif not publication_readiness(prefix_state, dict(execution=value, **supporting))["complete"]:
+        raise ValueError("PASS evidence is incomplete")
+    return value, state
+
+
+def is_pass_result(execution):
+    """Computed PASS only; external §92 records still need separate closure."""
+    conditions = execution.get("computed_conditions", {})
+    return (execution.get("computed_result") == "PASS" and set(conditions) == COMPUTED_CONDITIONS and
+            all(v is True for v in conditions.values()))
+
+
+def verify_disposition(disposition, authorization):
+    directory = Path(disposition["evidence_directory"])
+    if not directory.is_absolute() or directory.name != disposition["execution_id"]:
+        raise ValueError("evidence_directory must be the absolute retained execution directory")
+    path = directory / p8.LEDGER_FILENAME
+    if hashlib.sha256(path.read_bytes()).hexdigest() != disposition["ledger_sha256"]:
+        raise ValueError("disposition ledger SHA-256 mismatch")
+    _, state = ledger.verify_ledger(path)
+    if state.execution_id != disposition["execution_id"] or state.subject != authorization["reserved_validation_subject"]:
+        raise ValueError("disposition execution/subject mismatch")
+    if disposition["result"] == "terminated":
+        if (state.execution_failure is None or state.reports or publication_exists(directory) or
+                disposition["report_sha256"] != "no final report — execution terminated"):
+            raise ValueError("terminated disposition must have termination evidence and no final report")
+    else:
+        value, _ = verify_published_bundle(directory)
+        if value["computed_result"] != disposition["result"] or state.reports[0]["report_sha256"] != disposition["report_sha256"]:
+            raise ValueError("disposition result/report SHA-256 mismatch")
+    return state
 
 
 # ---------------------------------------------------------------- sealed evidence access (§40, §41.1)
@@ -536,7 +667,14 @@ def evaluate_execution(root, ledger_path, deprojector_factory=None):
         computed_conditions=conditions, external_conditions={k: "EXTERNAL_RECORD_REQUIRED" for k in EXTERNAL_CONDITIONS},
         computed_result="PASS" if passed else "FAIL",
         execution_failure=state.execution_failure)
-    return dict(metrics=metrics_report, reconciliation=reconciliation_report, execution=execution_report)
+    reports = dict(metrics=metrics_report, reconciliation=reconciliation_report, execution=execution_report)
+    ready = publication_readiness(state, reports)
+    if state.execution_failure is not None or not ready["complete"]:
+        execution_report.update(computed_result=None, evaluation_state=("TERMINATED" if state.execution_failure
+                                                                      else "INCOMPLETE"), completion=ready)
+    elif not passed:
+        execution_report["evaluation_state"] = "COMPUTED_FAIL"
+    return reports
 
 
 def report_bytes(value):

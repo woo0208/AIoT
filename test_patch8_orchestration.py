@@ -387,6 +387,8 @@ class World:
         if command[0] == "git":
             if command[1] == "rev-parse":
                 return done("c" * 40)
+            if command[1] == "cat-file":
+                return done("commit")
             return done("") if command[1] == "status" else done("", 0)
         if Path(command[1]).name == "patch8_prelock.py":
             self.probes.append(command[2])
@@ -518,7 +520,7 @@ def write_csv(path, rows):
         writer.writerows(rows)
 
 
-def synthetic_frames(rec_path, models, step, provenance=None, output_dir=None):
+def synthetic_frames(rec_path, models, step, provenance=None, output_dir=None, *, jitter_m=0.001):
     """Replaces only MediaPipe/RealSense extraction: canonical 60-field rows per hold phase."""
     for role in models:
         analyze_d455.mark_model_used(provenance, role)
@@ -531,7 +533,7 @@ def synthetic_frames(rec_path, models, step, provenance=None, output_dir=None):
         count = 128 if mark["label"] in ("upright", "forward_head", "body_forward") else 20
         for i in range(count):
             index += 1
-            jitter = 0.001 if i % 2 else -0.001
+            jitter = jitter_m if i % 2 else -jitter_m
             rows.append({field: None for field in analyze_d455.FRAME_FIELDS} | dict(
                 subject=subject, round=rnd, step=mark["step"], label=mark["label"], t=round(1.0 + i / 15 + 0.01, 3),
                 ts_ms=mark["ts"] + 1000 + i * 66.7, frame_schema_version=analyze_d455.FRAME_SCHEMA_VERSION,
@@ -985,7 +987,8 @@ class ReconciliationAndReportTests(OrchestrationCase):
         conditions = execution["computed_conditions"]
         self.assertEqual({k for k, v in conditions.items() if not v},
                          {"P_forward_slots_101_103", "Q_forward_slots_111_113"})
-        self.assertEqual(execution["computed_result"], "FAIL")
+        self.assertIsNone(execution["computed_result"])
+        self.assertEqual(execution["evaluation_state"], "INCOMPLETE")
         self.assertIsNone(execution["formal_initial_seating_range_m"])
         self.assertEqual(execution["static_envelope_m"], (0.6, 1.0))
         self.assertTrue(metrics_report["slot_131"]["passed"], metrics_report["slot_131"])
@@ -1098,6 +1101,120 @@ class ReconciliationAndReportTests(OrchestrationCase):
         self.assertFalse(any((validation.execution_dir(self.root, EXECUTION_ID) / n).exists()
                              for n in report.REPORT_FILES.values()))
 
+    def publish(self):
+        with patch.object(report.metrics, "sdk_deprojector", pinhole_factory):
+            return validation.evaluate(self.rt, EXECUTION_ID, publish=True)
+
+    def test_pass_publication_preserves_existing_report_schema_and_hash(self):
+        self.full_passing_execution()
+        published = self.publish()
+        execution = published["execution"]
+        self.assertTrue(report.is_pass_result(execution))
+        self.assertNotIn("publication_kind", execution)
+        self.assertNotIn("completion", execution)
+        self.assertNotIn("result", execution)
+        directory = validation.execution_dir(self.root, EXECUTION_ID)
+        verified, state = report.verify_published_bundle(directory)
+        self.assertEqual(verified, json.loads(report.report_bytes(execution)))
+        self.assertEqual(state.reports[0]["report_sha256"], hashlib.sha256(report.report_bytes(execution)).hexdigest())
+        with patch.object(validation, "authorization_gate", return_value={}), \
+                patch.object(validation, "evaluate", return_value=published), redirect_stdout(io.StringIO()):
+            self.assertEqual(validation.main(["evaluate", "--execution-id", EXECUTION_ID, "--publish"], self.rt), 0)
+
+    def test_computed_fail_is_immutable_evidence_with_reasons_hash_and_provenance(self):
+        self.world.production["131"] = dict(verdict="ok_with_warnings")
+        self.full_passing_execution()
+        published = self.publish()
+        execution = published["execution"]
+        self.assertEqual(execution["computed_result"], "FAIL")
+        self.assertEqual(execution["result"], "FAIL")
+        self.assertEqual(execution["evaluation_state"], "COMPUTED_FAIL")
+        self.assertEqual(execution["publication_kind"], "COMPUTED_FAIL_EVIDENCE")
+        self.assertEqual(execution["failed_conditions"], ["S_slot_131"])
+        self.assertFalse(published["metrics"]["slot_131"]["components"]["capture_verdict_ok"])
+        self.assertFalse(report.is_pass_result(execution))
+        with patch.object(validation, "authorization_gate", return_value={}), \
+                patch.object(validation, "evaluate", return_value=published), redirect_stdout(io.StringIO()):
+            self.assertEqual(validation.main(["evaluate", "--execution-id", EXECUTION_ID, "--publish"], self.rt), 1)
+        self.assertIsNone(execution["formal_initial_seating_range_m"])
+        self.assertEqual(execution["code_identity"], self.state().baseline_code)
+        self.assertEqual(execution["protocol_identity"]["static"], p8.STATIC_PROTOCOL_VERSION)
+        directory = validation.execution_dir(self.root, EXECUTION_ID)
+        verified, state = report.verify_published_bundle(directory)
+        final = directory / report.REPORT_FILES["execution"]
+        self.assertEqual(hashlib.sha256(final.read_bytes()).hexdigest(), state.reports[0]["report_sha256"])
+        self.assertEqual(verified["ledger"]["sha256"], state.reports[0]["ledger_sha256_before"])
+        retained = {p.name: p.read_bytes() for p in directory.iterdir() if p.is_file()}
+        with self.assertRaisesRegex(RuntimeError, "seals execution"):
+            self.publish()
+        self.assertEqual(retained, {p.name: p.read_bytes() for p in directory.iterdir() if p.is_file()})
+
+    def test_measurement_threshold_fail_can_publish_without_relaxing_pass_conditions(self):
+        # Synthetic depth variation exceeds the frozen SD threshold; no threshold is patched.
+        from functools import partial
+        with patch(__name__ + ".synthetic_frames", new=partial(synthetic_frames, jitter_m=0.03)):
+            self.full_passing_execution()
+        result = self.publish()["execution"]
+        self.assertEqual(result["computed_result"], "FAIL")
+        self.assertFalse(report.is_pass_result(result))
+        self.assertIn("L_anchor_0_70", result["failed_conditions"])
+
+    def test_incomplete_and_terminated_do_not_publish_final_fail(self):
+        self.run_production("E2E", "131")
+        result = self.evaluate()["execution"]
+        self.assertIsNone(result["computed_result"])
+        self.assertEqual(result["evaluation_state"], "INCOMPLETE")
+        with self.assertRaisesRegex(RuntimeError, "INCOMPLETE execution"):
+            self.publish()
+        led = validation.open_ledger(self.root, EXECUTION_ID)
+        led.append("execution_failed", list(self.state().sessions)[-1],
+                   dict(reason_code="OPERATOR_TERMINATED_EXECUTION", detail=None), self.rt.now())
+        result = self.evaluate()["execution"]
+        self.assertIsNone(result["computed_result"])
+        self.assertEqual(result["evaluation_state"], "TERMINATED")
+        with self.assertRaisesRegex(RuntimeError, "TERMINATED execution"):
+            self.publish()
+        directory = validation.execution_dir(self.root, EXECUTION_ID)
+        self.assertFalse(report.publication_exists(directory))
+
+    def test_all_post_publication_ledger_writes_and_conflicting_termination_refused(self):
+        self.full_passing_execution()
+        self.publish()
+        led = validation.open_ledger(self.root, EXECUTION_ID)
+        session = list(self.state().sessions)[-1]
+        before = self.ledger_path.read_bytes()
+        for kind, payload in (("execution_failed", dict(reason_code="OPERATOR_TERMINATED_EXECUTION", detail=None)),
+                              ("report_published", dict(report_path="other.json", report_sha256="f" * 64)),
+                              ("integrity_check", dict(phase="closure", exit_code=0, summary="PASS",
+                                                       counts=dict(ERROR=0, WARNING=0, INFO=0)))):
+            with self.subTest(kind=kind), self.assertRaisesRegex(ledger.LedgerError, "seals ledger"):
+                led.append(kind, session, payload, self.rt.now())
+        self.assertEqual(self.ledger_path.read_bytes(), before)
+        with self.assertRaisesRegex(ledger.LedgerError, "seals ledger"):
+            validation.close_session(self.rt, EXECUTION_ID, "aborted") if self.state().open_session else \
+                validation.record_integrity(self.rt, EXECUTION_ID, "closure")
+
+    def test_interrupted_publication_blocks_recalculation_and_writes(self):
+        self.full_passing_execution()
+        directory = validation.execution_dir(self.root, EXECUTION_ID)
+        (directory / report.PUBLICATION_LOCK).write_bytes(b"synthetic interrupted publication")
+        with self.assertRaisesRegex(RuntimeError, "interrupted publication"):
+            self.publish()
+        with self.assertRaisesRegex(ledger.LedgerError, "interrupted publication"):
+            validation.record_integrity(self.rt, EXECUTION_ID, "closure")
+
+    def test_fail_supporting_evidence_tampering_is_detected(self):
+        self.world.production["131"] = dict(verdict="ok_with_warnings")
+        self.full_passing_execution()
+        self.publish()
+        directory = validation.execution_dir(self.root, EXECUTION_ID)
+        path = directory / report.REPORT_FILES["metrics"]
+        value = json.loads(path.read_bytes())
+        value["slot_131"]["passed"] = True
+        path.write_bytes(report.report_bytes(value))
+        with self.assertRaisesRegex(ValueError, "hash mismatch"):
+            report.verify_published_bundle(directory)
+
 
 class CliAndRepositoryTests(OrchestrationCase):
     def test_formal_commands_refuse_without_registry_and_create_nothing(self):
@@ -1111,27 +1228,11 @@ class CliAndRepositoryTests(OrchestrationCase):
         self.assertFalse(self.world.launches)
 
     def test_authorization_gate_rules(self):
-        registry = self.root / p8.EXECUTION_REGISTRY_PATH
-        registry.parent.mkdir(parents=True)
-        registry.write_text(f"execution_id: {EXECUTION_ID}\naudited_implementation_commit: {'c' * 40}\n")
-        self.assertEqual(validation.authorization_gate(self.rt, EXECUTION_ID)["audited_implementation_commit"], "c" * 40)
-        other = "p8x_20261007T000000000000Z_" + "b" * 32
-        with self.assertRaisesRegex(validation.ExecutionNotAuthorized, "not registered"):
-            validation.authorization_gate(self.rt, other)
-        original = self.world.run
-
-        def diverged(command, **kwargs):
-            if command[:2] == ["git", "diff"]:
-                return subprocess.CompletedProcess(command, 1, b"", b"")
-            if command[:2] == ["git", "status"]:
-                return subprocess.CompletedProcess(command, 0, self.dirty, "")
-            return original(command, **kwargs)
-        self.rt.run, self.dirty = diverged, ""
-        with self.assertRaisesRegex(validation.ExecutionNotAuthorized, "non-documentation tree"):
+        # A process/probe mock cannot authorize an external root. Full Git checks
+        # are exercised in test_patch8_authorization using real repositories.
+        with self.assertRaisesRegex(validation.ExecutionNotAuthorized, "runtime code repository"):
             validation.authorization_gate(self.rt, EXECUTION_ID)
-        self.dirty = " M capture_d455.py"
-        with self.assertRaisesRegex(validation.ExecutionNotAuthorized, "clean"):
-            validation.authorization_gate(self.rt, EXECUTION_ID)
+        self.assertFalse((self.root / "validation").exists())
 
     def test_read_only_cli(self):
         buffer = io.StringIO()

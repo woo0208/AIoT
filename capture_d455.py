@@ -3,6 +3,10 @@
 
 설치:  pip install pyrealsense2 opencv-python numpy pillow
 사용법:
+    python -B capture_d455.py preview                     # F1, 저장 없음 (기본)
+    python -B capture_d455.py record P01 1 --label forward_head --duration 10
+    python capture_d455.py legacy P01 1 --dataset-role pilot
+구형 CLI (Patch 8 호환, 기존 보정/게이트 유지):
     python capture_d455.py P01 1 --dataset-role pilot       # 전체 자세
     python capture_d455.py P01 1 core --dataset-role pilot  # 핵심 자세만
 
@@ -167,9 +171,14 @@ def capture_provenance(subject, rnd, dataset_role):
     return info
 
 
-def reserve_capture(subject, rnd, dataset_role, directory="data"):
+def reserve_capture(subject, rnd, dataset_role, directory="data", *, research=False):
     """camera sidecar를 로컬 ID 예약으로 배타 생성. 실패한 시도의 예약도 보존한다."""
     info = capture_provenance(subject, rnd, dataset_role)
+    if research:
+        info.update(protocol_version="capture-f1-engineering/0.1-unapproved",
+                    forward_target_min_m=None, forward_target_max_m=None,
+                    forward_validation_source=None, personal_calibration=False,
+                    capture_status="reserved", quality_assessment="NOT_ASSESSED")
     os.makedirs(directory, exist_ok=True)
     suffixes = (".db3", ".bag", "_camera.json", "_markers.csv", "_samples.csv", "_quality.json")
     while True:
@@ -183,6 +192,9 @@ def reserve_capture(subject, rnd, dataset_role, directory="data"):
                         for name, ext in (("camera", "json"), ("markers", "csv"),
                                           ("samples", "csv"), ("quality", "json"))
                     }
+                    if research:
+                        info["sidecar_files"] = {k: v for k, v in info["sidecar_files"].items()
+                                                 if k in ("camera", "markers")}
                     json.dump(info, f, indent=2, ensure_ascii=False)
                 return base, info
             except FileExistsError:
@@ -787,8 +799,8 @@ def report(subject, rnd, base, rec_file, phases, samples, aborted, total_sec, pr
         print(" (실패한 촬영본도 보존하세요. 재촬영에는 새 recording_id가 부여됩니다.)\n")
 
 
-def main():
-    args = parse_capture_args()
+def legacy_main(argv=None):
+    args = parse_capture_args(argv)
     subject, rnd = args.subject, args.round
     seq = SEQ_CORE if args.mode == "core" else SEQ_FULL
     if not KOREAN_OK:
@@ -805,6 +817,129 @@ def main():
     finally:
         cv2.destroyAllWindows()
     report(subject, rnd, *result)
+
+
+def parse_f1_capture_args(argv):
+    parser = argparse.ArgumentParser(description="F1 preview / explicit nonformal RGB-D recording")
+    modes = parser.add_subparsers(dest="action", required=True)
+    preview = modes.add_parser("preview", help="current-frame F1; no files")
+    preview.add_argument("--model-dir", default=os.path.join(os.path.dirname(__file__), "models"))
+    preview.add_argument("--serial")
+    record = modes.add_parser("record", help="one labelled take; no upright reference or forward gate")
+    record.add_argument("subject")
+    record.add_argument("round")
+    record.add_argument("--label", required=True, choices=tuple(POSTURES))
+    record.add_argument("--duration", required=True, type=float)
+    record.add_argument("--output-dir", default="research_data")
+    record.add_argument("--serial")
+    args = parser.parse_args(argv)
+    if args.action == "record":
+        try:
+            validate_capture_identity(args.subject, args.round, "pilot")
+            if not math.isfinite(args.duration) or args.duration <= 0:
+                raise ValueError("duration must be finite and positive")
+        except ValueError as error:
+            parser.error(str(error))
+    return args
+
+
+def record_f1(args):
+    """Reuse native SDK recording and marker timing; never run legacy gates.
+
+    One operator-specified label is metadata, not an inferred posture verdict.
+    This engineering path only creates pilot recordings outside the legacy data directory.
+    """
+    devices = [d for d in rs.context().query_devices()
+               if "D455" in d.get_info(rs.camera_info.name)
+               and (args.serial is None or d.get_info(rs.camera_info.serial_number) == args.serial)]
+    if len(devices) != 1:
+        raise RuntimeError("Expected one D455; use --serial to select the device")
+    serial = devices[0].get_info(rs.camera_info.serial_number)
+    base, info = reserve_capture(args.subject, args.round, "pilot", args.output_dir, research=True)
+    info.update(label=args.label, duration_requested_s=args.duration, fps=FPS,
+                sequence=[(args.label, args.duration)], prep_sec=0, start_distance=None)
+    pipe, started, markers = None, False, []
+    window = "D455 F1 research | RECORDING | q/Esc: interrupt"
+    try:
+        for ext in (".db3", ".bag"):
+            pipe = rs.pipeline()
+            cfg = make_config(base + ext)
+            cfg.enable_device(serial)
+            try:
+                profile = pipe.start(cfg)
+                started = True
+                info["record_file"] = os.path.basename(base + ext)
+                break
+            except RuntimeError:
+                if ext == ".bag":
+                    raise
+        dev = profile.get_device()
+        cs = profile.get_stream(rs.stream.color).as_video_stream_profile()
+        ds = profile.get_stream(rs.stream.depth).as_video_stream_profile()
+        ex = ds.get_extrinsics_to(cs)
+        info.update(device=dev.get_info(rs.camera_info.name), serial=serial,
+                    depth_scale_m=dev.first_depth_sensor().get_depth_scale(),
+                    color_intrinsics=intr_to_dict(cs.get_intrinsics()),
+                    depth_intrinsics=intr_to_dict(ds.get_intrinsics()),
+                    depth_to_color_extrinsics={"rotation": list(ex.rotation), "translation": list(ex.translation)},
+                    capture_status="recording")
+        with open(base + "_camera.json", "w", encoding="utf-8") as stream:
+            json.dump(info, stream, indent=2, ensure_ascii=False)
+        cv2.namedWindow(window, cv2.WINDOW_NORMAL)
+        start = time.monotonic()
+        while True:
+            frames = pipe.wait_for_frames(timeout_ms=5000)
+            ts = frames.get_timestamp()
+            if not markers:
+                markers.append((info["recording_id"], ts, "hold", "1", args.label))
+            if time.monotonic() - start >= args.duration:
+                markers.append((info["recording_id"], ts, "end", "1", "end"))
+                info["capture_status"] = "completed"
+                break
+            color = frames.get_color_frame()
+            if color:
+                img = np.asanyarray(color.get_data()).copy()
+                cv2.putText(img, "RECORDING: " + args.label, (12, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, .8, (0, 0, 255), 2)
+                cv2.imshow(window, img)
+            if cv2.waitKey(1) & 0xFF in (ord("q"), 27) or cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) < 1:
+                markers.append((info["recording_id"], ts, "aborted", "1", "aborted"))
+                info["capture_status"] = "interrupted"
+                break
+    except BaseException as error:
+        info.update(capture_status="failed", error=str(error))
+        raise
+    finally:
+        try:
+            if started:
+                pipe.stop()
+        except BaseException as error:
+            info.update(capture_status="failed", error=str(error))
+            raise
+        finally:
+            with open(base + "_markers.csv", "x", newline="", encoding="utf-8") as stream:
+                writer = csv.writer(stream)
+                writer.writerow(("recording_id", "frame_timestamp_ms", "phase", "step", "label"))
+                writer.writerows(markers)
+            with open(base + "_camera.json", "w", encoding="utf-8") as stream:
+                json.dump(info, stream, indent=2, ensure_ascii=False)
+            cv2.destroyAllWindows()
+    print(f"{info['capture_status']}: {base} (pilot; quality NOT_ASSESSED)")
+    return base
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "legacy":
+        return legacy_main(argv[1:])
+    # Existing positional CLI is retained for Patch 8 and historical callers.
+    if argv and not argv[0].startswith("-") and argv[0] not in ("preview", "record"):
+        return legacy_main(argv)
+    args = parse_f1_capture_args(argv or ["preview"])
+    if args.action == "preview":
+        from live_f1_d455 import run_preview
+        return run_preview(args.model_dir, args.serial)
+    return record_f1(args)
 
 
 if __name__ == "__main__":

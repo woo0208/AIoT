@@ -453,6 +453,7 @@ def observation_retry_eligible(slot_kind, observation, canonical_static_take_exi
 
 # ---------------------------------------------------------------- replay
 def _common(state, event):
+    _require(not state.reports, "published result seals ledger; further events forbidden")
     _require(isinstance(event, dict), "ledger event must be an object")
     kind = event.get("event_type")
     _require(kind in PAYLOAD_FIELDS, f"unsupported event_type: {kind!r}")
@@ -808,6 +809,10 @@ class Ledger:
     def append(self, event_type, session_id, payload, now=None):
         data = self.path.read_bytes() if self.path.exists() else b""
         events, state = parse_ledger_bytes(data)
+        if event_type != "report_published":
+            from patch8_report import publication_exists
+            _require(not publication_exists(self.path.parent),
+                     "published result or interrupted publication seals ledger")
         if event_type == "report_published":
             payload = dict(payload, ledger_sha256_before=hashlib.sha256(data).hexdigest())
         event = self.build(state, event_type, session_id, payload, now)

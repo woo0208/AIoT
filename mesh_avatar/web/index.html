@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIoT Posture Monitor</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="app">
+  <header class="top">
+    <div class="title">
+      <h1>AIoT Posture Monitor</h1>
+      <span class="sub">Posture Mesh Avatar</span>
+      <span class="eng">ENGINEERING DEMO · 시각화 전용</span>
+    </div>
+    <div class="top-status">
+      <span class="chip" id="modeChip">MODE N/A</span>
+      <span class="conn"><span class="dot" id="connDot"></span><span id="status" class="status-wait">연결 대기 중…</span></span>
+    </div>
+  </header>
+  <div class="notice" id="notice" hidden></div>
+  <main class="stage">
+    <section class="view" id="viewFront"><div class="lbl">정면 · FRONT <small>카메라 시점</small></div></section>
+    <section class="view" id="viewSide"><div class="lbl">측면 · SIDE</div></section>
+  </main>
+  <footer class="bottom">
+    <div class="pred" id="pred">
+      <div class="section-label">모델 판정 · 같은 프레임</div>
+      <div class="pred-banner">ENGINEERING RF DEMO — ACCURACY NOT VALIDATED</div>
+      <div id="predText" class="pred-na">PREDICTION UNAVAILABLE</div>
+      <div id="predReason" class="pred-reason">no probe frame yet</div>
+    </div>
+    <div class="geometry" id="geometry">
+      <div class="section-label">현재 프레임 탐색용 기하 · 판정 아님</div>
+      <div class="geometry-banner">EXPLORATORY GEOMETRY — NOT A POSTURE CLASSIFICATION</div>
+      <dl class="geometry-values">
+        <div><dt>몸통 전후 (3D)</dt><dd id="gTorso">N/A</dd></div>
+        <div><dt>머리 상하 (3D)</dt><dd id="gHeadPitch">N/A</dd></div>
+        <div><dt>머리 전방 / 어깨폭 (3D)</dt><dd id="gHeadForward">N/A</dd></div>
+        <div><dt>어깨폭 (3D)</dt><dd id="gShoulderWidth">N/A</dd></div>
+        <div><dt>머리 좌우 위치 (2D)</dt><dd id="gHeadLateral">N/A</dd></div>
+        <div><dt>얼굴 좌우 방향 (Face Matrix)</dt><dd id="gFaceYaw">N/A</dd></div>
+      </dl>
+      <div id="geometryReason" class="geometry-reason">no probe frame yet</div>
+    </div>
+    <dl class="diag" id="diag">
+      <div><dt>Stream</dt><dd id="dStream">N/A</dd></div>
+      <div><dt>Frame age</dt><dd id="dAge">N/A</dd></div>
+      <div><dt>RF model</dt><dd id="dModel">N/A</dd></div>
+      <div><dt>Joints</dt><dd id="dJoints">N/A</dd></div>
+      <div><dt>Render</dt><dd id="dFps">N/A</dd></div>
+    </dl>
+    <details class="adv">
+      <summary>display details</summary>
+      <span id="info"></span>
+    </details>
+  </footer>
+</div>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/build/three.module.js" } }
+</script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

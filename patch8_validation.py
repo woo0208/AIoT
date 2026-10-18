@@ -171,32 +171,270 @@ def code_state(rt):
         return {"git_commit": None, "git_clean": False}
 
 
-def authorization_gate(rt, execution_id):
-    """§15/§20/§22: formal commands need the execution registry to name the execution_id and
-    a commit that is an ancestor of HEAD whose non-documentation tree equals HEAD (the
-    audited implementation; only documentation such as the registration may follow), plus
-    a clean workspace. The registry format is not assumed beyond these tokens, and the
-    registry is never created by this tool."""
-    registry = Path(rt.root) / p8.EXECUTION_REGISTRY_PATH
-    if not registry.is_file():
-        raise ExecutionNotAuthorized(f"{p8.EXECUTION_REGISTRY_PATH} absent: formal Patch 8 execution is not authorized")
-    text = registry.read_text(encoding="utf-8")
-    if execution_id not in text:
-        raise ExecutionNotAuthorized("execution_id is not registered")
+_AUTHORIZATION_FIELDS = frozenset((
+    "execution_id", "status", "reserved_validation_subject", "design_freeze_commit",
+    "audited_implementation_commit", "capture_host", "analysis_host", "planned_date_session"))
+_REEXECUTION_FIELDS = frozenset(("reason_for_reexecution", "implementation_changed"))
+_DISPOSITION_FIELDS = frozenset(("execution_id", "result", "ledger_sha256", "report_sha256", "evidence_directory"))
+_COMMIT = re.compile(r"[0-9a-f]{40}")
+_NO_FINAL_REPORT = "no final report — execution terminated"
+# CAP-006's history and CAP-008 identify this existing CAP-005 freeze commit.
+DESIGN_FREEZE_COMMIT = "d47a9edcc4a1cefa28dddac556ee62443c3e4588"
+
+
+def _registry_require(condition, message):
+    if not condition:
+        raise ExecutionNotAuthorized(f"execution registry: {message}")
+
+
+def _registry_entries(text):
+    """Minimal Markdown representation of §15/§21, not a new scientific schema.
+
+    Optional '# Patch 8 Execution Registry' title, then '## Authorization' or
+    '## Disposition' sections of unquoted, single-line key: value fields. Authorization
+    snapshots retain status 'AUTHORIZED / NOT_STARTED'; later terminal facts are appended
+    as Dispositions (result PASS, FAIL, or terminated), never status rewrites. Re-execution
+    adds reason_for_reexecution, implementation_changed (yes/no), and one '### Prior
+    execution' subsection per earlier authorization, containing the five disposition
+    fields verbatim. report_sha256 is a SHA-256 or the literal §21 no-final-report text
+    (only for terminated). Blank lines are allowed; comments, fences, duplicate/unknown
+    fields and other prose are refused to avoid hidden or ambiguous authority.
+    """
+    text = _registry_text(text)
+    entries, current, fields = [], None, None
+    for number, line in enumerate(text.split("\n"), 1):
+        if not line.strip():
+            continue
+        if line == "# Patch 8 Execution Registry" and not entries and current is None:
+            _registry_require(number == 1, "title must occur once at the start")
+            continue
+        if line in ("## Authorization", "## Disposition"):
+            current = {"kind": line[3:], "fields": {}, "priors": []}
+            entries.append(current)
+            fields = current["fields"]
+        elif line == "### Prior execution":
+            _registry_require(current is not None and current["kind"] == "Authorization",
+                              "prior execution outside Authorization")
+            fields = {}
+            current["priors"].append(fields)
+        else:
+            match = re.fullmatch(r"([a-z][a-z0-9_]*): (\S(?:.*\S)?)", line)
+            _registry_require(fields is not None and match is not None, f"malformed line {number}")
+            key, value = match.groups()
+            _registry_require(key not in fields, f"duplicate field {key}")
+            fields[key] = value
+    _registry_require(entries, "no entries")
+    return entries
+
+
+def _registry_text(text):
+    """LF and CRLF only; reject BOM, hidden separators, tabs and format controls."""
+    import unicodedata
+    text = text.replace("\r\n", "\n")
+    _registry_require(all(c == "\n" or (not unicodedata.category(c).startswith("C") and
+                                      c not in "\u2028\u2029") for c in text),
+                      "unsupported control character/BOM/line separator")
+    _registry_require(not text or text.endswith("\n"), "registry must end with a newline")
+    return text
+
+
+def _require_runtime_root(root):
+    """No Runtime injection controls the actual imported source locations."""
+    try:
+        root = Path(root).resolve(strict=True)
+        locations = [Path(__file__), Path(ledger.__file__), Path(prelock.__file__),
+                     Path(p8.__file__), Path(report.__file__), Path(report.metrics.__file__)]
+        _registry_require(all(path.resolve(strict=True).parent.samefile(root) for path in locations),
+                          "runtime code repository differs from --root (§20/§22)")
+    except OSError as error:
+        raise ExecutionNotAuthorized("runtime code repository/--root unavailable") from error
+    return root
+
+
+def _registry_from_head(root, git):
+    """Authority is the HEAD blob, with working-copy agreement and reachable-history retention."""
+    path = p8.EXECUTION_REGISTRY_PATH
+
+    def blob(commit):
+        entry = git("ls-tree", commit, "--", path)
+        if not entry:
+            return None
+        _registry_require(entry.startswith("100644 blob "), "registry must be a regular tracked blob")
+        try:
+            return _registry_text(git("show", f"{commit}:{path}", strip=False))
+        except UnicodeError as error:
+            raise ExecutionNotAuthorized("execution registry: unreadable UTF-8 blob") from error
+
+    text = blob("HEAD")
+    _registry_require(text is not None, "registry absent from HEAD (ls-files is insufficient)")
+    registry = root / path
+    try:
+        _registry_require(registry.resolve(strict=True) == root / path and not registry.is_symlink(),
+                          "registry path must not be a symlink/junction")
+        working = _registry_text(registry.read_bytes().decode("utf-8"))
+    except (OSError, UnicodeError) as error:
+        raise ExecutionNotAuthorized("execution registry absent or unreadable") from error
+    _registry_require(working == text, "working registry differs from HEAD blob")
+    # Path-limited full-history includes deletions, and both sides of reachable merges.
+    # It cannot establish facts in rewritten, shallow or inaccessible external history.
+    for commit in git("rev-list", "--full-history", "HEAD", "--", path).splitlines():
+        prior = blob(commit)
+        _registry_require(prior is not None and text.startswith(prior),
+                          "append-only registry history was deleted or modified")
+    return text
+
+
+def _registry_disposition(fields):
+    _registry_require(set(fields) == _DISPOSITION_FIELDS, "missing/unknown disposition fields")
+    _registry_require(ledger.valid_id(fields["execution_id"], "p8x"), "invalid disposition execution_id")
+    _registry_require(fields["result"] in ("PASS", "FAIL", "terminated"), "unknown terminal result")
+    _registry_require(ledger.HEX64.fullmatch(fields["ledger_sha256"]), "invalid prior ledger SHA-256")
+    report_hash = fields["report_sha256"]
+    _registry_require(ledger.HEX64.fullmatch(report_hash) or
+                      (fields["result"] == "terminated" and report_hash == _NO_FINAL_REPORT),
+                      "invalid prior report SHA-256/no-final-report evidence")
+
+
+def _registry_authorizations(text):
+    authorizations, dispositions = {}, {}
+    for entry in _registry_entries(text):
+        fields, priors = entry["fields"], entry["priors"]
+        if entry["kind"] == "Disposition":
+            _registry_disposition(fields)
+            identity = fields["execution_id"]
+            _registry_require(identity in authorizations and identity not in dispositions,
+                              "orphan or duplicate disposition")
+            dispositions[identity] = fields
+            continue
+        _registry_require(_AUTHORIZATION_FIELDS <= set(fields) <= _AUTHORIZATION_FIELDS | _REEXECUTION_FIELDS,
+                          "missing/unknown authorization fields")
+        identity = fields["execution_id"]
+        _registry_require(ledger.valid_id(identity, "p8x"), "invalid execution_id")
+        _registry_require(identity not in authorizations, "duplicate execution_id authorization")
+        _registry_require(fields["status"] == "AUTHORIZED / NOT_STARTED", "status must be AUTHORIZED / NOT_STARTED")
+        _registry_require(re.fullmatch(r"[A-Za-z0-9-]+", fields["reserved_validation_subject"]),
+                          "invalid reserved validation subject")
+        for key in ("design_freeze_commit", "audited_implementation_commit"):
+            _registry_require(_COMMIT.fullmatch(fields[key]), f"invalid {key}")
+        if authorizations:
+            _registry_require(set(fields) == _AUTHORIZATION_FIELDS | _REEXECUTION_FIELDS,
+                              "re-execution requires reason and implementation_changed")
+            _registry_require(fields["implementation_changed"] in ("yes", "no"), "invalid implementation_changed")
+            prior_ids = [prior.get("execution_id") for prior in priors]
+            _registry_require(len(prior_ids) == len(set(prior_ids)) and set(prior_ids) == set(authorizations),
+                              "re-execution must identify every prior execution with a new execution_id")
+            for prior in priors:
+                _registry_disposition(prior)
+                _registry_require(prior == dispositions.get(prior["execution_id"]),
+                                  "prior result/evidence must match an earlier terminal disposition")
+        else:
+            _registry_require(not priors and not (set(fields) & _REEXECUTION_FIELDS),
+                              "initial authorization cannot claim re-execution")
+        authorizations[identity] = fields
+    return authorizations, dispositions
+
+
+def authorization_gate(rt, execution_id, *, finalization=False):
+    """Fail closed on item-bound §15/§19–§22 authority; never create a registry or evidence.
+
+    finalization permits local failure recovery, analysis, closure and publication before
+    a final registry Disposition is recorded, but never a new session, warm-up or capture.
+    A recorded Disposition seals the ID against all further formal writes. Registration
+    status is a pre-start snapshot, not a claim that the local execution has not yet started.
+    Unrecorded failures on inaccessible workspaces cannot be discovered here (§19).
+    """
+    _registry_require(ledger.valid_id(execution_id, "p8x"), "invalid requested execution_id")
+    root = _require_runtime_root(rt.root)
     code = code_state(rt)
-    if not code["git_commit"] or not code["git_clean"]:
+    if not _COMMIT.fullmatch(code["git_commit"] or "") or not code["git_clean"]:
         raise ExecutionNotAuthorized("execution workspace is not a clean Git checkout (§22)")
 
-    def git_ok(*args):
+    def git(*args, strip=True):
         try:
-            return rt.run(["git", *args], cwd=rt.root, capture_output=True, timeout=30).returncode == 0
-        except (OSError, subprocess.SubprocessError):
-            return False
-    for commit in sorted(set(re.findall(r"\b[0-9a-f]{40}\b", text))):
-        if git_ok("merge-base", "--is-ancestor", commit, "HEAD") and git_ok(
-                "diff", "--quiet", commit, "HEAD", "--", ".", ":(exclude)docs", ":(exclude,glob)*.md"):
-            return dict(code, audited_implementation_commit=commit)
-    raise ExecutionNotAuthorized("no registered commit matches HEAD's non-documentation tree (§20)")
+            options = dict(text=True, encoding="utf-8") if strip else dict(text=False)
+            result = rt.run(["git", *args], cwd=root, capture_output=True, timeout=30, **options)
+            _registry_require(result.returncode == 0, "Git authorization query failed: " + args[0])
+            output = result.stdout if strip else result.stdout.decode("utf-8")
+        except UnicodeError as error:
+            raise ExecutionNotAuthorized("execution registry: unreadable UTF-8 Git content") from error
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ExecutionNotAuthorized("Git authorization query failed") from error
+        return output.strip() if strip else output
+
+    authorizations, dispositions = _registry_authorizations(_registry_from_head(root, git))
+    _registry_require(Path(git("rev-parse", "--show-toplevel")).samefile(root),
+                      "--root must be the runtime Git repository root")
+    flags = git("ls-files", "-v").splitlines()
+    _registry_require(all(line.startswith("H ") for line in flags),
+                      "skip-worktree/assume-unchanged index flags are not allowed (§22)")
+    _registry_require(execution_id in authorizations, "execution_id is not registered")
+    authorization = authorizations[execution_id]
+    _registry_require(execution_id not in dispositions,
+                      "execution_id has a terminal disposition; reuse forbidden")
+    for entry in authorizations.values():
+        _registry_require(entry["design_freeze_commit"] == DESIGN_FREEZE_COMMIT,
+                          "design_freeze_commit differs from CAP-005 freeze identity")
+    _registry_require(git("cat-file", "-t", DESIGN_FREEZE_COMMIT) == "commit", "design freeze is not a commit")
+    commit = authorization["audited_implementation_commit"]
+    _registry_require(git("cat-file", "-t", commit) == "commit", "audited implementation is not a commit")
+    git("merge-base", "--is-ancestor", commit, code["git_commit"])
+    git("merge-base", "--is-ancestor", DESIGN_FREEZE_COMMIT, commit)
+    try:
+        git("diff", "--quiet", commit, code["git_commit"], "--", ".", ":(exclude)docs", ":(exclude,glob)*.md")
+    except ExecutionNotAuthorized as error:
+        raise ExecutionNotAuthorized("registered commit does not match HEAD's non-documentation tree (§20)") from error
+    # Check the declaration against actual implementation trees, not merely SHA inequality:
+    # an audited documentation-only descendant still has the same implementation.
+    if "implementation_changed" in authorization:
+        prior_ids = list(authorizations)
+        previous = authorizations[prior_ids[prior_ids.index(execution_id) - 1]]["audited_implementation_commit"]
+        _registry_require(git("cat-file", "-t", previous) == "commit", "prior implementation is not a commit")
+        try:
+            result = rt.run(["git", "diff", "--quiet", previous, commit, "--", ".",
+                             ":(exclude)docs", ":(exclude,glob)*.md"], cwd=rt.root,
+                            capture_output=True, timeout=30)
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ExecutionNotAuthorized("Git re-execution comparison failed") from error
+        _registry_require(result.returncode in (0, 1), "Git re-execution comparison failed")
+        _registry_require((result.returncode == 1) == (authorization["implementation_changed"] == "yes"),
+                          "implementation_changed contradicts implementation trees")
+    for identity, disposition in dispositions.items():
+        try:
+            prior_state = report.verify_disposition(disposition, authorizations[identity])
+            prior_code = prior_state.baseline_code
+            _registry_require(prior_code is not None and prior_code.get("git_clean") is True and
+                              _COMMIT.fullmatch(prior_code.get("git_commit") or ""), "prior code identity invalid")
+            prior_commit = authorizations[identity]["audited_implementation_commit"]
+            git("merge-base", "--is-ancestor", prior_commit, prior_code["git_commit"])
+            git("diff", "--quiet", prior_commit, prior_code["git_commit"], "--", ".",
+                ":(exclude)docs", ":(exclude,glob)*.md")
+        except (OSError, ValueError, TypeError, KeyError, ledger.LedgerError) as error:
+            raise ExecutionNotAuthorized(f"execution registry: prior evidence mismatch for {identity}: {error}") from error
+    directory = execution_dir(root, execution_id)
+    try:
+        for other in (root / p8.VALIDATION_ROOT).glob("*"):
+            _registry_require(other == directory or (other.is_dir() and not any(other.iterdir())),
+                              "other execution runtime artifacts mixed in (§22)")
+        path = directory / p8.LEDGER_FILENAME
+        if path.exists():
+            _, state = open_ledger(rt.root, execution_id).read()
+            _registry_require(not state.reports and not report.publication_exists(directory),
+                              "published result seals execution; further writes forbidden")
+            _registry_require(finalization or state.execution_failure is None,
+                              "local execution failed or finished; reuse forbidden")
+            if state.subject is not None:
+                _registry_require(state.subject == authorization["reserved_validation_subject"],
+                                  "ledger subject differs from authorization")
+        else:
+            _registry_require(not directory.exists() or not any(directory.iterdir()),
+                              "runtime artifacts without a ledger (§22)")
+            for namespace in ("data", "analysis", "results", "runtime/data"):
+                _registry_require(not any((root / namespace).rglob("*")),
+                                  f"previous runtime artifacts in {namespace} (§22)")
+    except (OSError, ledger.LedgerError) as error:
+        raise ExecutionNotAuthorized("execution ledger unavailable or invalid") from error
+    return dict(code, audited_implementation_commit=commit,
+                reserved_validation_subject=authorization["reserved_validation_subject"])
 
 
 def _sealed_files(directory, stem):
@@ -710,17 +948,24 @@ def analyze_one(path):
 
 # ---------------------------------------------------------------- evaluation / reports
 def evaluate(rt, execution_id, publish=False):
-    path = execution_dir(rt.root, execution_id) / p8.LEDGER_FILENAME
+    directory = execution_dir(rt.root, execution_id)
+    path = directory / p8.LEDGER_FILENAME
     if publish:
+        _, before = open_ledger(rt.root, execution_id).read()
+        if before.reports or report.publication_exists(directory):
+            raise RuntimeError("published result or interrupted publication seals execution")
+        if before.execution_failure is not None:
+            raise RuntimeError("TERMINATED execution has no final report")
         if not record_integrity(rt, execution_id, "closure"):
             raise RuntimeError("fresh closure integrity failed; formal reports were not published (§85)")
     reports = report.evaluate_execution(rt.root, path)
     if publish:
-        if reports["execution"]["computed_result"] != "PASS":
-            raise RuntimeError("current Patch 8 evidence evaluates FAIL; formal PASS reports were not published")
         led = open_ledger(rt.root, execution_id)
         _, state = led.read()
-        directory = execution_dir(rt.root, execution_id)
+        report.prepare_publication(state, reports)
+        # Exclusive reservation survives an interrupted publication; never recalculate/overwrite it.
+        with open(directory / report.PUBLICATION_LOCK, "xb") as stream:
+            stream.write(b"immutable publication reserved\n")
         for kind, name in report.REPORT_FILES.items():
             with open(directory / name, "xb") as stream:
                 stream.write(report.report_bytes(reports[kind]))
@@ -728,6 +973,7 @@ def evaluate(rt, execution_id, publish=False):
         led.append("report_published", _any_session(state), dict(
             report_path=final.relative_to(directory).as_posix(),
             report_sha256=hashlib.sha256(final.read_bytes()).hexdigest()), rt.now())
+        report.verify_published_bundle(directory)
     return reports
 
 
@@ -825,9 +1071,15 @@ def main(argv=None, rt=None):
             result = evaluate(rt, args.execution_id)["execution"]
             print(json.dumps(ledger.json_safe(report._keys_to_text(result)), indent=2, sort_keys=True))
             return 0
-        authorization_gate(rt, args.execution_id)
+        authorization = authorization_gate(rt, args.execution_id, finalization=args.command in (
+            "close-session", "pose-recheck", "recover-attempt", "analyze", "analysis-infrastructure-failure",
+            "integrity", "evaluate", "terminate-execution"))
+        if args.command == "open-session" and args.subject != authorization["reserved_validation_subject"]:
+            raise ExecutionNotAuthorized("reserved validation subject differs from authorization")
         if args.command == "evaluate":
-            evaluate(rt, args.execution_id, publish=True)
+            result = evaluate(rt, args.execution_id, publish=True)["execution"]
+            print(f"PATCH 8 RESULT {result['computed_result']}; immutable report published")
+            return 0 if report.is_pass_result(result) else 1
         elif args.command == "open-session":
             print(open_session(rt, args.execution_id, args.session_kind, args.subject))
         elif args.command == "close-session":
