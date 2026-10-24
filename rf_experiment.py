@@ -55,6 +55,11 @@ RESULTS_DIR = "results"
 REPO_ROOT = Path(__file__).resolve().parent
 FEAT_NAMES = ["A", "x_c", "y_c", "thetaL", "thetaR", "theta1"]
 PAPER_RANK_W = [0.30, 0.20, 0.15, 0.15, 0.15, 0.05]
+RANK_WEIGHT_POLICY = "paper-table5-rank-repeat-last-renormalize-p9"
+H_EVAL_TREES = 500
+H_EVAL_MAX_FEATURES = 2
+H_EVAL_SEEDS = (0, 1, 2, 3, 4)
+H_EVAL_M2_LAMBDA = 0.5
 LAB5 = ["upright", "forward_head", "lean_back", "lean_left", "lean_right"]
 LAB_KO = {"upright": "정상", "forward_head": "거북목", "lean_back": "뒤로", "lean_left": "왼쪽",
           "lean_right": "오른쪽", "body_forward": "몸 전체 앞으로", "trunk_forward": "몸통 앞으로(TLF)"}
@@ -464,18 +469,24 @@ class Forest:
 
 
 def rank_weights(mdi):
-    """MDI 순위대로 Table 5 가중치 배정; 6개 미만이면 상위 p개를 재정규화."""
+    """Assign rank weights under the legacy p<=6 and approved p=9 policies."""
     p = len(mdi)
-    if p > len(PAPER_RANK_W):
+    if p > len(PAPER_RANK_W) and p != 9:
         raise ValueError(
-            "rank-based paper weights are defined for at most 6 features; "
-            "define a weighting policy explicitly before using more features"
+            "rank-based paper weights are defined only for p<=6 or p=9 "
+            f"under the approved policy ({RANK_WEIGHT_POLICY}; p={p})"
         )
-    rank_w = np.array(PAPER_RANK_W[:p])
+    if p == 9:
+        rank_w = np.array(PAPER_RANK_W + [PAPER_RANK_W[-1]] * 3, dtype=float)
+        rank_w = rank_w / rank_w.sum()
+    else:
+        rank_w = np.array(PAPER_RANK_W[:p])
     if p < len(PAPER_RANK_W):
         rank_w = rank_w / rank_w.sum()
     w = np.zeros(p)
-    for rank, j in enumerate(np.argsort(-mdi)):
+    # Primary key: descending MDI.  Secondary key: ascending feature column.
+    order = np.lexsort((np.arange(p), -np.asarray(mdi)))
+    for rank, j in enumerate(order):
         w[j] = rank_w[rank]
     return w
 
@@ -562,6 +573,307 @@ def boot_ci(vals, n=5000, seed=0):
     v = np.array(vals)
     m = [rng.choice(v, len(v), replace=True).mean() for _ in range(n)]
     return float(np.percentile(m, 2.5)), float(np.percentile(m, 97.5))
+
+
+def _forest_probabilities(forest, X):
+    """Average existing tree probabilities without changing Forest's API."""
+
+    return sum(tree.predict_proba(X) for tree in forest.trees) / forest.T
+
+
+def evaluate_h5_h9_b5_loso(X_h9, X_b5=None, y=None, participants=None):
+    """Run primary H5/H9 LOSO and an optional B5 auxiliary comparison.
+
+    H5 and H9 are projections of the same nine-column samples, so sample order,
+    held-out folds and seeds cannot diverge.  Both run M0, M1 and the existing
+    M2 at fixed lambda=0.5.  B5 is separate: ``None`` or any non-finite B5 row
+    means unavailable, never removal or blocking of a primary H sample.  When
+    the common B5-eligible subset supports LOSO, its three-model comparison is
+    reported as auxiliary output.
+
+    Every fitted feature set also fits M2(lambda=0) and requires exact M0
+    probability/prediction equality.  MDI and rank weights are computed by
+    ``fit_models`` from each training fold only.
+
+    Hyperparameters are intentionally not arguments: 500 trees,
+    max_features=2 and seeds 0..4 are fixed by the evaluation contract.  Tests
+    may temporarily patch ``H_EVAL_TREES`` for structural verification only.
+    """
+
+    from f1_sample_aggregator import H5_FEATURE_NAMES, H9_FEATURE_NAMES
+    from f1_features import F1_5_FEATURE_NAMES
+
+    if y is None or participants is None:
+        raise ValueError("H5/H9 evaluation requires labels and participants")
+    X_h9 = np.asarray(X_h9, dtype=float)
+    y = np.asarray(y)
+    participants = np.asarray(participants)
+    n = len(y)
+    if X_h9.shape != (n, len(H9_FEATURE_NAMES)):
+        raise ValueError(f"H9 matrix must have shape ({n}, {len(H9_FEATURE_NAMES)})")
+    b5_provided = X_b5 is not None
+    if X_b5 is None:
+        X_b5 = np.full((n, len(F1_5_FEATURE_NAMES)), np.nan)
+    else:
+        X_b5 = np.asarray(X_b5, dtype=float)
+        if X_b5.shape != (n, len(F1_5_FEATURE_NAMES)):
+            raise ValueError(f"B5 matrix must have shape ({n}, {len(F1_5_FEATURE_NAMES)})")
+    if participants.shape != (n,):
+        raise ValueError("participants must be a one-dimensional sample-aligned array")
+    if n == 0 or not np.all(np.isfinite(X_h9)):
+        raise ValueError("H5/H9 evaluation requires non-empty finite model inputs")
+    if y.shape != (n,) or y.dtype.kind not in "iu" or set(map(int, y)) != set(range(5)):
+        raise ValueError("evaluation labels must be integer-coded five postures 0..4")
+    if any(not isinstance(value, str) or not value for value in participants.tolist()):
+        raise ValueError("participant identifiers must be non-empty strings")
+    subjects = sorted(set(participants), key=lambda value: (len(value), value))
+    if len(subjects) < 2:
+        raise ValueError("participant-level LOSO requires at least two participants")
+
+    matrices = {"H5": X_h9[:, :len(H5_FEATURE_NAMES)], "H9": X_h9}
+    reported_models = {
+        "H5": ("M0", "M1", f"M2(λ={H_EVAL_M2_LAMBDA:g})"),
+        "H9": ("M0", "M1", f"M2(λ={H_EVAL_M2_LAMBDA:g})"),
+    }
+    predictions = {
+        feature_set: {
+            model: [np.empty(n, dtype=int) for _ in H_EVAL_SEEDS]
+            for model in models
+        }
+        for feature_set, models in reported_models.items()
+    }
+    folds = []
+    for seed_index, seed in enumerate(H_EVAL_SEEDS):
+        for held_out in subjects:
+            test = participants == held_out
+            train = ~test
+            if set(map(int, y[train])) != set(range(5)):
+                raise ValueError(
+                    f"training fold without all five postures: held_out={held_out}"
+                )
+            fold = {
+                "seed": seed,
+                "held_out_participant": held_out,
+                "train_indices": tuple(np.flatnonzero(train).tolist()),
+                "test_indices": tuple(np.flatnonzero(test).tolist()),
+                "weights": {},
+                "lambda_zero_equivalent": {},
+            }
+            for feature_set in ("H5", "H9"):
+                X = matrices[feature_set]
+                models, weights = fit_models(
+                    X[train], y[train], 5, H_EVAL_TREES, seed,
+                    [0.0, H_EVAL_M2_LAMBDA],
+                )
+                if not np.all(weights > 0):
+                    raise AssertionError("M1/M2 input weights must be positive")
+                m0 = models["M0"]
+                m2_zero = models["M2(λ=0)"]
+                if not np.array_equal(m0(X[test]), m2_zero(X[test])):
+                    raise AssertionError("M2 lambda=0 predictions differ from M0")
+                if not np.array_equal(
+                    _forest_probabilities(m0.forest, X[test]),
+                    _forest_probabilities(m2_zero.forest, X[test]),
+                ):
+                    raise AssertionError("M2 lambda=0 probabilities differ from M0")
+                fold["weights"][feature_set] = tuple(float(value) for value in weights)
+                fold["lambda_zero_equivalent"][feature_set] = True
+                for model in reported_models[feature_set]:
+                    predictions[feature_set][model][seed_index][test] = models[model](X[test])
+
+            folds.append(fold)
+
+    metrics = []
+    for feature_set, models in reported_models.items():
+        for model in models:
+            seed_predictions = predictions[feature_set][model]
+            accuracies = [float(np.mean(prediction == y)) for prediction in seed_predictions]
+            f1_values = [macro_f1(y, prediction, 5) for prediction in seed_predictions]
+            participant_accuracy = {
+                subject: float(np.mean([
+                    np.mean(prediction[participants == subject] == y[participants == subject])
+                    for prediction in seed_predictions
+                ]))
+                for subject in subjects
+            }
+            metrics.append({
+                "evaluation_scope": "primary",
+                "feature_set": feature_set,
+                "model": model,
+                "accuracy": float(np.mean(accuracies)),
+                "accuracy_seed_sd": float(np.std(accuracies)),
+                "macro_f1": float(np.mean(f1_values)),
+                "macro_f1_seed_sd": float(np.std(f1_values)),
+                "min_participant_accuracy": min(participant_accuracy.values()),
+                "participant_accuracy": participant_accuracy,
+            })
+
+    b5_eligible = np.all(np.isfinite(X_b5), axis=1)
+    b5_indices = np.flatnonzero(b5_eligible)
+    b5_subjects = sorted(set(participants[b5_eligible]), key=lambda value: (len(value), value))
+    b5_reason = None
+    if not b5_provided:
+        b5_reason = "B5 data not provided"
+    elif not len(b5_indices):
+        b5_reason = "no B5-eligible samples on the primary H sample identities"
+    elif len(b5_subjects) < 2:
+        b5_reason = "B5 auxiliary LOSO requires at least two eligible participants"
+    elif set(map(int, y[b5_eligible])) != set(range(5)):
+        b5_reason = "B5-eligible common samples do not contain all five postures"
+    else:
+        for held_out in b5_subjects:
+            train = b5_eligible & (participants != held_out)
+            if set(map(int, y[train])) != set(range(5)):
+                b5_reason = (
+                    "B5 training fold without all five postures: "
+                    f"held_out={held_out}"
+                )
+                break
+
+    b5_folds = []
+    if b5_reason is None:
+        b5_predictions = {
+            model: [np.full(n, -1, dtype=int) for _ in H_EVAL_SEEDS]
+            for model in ("M0", "M1", f"M2(λ={H_EVAL_M2_LAMBDA:g})")
+        }
+        for seed_index, seed in enumerate(H_EVAL_SEEDS):
+            for held_out in b5_subjects:
+                test = b5_eligible & (participants == held_out)
+                train = b5_eligible & ~test
+                models, weights = fit_models(
+                    X_b5[train], y[train], 5, H_EVAL_TREES, seed,
+                    [0.0, H_EVAL_M2_LAMBDA],
+                )
+                m0 = models["M0"]
+                m2_zero = models["M2(λ=0)"]
+                if not np.array_equal(m0(X_b5[test]), m2_zero(X_b5[test])):
+                    raise AssertionError("B5 M2 lambda=0 predictions differ from M0")
+                if not np.array_equal(
+                    _forest_probabilities(m0.forest, X_b5[test]),
+                    _forest_probabilities(m2_zero.forest, X_b5[test]),
+                ):
+                    raise AssertionError("B5 M2 lambda=0 probabilities differ from M0")
+                b5_folds.append({
+                    "seed": seed,
+                    "held_out_participant": held_out,
+                    "train_indices": tuple(np.flatnonzero(train).tolist()),
+                    "test_indices": tuple(np.flatnonzero(test).tolist()),
+                    "weights": tuple(float(value) for value in weights),
+                    "lambda_zero_equivalent": True,
+                })
+                for model in b5_predictions:
+                    b5_predictions[model][seed_index][test] = models[model](X_b5[test])
+
+        eligible_y = y[b5_eligible]
+        eligible_participants = participants[b5_eligible]
+        for model, all_predictions in b5_predictions.items():
+            seed_predictions = [prediction[b5_eligible] for prediction in all_predictions]
+            accuracies = [float(np.mean(prediction == eligible_y))
+                          for prediction in seed_predictions]
+            f1_values = [macro_f1(eligible_y, prediction, 5)
+                         for prediction in seed_predictions]
+            participant_accuracy = {
+                subject: float(np.mean([
+                    np.mean(prediction[eligible_participants == subject] ==
+                            eligible_y[eligible_participants == subject])
+                    for prediction in seed_predictions
+                ]))
+                for subject in b5_subjects
+            }
+            metrics.append({
+                "evaluation_scope": "auxiliary-common-b5-eligible",
+                "feature_set": "B5",
+                "model": model,
+                "sample_count": len(b5_indices),
+                "accuracy": float(np.mean(accuracies)),
+                "accuracy_seed_sd": float(np.std(accuracies)),
+                "macro_f1": float(np.mean(f1_values)),
+                "macro_f1_seed_sd": float(np.std(f1_values)),
+                "min_participant_accuracy": min(participant_accuracy.values()),
+                "participant_accuracy": participant_accuracy,
+            })
+
+    return {
+        "evaluation": "participant-level-loso",
+        "feature_order": {
+            "H5": tuple(H5_FEATURE_NAMES),
+            "H9": tuple(H9_FEATURE_NAMES),
+            "B5": tuple(F1_5_FEATURE_NAMES),
+        },
+        "sample_count": n,
+        "participants": tuple(subjects),
+        "tree_count": H_EVAL_TREES,
+        "max_features": H_EVAL_MAX_FEATURES,
+        "seeds": H_EVAL_SEEDS,
+        "m2_lambda": H_EVAL_M2_LAMBDA,
+        "folds": folds,
+        "b5_folds": b5_folds,
+        "b5_availability": {
+            "provided": b5_provided,
+            "primary_h_sample_count": n,
+            "eligible_common_sample_count": len(b5_indices),
+            "unavailable_sample_count": n - len(b5_indices),
+            "availability_rate": len(b5_indices) / n,
+            "eligible_sample_indices": tuple(b5_indices.tolist()),
+            "comparison_status": "completed" if b5_reason is None else "not_run",
+            "comparison_reason": b5_reason,
+        },
+        "metrics": metrics,
+        "blocked": (),
+    }
+
+
+def evaluate_h5_h9_b5_samples(h_samples, b5_samples=()):
+    """Run H5/H9 independently, attaching B5 where a common sample is usable."""
+
+    from f1_sample_aggregator import F1SampleResult, HSampleResult
+    from f1_features import F1_5_FEATURE_NAMES
+
+    h_by_key = {}
+    for sample in h_samples:
+        if not isinstance(sample, HSampleResult):
+            raise ValueError(f"not an HSampleResult: {type(sample).__name__}")
+        if sample.sample_key in h_by_key:
+            raise ValueError(f"duplicate H sample key: {sample.sample_key}")
+        h_by_key[sample.sample_key] = sample
+    b5_by_key = {}
+    for sample in b5_samples:
+        if not isinstance(sample, F1SampleResult):
+            raise ValueError(f"not an F1SampleResult: {type(sample).__name__}")
+        if sample.sample_key in b5_by_key:
+            raise ValueError(f"duplicate B5 sample key: {sample.sample_key}")
+        b5_by_key[sample.sample_key] = sample
+    if not h_by_key:
+        raise ValueError("H5/H9 evaluation requires at least one H sample")
+
+    X_h9, X_b5, labels, participants = [], [], [], []
+    for key in sorted(h_by_key):
+        h_sample = h_by_key[key]
+        if h_sample.label not in LAB5:
+            raise ValueError(f"not a five-posture label: {h_sample.label!r}")
+        X_h9.append(h_sample.ordered_values("H9"))
+        b5_sample = b5_by_key.get(key)
+        b5_values = None
+        if b5_sample is not None:
+            identity_h = (h_sample.subject, h_sample.round, h_sample.label)
+            identity_b5 = (b5_sample.subject, b5_sample.round, b5_sample.label)
+            if identity_h != identity_b5:
+                raise ValueError(f"H/B5 sample identity mismatch: {key}")
+            candidate = b5_sample.ordered_values()
+            if all(value is not None and math.isfinite(value) for value in candidate):
+                b5_values = candidate
+        X_b5.append(
+            b5_values if b5_values is not None
+            else (float("nan"),) * len(F1_5_FEATURE_NAMES)
+        )
+        labels.append(LAB5.index(h_sample.label))
+        participants.append(h_sample.subject)
+    result = evaluate_h5_h9_b5_loso(
+        X_h9, X_b5 if b5_by_key else None, labels, participants
+    )
+    if isinstance(result, dict):
+        result["sample_keys"] = tuple(sorted(h_by_key))
+    return result
 
 
 # ================================================================ 특징 계산

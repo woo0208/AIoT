@@ -1,7 +1,7 @@
 # Research Decision Log
 
-- 문서 버전: `v1.14`
-- 기준일: `2026-10-16` (branch `fix/patch8-opencv-distribution` 기준. `v1.12`는 branch `feat/rf-loso-prediction-audit`의 `FEAT-009` version row이며 본 branch에는 포함되지 않음 — §11 `v1.13`/`v1.14` 참조)
+- 문서 버전: `v1.15`
+- 기준일: `2026-10-22` (branch `fix/patch8-opencv-distribution` 기준. `v1.12`는 branch `feat/rf-loso-prediction-audit`의 `FEAT-009` version row이며 본 branch에는 포함되지 않음 — §11 `v1.13`/`v1.14` 참조)
 - 상태: **ACTIVE / Append-Only**
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
 - 역할: 현재 Research Master에 반영된 중요한 연구·데이터·실험·거버넌스 결정을 **왜 그렇게 결정했는지** 기록
@@ -1405,6 +1405,7 @@ final-test 결과를 본 parameter 변경
 | `v1.11` | 2026-10-07 | Patch 8 implementation 중 확인된 pre-execution design-authority gap `P8-I1`을 반영하여 `CAP-006`을 append (Clarifies `CAP-005`, Supersedes None). CAP-005가 capture sequence를 명시하지 않았던 forward validation rounds 101–103 / 111–113이 `SEQ_CORE`를 사용함을 명확화하고, 121 = `SEQ_CORE` (§80) / 131 = `SEQ_FULL` (§81)은 그대로 유지한다. formal Patch 8 execution, `execution_id` 발급, Patch 8 결과 관찰은 없었다. production forward gate, `capture-forward-face-v2.0.0`, SEQ_CORE/SEQ_FULL 정의, §75/§76/§79/§80/§81, schema, threshold, `OPEN-002`~`OPEN-005`는 변경하지 않는다 |
 | `v1.13` | 2026-10-15 | Branch `fix/patch8-opencv-distribution` (HEAD `3873f0d`)의 Patch 8 post-audit documentation sync. (1) `CAP-007` lineage 통합: `CAP-007`은 2026-10-08 commit `0d281d6` (`docs: record Patch 8 audited deferred status`, branch `feat/rf-loso-prediction-audit`)에서 append됐으나 `dc2c5c8`에서 분기한 본 branch에는 없었다. 원문을 `0d281d6`과 동일한 text로 §12의 `CAP-006` 다음에 통합했으며 본문·Status·audited implementation HEAD `dc2c5c8`·execution deferral을 변경하지 않았다. `0d281d6`에는 CAP-007 version row가 없었으며, 2026-10-08 날짜의 소급 row를 만들지 않고 본 row가 그 통합을 기록한다. (2) `CAP-008` append (STATUS RECORD ONLY; Supersedes / Clarifies / Resolves None): Windows compatibility fix `60026cf` / `3873f0d`와 `dc2c5c8..3873f0d` independent READ-ONLY technical audit (PASS; BLOCKER 0 / IMPORTANT 0 / MINOR 7 / DOC_DRIFT 5)를 CAP-007과 구분된 후속 이력으로 기록했다. Execution authorization 없음, CAP-007 deferral 유지, execution registry / `execution_id` 없음, formal D455 execution 없음. (3) Version numbering: `v1.12`는 `feat/rf-loso-prediction-audit`의 `FEAT-009` row (2026-10-11, commit `d8b67d9`)가 이미 사용하므로, 번호 충돌을 피하기 위해 본 branch는 `v1.12`를 재사용하지 않고 `v1.13`을 사용한다. `FEAT-009`는 본 branch에 포함되지 않으며 본 변경은 그 entry를 추가·평가·변경하지 않는다. `CAP-005`/`CAP-006`, Foundation document, schema, threshold, `OPEN-002`~`OPEN-005`는 변경하지 않는다 |
 | `v1.14` | 2026-10-16 | CAP-009 연구 범위 명확화 결정을 연구 담당 사용자 승인에 따라 CONFIRMED로 기록. CAP-001 face-only 0.08–0.12m 촬영 게이트와 CAP-002, CAP-003~006, CAP-005 Design Freeze는 유지하고, F0/F1/F2 상대 기하학 기반 특징·분류 성능 연구를 별도 경로로 분리한다. Patch 8 PASS의 해석 범위를 measurement-quality / E2E로 제한한다. CAP-007 EXECUTION DEFERRED 유지; 실행 코드 pin, Registry, execution_id, D455 실측은 승인하지 않음. 본 버전은 Decision Log 기록만 갱신하며 기존 결정 본문이나 실행 코드를 변경하지 않는다 |
+| `v1.15` | 2026-10-22 | `FEAT-010`을 append하여 `OPEN-004`의 p=9 정책 B를 승인. 기존 6순위 가중치의 마지막 0.05를 9순위까지 반복한 뒤 전체 정규화하고, MDI 동률은 feature column index 오름차순으로 결정한다. p<=6 기존 정책은 유지하며 p>6 중 p=9가 아닌 경우는 계속 차단한다. MDI·가중치는 각 학습 fold에서만 계산하고 M1/M2가 공유하며 M2 λ=0.5는 변경하지 않는다. 다른 OPEN 항목은 변경하지 않는다. |
 
 ---
 
@@ -6807,3 +6808,69 @@ CAP-001은 직전 upright 대비 얼굴의 전방 이동량을 통제한다. 반
 **Supersedes:** None
 **Clarifies:** CAP-007
 **Execution State:** DEFERRED — UNCHANGED
+
+---
+
+## FEAT-010 — OPEN-004 p=9 Rank-Weight Policy B
+
+**Status:** CONFIRMED
+**Logged:** 2026-10-22
+**Decision timing:** Researcher approval before the first H9 M0/M1/M2 comparison
+
+### Decision
+
+For exactly `p = 9`, extend the existing six rank weights by repeating the last
+weight through rank 9, then normalize the complete vector:
+
+```text
+raw        = [0.30, 0.20, 0.15, 0.15, 0.15, 0.05, 0.05, 0.05, 0.05]
+normalized = [6/23, 4/23, 3/23, 3/23, 3/23, 1/23, 1/23, 1/23, 1/23]
+```
+
+Rank features by descending training-fold MDI. If MDI values are equal, rank
+the lower feature column index first.
+
+The existing `p <= 6` truncate-and-renormalize behavior is unchanged. Any
+`p > 6` other than `p = 9` remains fail-closed.
+
+M1 and M2 share the same weights computed from M0 MDI using training data from
+the current fold only. Existing M1/M2 implementation semantics are retained,
+and the approved H9 M2 comparison keeps `lambda = 0.5` fixed.
+
+### Rationale
+
+H9 requires an explicit nine-feature extension before its weighted models can
+run. Repeating the paper vector's last rank weight preserves the existing
+rank-priority shape while assigning every H9 column a positive weight; whole-
+vector normalization makes the p=9 policy exact and reproducible. The explicit
+column-index tie-break removes implementation-dependent ordering without using
+held-out data.
+
+### Scope / Non-Decisions
+
+- This decision authorizes only the p=9 rank-weight policy described above.
+- It does not change features, labels, folds, seeds, preprocessing, M0/M1/M2
+  definitions, or any `p <= 6` result.
+- It does not authorize a policy for p=7, p=8, or p>=10.
+- It does not approve or resolve `OPEN-002`, `OPEN-003`, or `OPEN-005`.
+- It does not authorize formal capture, performance experiments, Patch 8
+  execution, an `execution_id`, or any change to CAP-007 execution deferral.
+
+### Evidence / Source
+
+- Researcher's explicit policy B approval on 2026-10-22.
+- Existing `rf_experiment.py` M0 MDI, M1 input-weight, and M2 split-weight paths.
+- Synthetic structural tests only; no captured-data result or performance claim.
+
+### Impact
+
+- H9 may use the existing M1 and M2 implementation with this exact p=9 policy.
+- `OPEN-004` is resolved by an exact allow-list policy: legacy `p <= 6`, newly
+  approved `p = 9`, and fail-closed behavior for all other `p > 6`.
+- All other OPEN items retain their previous status.
+
+Supersedes:
+- None
+
+Resolves:
+- `OPEN-004`

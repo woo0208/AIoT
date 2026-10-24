@@ -6,11 +6,10 @@ not frozen F1/F2 features or posture decisions.
 
 The Pose indices used here are the named BlazePose landmarks already returned by
 the repository's PoseLandmarker: nose 0, ears 7/8, shoulders 11/12, elbows
-13/14, wrists 15/16, and hips 23/24.  The FaceLandmarker lower-chin point is
-index 152: it is the bottom-centre vertex in MediaPipe's canonical face model,
-the repository's ordered ``FACE_OVAL``, and MediaPipe's official face-oval
-connections (377 -> 152 -> 148).  Metric depth is sampled from the aligned D455
-depth image; MediaPipe's relative landmark ``z`` is not treated as sensor depth.
+13/14, wrists 15/16, and hips 23/24.  FaceLandmarker reuses the repository's
+existing iris centres 468/473 and lower-chin point 152.  Metric depth is sampled
+from the aligned D455 depth image; MediaPipe's relative landmark ``z`` is not
+treated as sensor depth.
 
 RealSense deprojection is deliberately performed by the hardware-facing caller.
 This module accepts ordinary metric XYZ points and has no ``pyrealsense2``
@@ -44,8 +43,35 @@ POSE_LANDMARK_INDICES = {
 }
 
 FACE_LANDMARK_INDICES = {
+    "left_eye": 468,
+    "right_eye": 473,
     "chin": 152,
 }
+
+# Hip-independent F1/F2 candidates are deliberately versionless exploratory
+# engineering values.  They are not FEAT-009, not RF inputs, and not a frozen
+# resolution of OPEN-002/OPEN-003.
+HIPLESS_F1_CANDIDATE_FEATURE_NAMES = (
+    "hipless_f1_candidate_head_center_dx_sw",
+    "hipless_f1_candidate_head_center_dy_sw",
+    "hipless_f1_candidate_face_axis_tilt_deg",
+    "hipless_f1_candidate_ear_eye_dy_sw",
+    "hipless_f1_candidate_nose_chin_distance_sw",
+)
+HIPLESS_F2_CANDIDATE_FEATURE_NAMES = (
+    "hipless_f2_candidate_chest_depth_m",
+    "hipless_f2_candidate_chest_forward_from_shoulders_m",
+    "hipless_f2_candidate_nose_forward_from_chest_m",
+    "hipless_f2_candidate_nose_forward_from_chest_sw3d",
+)
+
+# Oriented RGB-D ROI in the shoulder-local image plane.  u follows the shoulder
+# line; n is its perpendicular chosen toward image +Y (down).  The ROI centre is
+# S + 0.35*D_sh*n and half extents are 0.25*D_sh along u and 0.15*D_sh along n.
+HIPLESS_CHEST_ROI_DOWN_OFFSET_SW = 0.35
+HIPLESS_CHEST_ROI_HALF_WIDTH_SW = 0.25
+HIPLESS_CHEST_ROI_HALF_HEIGHT_SW = 0.15
+HIPLESS_CHEST_ROI_MIN_VALID_PIXELS = 10
 
 # Every direct landmark is eligible for the same aligned-depth + RealSense SDK
 # deprojection path.  Keep the older name as an alias for callers that already
@@ -164,6 +190,22 @@ def _midpoint_3d(a: Point3D | None, b: Point3D | None) -> Point3D | None:
     )
 
 
+def _centroid(points: tuple[Point | None, ...]) -> Point | None:
+    """Centroid only when every named source point is observed."""
+
+    clean = tuple(_valid_point(point) for point in points)
+    if not clean or any(point is None for point in clean):
+        return None
+    observed = tuple(point for point in clean if point is not None)
+    depths = tuple(point.depth_m for point in observed)
+    depth = sum(depths) / len(depths) if all(value is not None for value in depths) else None
+    return Point(
+        sum(point.x_px for point in observed) / len(observed),
+        sum(point.y_px for point in observed) / len(observed),
+        depth,
+    )
+
+
 def _distance_2d(a: Point | None, b: Point | None) -> float | None:
     a, b = _valid_point(a), _valid_point(b)
     return math.hypot(b.x_px - a.x_px, b.y_px - a.y_px) if a is not None and b is not None else None
@@ -196,6 +238,18 @@ def _undirected_line_angle_deg(a: Point | None, b: Point | None) -> float | None
     while angle < -90:
         angle += 180
     return angle
+
+
+def _signed_from_image_down_deg(a: Point | None, b: Point | None) -> float | None:
+    """Directed a->b angle from image +Y; positive rotates toward image +X."""
+
+    a, b = _valid_point(a), _valid_point(b)
+    if a is None or b is None:
+        return None
+    dx, dy = b.x_px - a.x_px, b.y_px - a.y_px
+    if math.hypot(dx, dy) <= 1e-6:
+        return None
+    return math.degrees(math.atan2(dx, dy))
 
 
 def _relative(source: Point | None, target: Point | None, scale: float | None) -> tuple[float | None, float | None]:
@@ -283,29 +337,135 @@ def _exploratory_head_pitch_deg(
     return math.degrees(math.atan2(-bisector_down, -bisector_away))
 
 
+def _hipless_chest_roi_geometry(
+    left_shoulder: Point | None,
+    right_shoulder: Point | None,
+) -> tuple[Point, tuple[Point, Point, Point, Point], tuple[float, float], tuple[float, float], float, float] | None:
+    """Return shoulder-local ROI geometry in RGB pixel coordinates, without hips."""
+
+    left_shoulder, right_shoulder = _valid_point(left_shoulder), _valid_point(right_shoulder)
+    if left_shoulder is None or right_shoulder is None:
+        return None
+    dx = right_shoulder.x_px - left_shoulder.x_px
+    dy = right_shoulder.y_px - left_shoulder.y_px
+    shoulder_width = math.hypot(dx, dy)
+    if not math.isfinite(shoulder_width) or shoulder_width <= 1e-6:
+        return None
+    u = (dx / shoulder_width, dy / shoulder_width)
+    n = (-u[1], u[0])
+    if n[1] < 0:
+        n = (-n[0], -n[1])
+    shoulder_mid = _midpoint(left_shoulder, right_shoulder)
+    if shoulder_mid is None:
+        return None
+    center = Point(
+        shoulder_mid.x_px + HIPLESS_CHEST_ROI_DOWN_OFFSET_SW * shoulder_width * n[0],
+        shoulder_mid.y_px + HIPLESS_CHEST_ROI_DOWN_OFFSET_SW * shoulder_width * n[1],
+        None,
+    )
+    half_width = HIPLESS_CHEST_ROI_HALF_WIDTH_SW * shoulder_width
+    half_height = HIPLESS_CHEST_ROI_HALF_HEIGHT_SW * shoulder_width
+    corners = tuple(
+        Point(
+            center.x_px + su * half_width * u[0] + sn * half_height * n[0],
+            center.y_px + su * half_width * u[1] + sn * half_height * n[1],
+            None,
+        )
+        for su, sn in ((-1, -1), (1, -1), (1, 1), (-1, 1))
+    )
+    return center, corners, u, n, half_width, half_height
+
+
+def hipless_chest_roi_corners(
+    left_shoulder: Point | None, right_shoulder: Point | None
+) -> tuple[Point, ...]:
+    """Public display geometry for the unapproved shoulder-defined chest ROI."""
+
+    geometry = _hipless_chest_roi_geometry(left_shoulder, right_shoulder)
+    return () if geometry is None else geometry[1]
+
+
+def sample_hipless_chest_roi(
+    left_shoulder: Point | None,
+    right_shoulder: Point | None,
+    aligned_depth: np.ndarray | None,
+    depth_scale_m: float | None,
+    *,
+    minimum_valid_pixels: int = HIPLESS_CHEST_ROI_MIN_VALID_PIXELS,
+) -> Point | None:
+    """Observe a hip-independent chest-centre depth from aligned RGB-D.
+
+    The returned image point exists when the two shoulder coordinates define the
+    ROI.  Its ``depth_m`` is ``None`` when aligned depth/scale is unavailable,
+    the clipped ROI has no pixels, or fewer than ``minimum_valid_pixels`` finite
+    positive depth samples exist.  No interpolation, history, or hip coordinate
+    is used.
+    """
+
+    roi = _hipless_chest_roi_geometry(left_shoulder, right_shoulder)
+    if roi is None:
+        return None
+    center, corners, u, n, half_width, half_height = roi
+    scale = _finite_number(depth_scale_m)
+    if (aligned_depth is None or getattr(aligned_depth, "ndim", None) != 2
+            or scale is None or scale <= 0):
+        return center
+    height, width = aligned_depth.shape
+    x0 = max(0, math.floor(min(point.x_px for point in corners)))
+    x1 = min(width, math.ceil(max(point.x_px for point in corners)) + 1)
+    y0 = max(0, math.floor(min(point.y_px for point in corners)))
+    y1 = min(height, math.ceil(max(point.y_px for point in corners)) + 1)
+    if x1 <= x0 or y1 <= y0:
+        return center
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    rel_x = xx + 0.5 - center.x_px
+    rel_y = yy + 0.5 - center.y_px
+    mask = (
+        (np.abs(rel_x * u[0] + rel_y * u[1]) <= half_width)
+        & (np.abs(rel_x * n[0] + rel_y * n[1]) <= half_height)
+    )
+    values = np.asarray(aligned_depth[y0:y1, x0:x1])[mask]
+    valid = values[np.isfinite(values) & (values > 0)]
+    if valid.size < minimum_valid_pixels:
+        return center
+    depth_m = float(np.median(valid)) * scale
+    if not math.isfinite(depth_m) or depth_m <= 0:
+        return center
+    return Point(center.x_px, center.y_px, depth_m)
+
+
 def compute_candidate_geometry(
     points: Mapping[str, Point | None], *,
     focal_length_px: float | None = None,
     points_3d: Mapping[str, Point3D | None] | None = None,
+    chest_roi_point: Point | None = None,
+    chest_roi_point_3d: Point3D | None = None,
 ) -> GeometryResult:
     """Compute threshold-free, one-frame candidate geometry.
 
     ``focal_length_px`` enables an approximate metric shoulder-width scale:
     ``shoulder_width_px * torso_depth_m / focal_length_px``.  It is a debug
     normalization candidate, not a substitute for SDK deprojection or D455
-    engineering validation.  ``points_3d`` must contain caller-deprojected
-    metric RealSense camera coordinates; this pure module never invokes the SDK.
+    engineering validation.  ``points_3d`` and ``chest_roi_point_3d`` must
+    contain caller-deprojected metric RealSense camera coordinates; this pure
+    module never invokes the SDK.  ``chest_roi_point`` is separately sampled by
+    :func:`sample_hipless_chest_roi`; it never falls back to a hip observation.
     """
 
     clean = {name: _valid_point(points.get(name)) for name in EXPLORATORY_POINT_NAMES}
     nose = clean["nose"]
+    left_eye, right_eye = clean["left_eye"], clean["right_eye"]
     left_ear, right_ear = clean["left_ear"], clean["right_ear"]
     left_shoulder, right_shoulder = clean["left_shoulder"], clean["right_shoulder"]
     left_hip, right_hip = clean["left_hip"], clean["right_hip"]
+    chin = clean["chin"]
 
     shoulder_midpoint = _midpoint(left_shoulder, right_shoulder)
     hip_midpoint = _midpoint(left_hip, right_hip)
+    eye_midpoint = _midpoint(left_eye, right_eye)
     ear_midpoint = _midpoint(left_ear, right_ear)
+    hipless_head_center = _centroid((left_eye, right_eye, left_ear, right_ear, nose, chin))
+    chest_roi_point = _valid_point(chest_roi_point)
 
     # These names intentionally say "exploratory" and "proxy": neither is a
     # directly observed anatomical neck or clavicle/chest landmark.
@@ -314,7 +474,10 @@ def compute_candidate_geometry(
     proxies = {
         "shoulder_midpoint": shoulder_midpoint,
         "hip_midpoint": hip_midpoint,
+        "eye_midpoint": eye_midpoint,
         "ear_midpoint": ear_midpoint,
+        "hipless_f1_head_center": hipless_head_center,
+        "hipless_chest_roi_center": chest_roi_point,
         "exploratory_neck_proxy": exploratory_neck_proxy,
         "exploratory_upper_chest_proxy": exploratory_upper_chest_proxy,
     }
@@ -329,10 +492,12 @@ def compute_candidate_geometry(
     )
     hip_midpoint_3d = _midpoint_3d(clean_3d["left_hip"], clean_3d["right_hip"])
     ear_midpoint_3d = _midpoint_3d(clean_3d["left_ear"], clean_3d["right_ear"])
+    chest_roi_point_3d = _valid_point_3d(chest_roi_point_3d)
     proxies_3d = {
         "shoulder_midpoint_3d": shoulder_midpoint_3d,
         "hip_midpoint_3d": hip_midpoint_3d,
         "ear_midpoint_3d": ear_midpoint_3d,
+        "hipless_chest_roi_center_3d": chest_roi_point_3d,
     }
 
     shoulder_width_px = _distance_2d(left_shoulder, right_shoulder)
@@ -340,6 +505,17 @@ def compute_candidate_geometry(
     nose_dx, nose_dy = _relative(nose, shoulder_midpoint, usable_scale_px)
     left_ear_dx, left_ear_dy = _relative(left_ear, left_shoulder, usable_scale_px)
     right_ear_dx, right_ear_dy = _relative(right_ear, right_shoulder, usable_scale_px)
+    hipless_head_dx, hipless_head_dy = _relative(
+        hipless_head_center, shoulder_midpoint, usable_scale_px
+    )
+    hipless_ear_eye_dy = None
+    if eye_midpoint is not None and ear_midpoint is not None and usable_scale_px is not None:
+        hipless_ear_eye_dy = (ear_midpoint.y_px - eye_midpoint.y_px) / usable_scale_px
+    hipless_nose_chin = _distance_2d(nose, chin)
+    if hipless_nose_chin is not None and usable_scale_px is not None:
+        hipless_nose_chin /= usable_scale_px
+    else:
+        hipless_nose_chin = None
 
     head_to_torso_angle = None
     if nose is not None and shoulder_midpoint is not None:
@@ -363,6 +539,22 @@ def compute_candidate_geometry(
 
     shoulder_width_3d_m = _distance_3d(
         clean_3d["left_shoulder"], clean_3d["right_shoulder"]
+    )
+    chest_depth_m = chest_roi_point_3d.z_m if chest_roi_point_3d is not None else None
+    chest_forward_from_shoulders_m = (
+        shoulder_midpoint_3d.z_m - chest_roi_point_3d.z_m
+        if shoulder_midpoint_3d is not None and chest_roi_point_3d is not None
+        else None
+    )
+    nose_forward_from_chest_m = (
+        chest_roi_point_3d.z_m - clean_3d["nose"].z_m
+        if chest_roi_point_3d is not None and clean_3d["nose"] is not None
+        else None
+    )
+    nose_forward_from_chest_sw3d = (
+        nose_forward_from_chest_m / shoulder_width_3d_m
+        if nose_forward_from_chest_m is not None and shoulder_width_3d_m is not None
+        else None
     )
 
     head_tilt = _undirected_line_angle_deg(left_ear, right_ear)
@@ -416,6 +608,17 @@ def compute_candidate_geometry(
         "ear_midpoint_forward_normalized_by_shoulder_width_3d": normalized_depth_3d(
             ear_mid_forward
         ),
+        "hipless_f1_candidate_head_center_dx_sw": hipless_head_dx,
+        "hipless_f1_candidate_head_center_dy_sw": hipless_head_dy,
+        "hipless_f1_candidate_face_axis_tilt_deg": _signed_from_image_down_deg(
+            eye_midpoint, chin
+        ),
+        "hipless_f1_candidate_ear_eye_dy_sw": hipless_ear_eye_dy,
+        "hipless_f1_candidate_nose_chin_distance_sw": hipless_nose_chin,
+        "hipless_f2_candidate_chest_depth_m": chest_depth_m,
+        "hipless_f2_candidate_chest_forward_from_shoulders_m": chest_forward_from_shoulders_m,
+        "hipless_f2_candidate_nose_forward_from_chest_m": nose_forward_from_chest_m,
+        "hipless_f2_candidate_nose_forward_from_chest_sw3d": nose_forward_from_chest_sw3d,
     }
     return GeometryResult(
         points=clean,
@@ -518,6 +721,8 @@ def draw_geometry_overlay(image: np.ndarray, result: GeometryResult) -> np.ndarr
     canvas = image.copy()
     direct_colors = {
         "nose": (0, 255, 255),
+        "left_eye": (255, 210, 80),
+        "right_eye": (255, 210, 80),
         "left_ear": (255, 160, 0),
         "right_ear": (255, 160, 0),
         "left_shoulder": (0, 220, 0),
@@ -540,6 +745,8 @@ def draw_geometry_overlay(image: np.ndarray, result: GeometryResult) -> np.ndarr
         if pa is not None and pb is not None:
             cv2.line(canvas, pa, pb, color, thickness, cv2.LINE_AA)
 
+    line(result.points.get("left_eye"), result.points.get("right_eye"), (255, 210, 80))
+    line(result.proxies.get("eye_midpoint"), result.points.get("chin"), (255, 210, 80), 1)
     line(result.points.get("left_ear"), result.points.get("right_ear"), (255, 160, 0))
     line(result.points.get("left_shoulder"), result.points.get("right_shoulder"), (0, 220, 0))
     line(result.points.get("left_shoulder"), result.points.get("left_elbow"), (0, 180, 255))
@@ -555,6 +762,16 @@ def draw_geometry_overlay(image: np.ndarray, result: GeometryResult) -> np.ndarr
     line(result.proxies.get("exploratory_neck_proxy"),
          result.proxies.get("exploratory_upper_chest_proxy"), (255, 0, 255), 1)
 
+    chest_corners = hipless_chest_roi_corners(
+        result.points.get("left_shoulder"), result.points.get("right_shoulder")
+    )
+    if chest_corners:
+        polygon = np.asarray(
+            [[round(point.x_px), round(point.y_px)] for point in chest_corners],
+            dtype=np.int32,
+        )
+        cv2.polylines(canvas, [polygon], True, (40, 200, 255), 2, cv2.LINE_AA)
+
     for name, point in result.points.items():
         p = pixel(point)
         if p is not None:
@@ -564,6 +781,8 @@ def draw_geometry_overlay(image: np.ndarray, result: GeometryResult) -> np.ndarr
 
     for name, color in (("exploratory_neck_proxy", (255, 0, 255)),
                         ("exploratory_upper_chest_proxy", (0, 140, 255)),
+                        ("hipless_f1_head_center", (255, 210, 80)),
+                        ("hipless_chest_roi_center", (40, 200, 255)),
                         ("shoulder_midpoint", (0, 220, 0)),
                         ("hip_midpoint", (255, 100, 255))):
         p = pixel(result.proxies.get(name))
@@ -583,6 +802,10 @@ def draw_geometry_overlay(image: np.ndarray, result: GeometryResult) -> np.ndarr
         ("torso lean (+camera)", "sagittal_torso_lean_deg", "deg"),
         ("3D shoulder width", "shoulder_width_3d_m", "m"),
         ("exploratory head pitch", "exploratory_head_pitch_deg", "deg"),
+        ("HIPLESS F1 head dx/sw", "hipless_f1_candidate_head_center_dx_sw", ""),
+        ("HIPLESS F1 head dy/sw", "hipless_f1_candidate_head_center_dy_sw", ""),
+        ("HIPLESS F2 chest depth", "hipless_f2_candidate_chest_depth_m", "m"),
+        ("HIPLESS F2 nose/chest/sw3d", "hipless_f2_candidate_nose_forward_from_chest_sw3d", ""),
     )
     y = 22
     for label, key, unit in labels:

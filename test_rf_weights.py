@@ -14,9 +14,9 @@ class RankWeightsTests(unittest.TestCase):
         cases += [(0, 0, 0, 0, 0, 0), (2, 1, 2, 0, 1, 0)]
         for values in cases:
             mdi = np.array(values, dtype=float)
-            # Preserve the original assignment, including tied-MDI ordering.
+            # Preserve legacy weights; tied MDI is explicitly column-stable.
             expected = np.zeros(6)
-            for rank, j in enumerate(np.argsort(-mdi)):
+            for rank, j in enumerate(np.lexsort((np.arange(6), -mdi))):
                 expected[j] = paper_weights[rank]
             with self.subTest(mdi=values):
                 np.testing.assert_array_equal(rf.rank_weights(mdi), expected)
@@ -45,10 +45,16 @@ class RankWeightsTests(unittest.TestCase):
                 np.testing.assert_array_equal(rf.rank_weights(mdi),
                                               rf.rank_weights(np.exp(mdi)))
 
-    def test_more_than_6_features_raises(self):
+    def test_9_feature_policy_b(self):
+        mdi = np.ones(9)
+        raw = np.array([0.30, 0.20, 0.15, 0.15, 0.15,
+                        0.05, 0.05, 0.05, 0.05])
+        np.testing.assert_array_equal(rf.rank_weights(mdi), raw / raw.sum())
+
+    def test_unapproved_more_than_6_feature_counts_raise(self):
         for p in (7, 8, 12):
             with self.subTest(p=p), self.assertRaisesRegex(
-                ValueError, "at most 6 features; define a weighting policy explicitly"
+                ValueError, "only for p<=6 or p=9"
             ):
                 rf.rank_weights(np.arange(p, dtype=float))
 

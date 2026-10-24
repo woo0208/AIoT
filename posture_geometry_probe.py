@@ -1,7 +1,9 @@
 """Live, non-formal D455 probe for exploratory posture geometry.
 
 This tool is intentionally outside the production posture-decision path and the
-canonical frames schema.  By default it performs no posture classification.  The
+canonical frames schema.  Hip-independent F1-extension/F2 values are explicitly
+unapproved exploratory candidates.  By default it performs no posture
+classification.  The
 opt-in ``--rf-demo-model`` mode shows the separate, unvalidated three-class
 F1-5 engineering RF demo (``f1_demo_rf``); it is not the LAB5 or an approved
 M0/M1/M2 research classifier and is display only.  Optional CSV output is
@@ -13,13 +15,15 @@ from __future__ import annotations
 import argparse
 import csv
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
+import json
 import math
 from numbers import Real
 import os
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Sequence
+import uuid
 import warnings
 
 import numpy as np
@@ -40,6 +44,23 @@ PANEL_HEIGHT = 760
 PANEL_WIDTH = 560
 DEBUG_PAGE_COUNT = 5
 F1_PANEL_HEIGHT = 184
+
+# Pose eyes (2/5), not the FaceLandmarker iris centres used by geometry.
+UPPER13_LANDMARK_INDICES = dict(sorted(
+    {**geometry.POSE_LANDMARK_INDICES, "left_eye": 2, "right_eye": 5}.items(),
+    key=lambda item: item[1],
+))
+UPPER13_CSV_FIELDS = (
+    "frame_index", "device_timestamp_ms", "mediapipe_timestamp_ms",
+    "landmark_name", "landmark_index", "x_px", "y_px",
+    "visibility", "presence", "coordinate_valid", "depth_m", "depth_valid",
+)
+UPPER13_SESSION_METADATA_SCHEMA = "upper13-session-metadata/1.0.0"
+SESSION_TIMEZONE = timezone(timedelta(hours=9), "Asia/Seoul")
+AUTOMATIC_DEVICE_SOURCE = "automatic_device_query"
+AUTOMATIC_PROFILE_SOURCE = "automatic_active_profile"
+MANUAL_SOURCE = "manual_cli"
+UNKNOWN_SOURCE = "unknown"
 
 # Opt-in live F1-5 (FEAT-009) display.  Display only: never written to CSV.
 F1_LIVE_TITLE = "F1-5 LIVE — FEAT-009"
@@ -182,6 +203,8 @@ FEATURE_FIELDS = (
     "exploratory_head_pitch_deg",
     "nose_forward_normalized_by_shoulder_width_3d",
     "ear_midpoint_forward_normalized_by_shoulder_width_3d",
+    *geometry.HIPLESS_F1_CANDIDATE_FEATURE_NAMES,
+    *geometry.HIPLESS_F2_CANDIDATE_FEATURE_NAMES,
 )
 
 FACE_MATRIX_FIELDS = (
@@ -218,6 +241,8 @@ POINT_3D_SOURCES = (
     ("shoulder_midpoint_3d", "proxies_3d", "shoulder_midpoint_3d"),
     ("hip_midpoint_3d", "proxies_3d", "hip_midpoint_3d"),
     ("nose_3d", "points_3d", "nose"),
+    ("left_eye_3d", "points_3d", "left_eye"),
+    ("right_eye_3d", "points_3d", "right_eye"),
     ("left_ear_3d", "points_3d", "left_ear"),
     ("right_ear_3d", "points_3d", "right_ear"),
     ("left_elbow_3d", "points_3d", "left_elbow"),
@@ -226,6 +251,11 @@ POINT_3D_SOURCES = (
     ("right_wrist_3d", "points_3d", "right_wrist"),
     ("ear_midpoint_3d", "proxies_3d", "ear_midpoint_3d"),
     ("chin_3d", "points_3d", "chin"),
+    (
+        "hipless_chest_roi_center_3d",
+        "proxies_3d",
+        "hipless_chest_roi_center_3d",
+    ),
 )
 POINT_3D_FIELDS = tuple(
     f"{output_name}_{axis}_m"
@@ -235,10 +265,19 @@ POINT_3D_FIELDS = tuple(
 
 POINT_2D_SOURCES = (
     ("nose_2d", "points", "nose"),
+    ("left_eye_2d", "points", "left_eye"),
+    ("right_eye_2d", "points", "right_eye"),
     ("left_ear_2d", "points", "left_ear"),
     ("right_ear_2d", "points", "right_ear"),
     ("chin_2d", "points", "chin"),
     ("ear_midpoint_2d", "proxies", "ear_midpoint"),
+    ("eye_midpoint_2d", "proxies", "eye_midpoint"),
+    ("hipless_f1_head_center_2d", "proxies", "hipless_f1_head_center"),
+    (
+        "hipless_chest_roi_center_2d",
+        "proxies",
+        "hipless_chest_roi_center",
+    ),
     ("shoulder_midpoint_2d", "proxies", "shoulder_midpoint"),
     ("hip_midpoint_2d", "proxies", "hip_midpoint"),
     ("exploratory_neck_proxy_2d", "proxies", "exploratory_neck_proxy"),
@@ -279,6 +318,15 @@ FEATURE_DISPLAY = (
     ("exploratory head pitch (+up)", "exploratory_head_pitch_deg", " deg"),
     ("nose forward / 3D shoulder", "nose_forward_normalized_by_shoulder_width_3d", ""),
     ("ear-mid forward / 3D shoulder", "ear_midpoint_forward_normalized_by_shoulder_width_3d", ""),
+    ("HIPLESS F1 head center dx / shoulder", "hipless_f1_candidate_head_center_dx_sw", ""),
+    ("HIPLESS F1 head center dy / shoulder", "hipless_f1_candidate_head_center_dy_sw", ""),
+    ("HIPLESS F1 face axis tilt", "hipless_f1_candidate_face_axis_tilt_deg", " deg"),
+    ("HIPLESS F1 ear-eye dy / shoulder", "hipless_f1_candidate_ear_eye_dy_sw", ""),
+    ("HIPLESS F1 nose-chin / shoulder", "hipless_f1_candidate_nose_chin_distance_sw", ""),
+    ("HIPLESS F2 chest ROI depth", "hipless_f2_candidate_chest_depth_m", " m"),
+    ("HIPLESS F2 chest forward / shoulders", "hipless_f2_candidate_chest_forward_from_shoulders_m", " m"),
+    ("HIPLESS F2 nose forward / chest", "hipless_f2_candidate_nose_forward_from_chest_m", " m"),
+    ("HIPLESS F2 nose forward / chest / shoulder3d", "hipless_f2_candidate_nose_forward_from_chest_sw3d", ""),
 )
 
 CSV_FIELDS = (
@@ -292,6 +340,8 @@ CSV_FIELDS = (
     "normalized_ear_midpoint_available",
     "shoulder_width_3d_available",
     "sagittal_torso_lean_available",
+    "hipless_chest_roi_defined",
+    "hipless_chest_roi_depth_available",
     *POINT_3D_FIELDS,
     *FEATURE_FIELDS,
     *FACE_MATRIX_FIELDS,
@@ -309,6 +359,35 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help=("write exploratory engineering measurements to a new CSV file; "
               "default: no file output"),
+    )
+    parser.add_argument(
+        "--upper13-csv",
+        metavar="PATH",
+        default=None,
+        help="write 13 Pose observations per frame to a new exploratory CSV",
+    )
+    parser.add_argument(
+        "--session-meta-json",
+        metavar="PATH",
+        default=None,
+        help=("write a new upper13 session metadata JSON sidecar; requires "
+              "--upper13-csv"),
+    )
+    parser.add_argument(
+        "--camera-height-m", type=float, default=None,
+        help="manually measured camera height in metres; default: unknown",
+    )
+    parser.add_argument(
+        "--chair-distance-m", type=float, default=None,
+        help="manually measured camera-to-chair distance in metres; default: unknown",
+    )
+    parser.add_argument(
+        "--installation-angle-deg", type=float, default=None,
+        help="manually measured camera installation angle in degrees; default: unknown",
+    )
+    parser.add_argument(
+        "--lighting", default=None,
+        help="manual lighting description; default: unknown",
     )
     parser.add_argument(
         "--face-diag-csv",
@@ -372,6 +451,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--pyvista-anchor requires --pyvista")
     if args.rf_demo_model is not None and not args.f1_live:
         parser.error("--rf-demo-model requires --f1-live")
+    if args.session_meta_json is not None and args.upper13_csv is None:
+        parser.error("--session-meta-json requires --upper13-csv")
     return args
 
 
@@ -618,6 +699,11 @@ def diagnostics_for(result: geometry.GeometryResult, pose_detected: bool) -> dic
     diagnostics["sagittal_torso_lean_available"] = (
         result.features.get("sagittal_torso_lean_deg") is not None
     )
+    chest = result.proxies.get("hipless_chest_roi_center")
+    diagnostics["hipless_chest_roi_defined"] = chest is not None
+    diagnostics["hipless_chest_roi_depth_available"] = (
+        chest is not None and chest.depth_m is not None
+    )
     return diagnostics
 
 
@@ -651,6 +737,29 @@ def deproject_body_points(
         if all(math.isfinite(value) for value in (x_m, y_m, z_m)) and z_m > 0:
             output[name] = geometry.Point3D(x_m, y_m, z_m)
     return output
+
+
+def deproject_geometry_point(
+    point: geometry.Point | None, color_intrinsics: Any, rs_module: Any
+) -> geometry.Point3D | None:
+    """Deproject one already-observed aligned-depth point; missing stays missing."""
+
+    if point is None or point.depth_m is None:
+        return None
+    try:
+        xyz = rs_module.rs2_deproject_pixel_to_point(
+            color_intrinsics,
+            [float(point.x_px), float(point.y_px)],
+            float(point.depth_m),
+        )
+        if len(xyz) != 3:
+            return None
+        x_m, y_m, z_m = (float(value) for value in xyz)
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        return None
+    if not all(math.isfinite(value) for value in (x_m, y_m, z_m)) or z_m <= 0:
+        return None
+    return geometry.Point3D(x_m, y_m, z_m)
 
 
 def _point_3d_csv_values(result: geometry.GeometryResult) -> dict[str, float | None]:
@@ -1051,6 +1160,10 @@ def debug_panel_pages(
         + _yes_no(availability["shoulder_width_3d_available"]),
         "sagittal_torso_lean_available: "
         + _yes_no(availability["sagittal_torso_lean_available"]),
+        "hipless_chest_roi_defined: "
+        + _yes_no(availability["hipless_chest_roi_defined"]),
+        "hipless_chest_roi_depth_available: "
+        + _yes_no(availability["hipless_chest_roi_depth_available"]),
         f"pose_detected: {_yes_no(pose_detected)}",
         f"face_detection: {values['face_status']}",
         f"face_matrix_status: {values['matrix_status']}",
@@ -1622,6 +1735,250 @@ def draw_engineering_panel(
     return display
 
 
+def upper13_csv_rows(
+    landmarks: Any, image_width: int, image_height: int, *,
+    aligned_depth: np.ndarray | None, depth_scale_m: float | None,
+    frame_index: int, device_timestamp_ms: float, mediapipe_timestamp_ms: int,
+) -> list[dict[str, Any]]:
+    """Separate exploratory Pose observations; blanks mean missing, never zero.
+
+    Finite out-of-frame coordinates are retained with coordinate_valid=false.
+    Confidence scores are observations, not coordinate/depth thresholds.
+    """
+    rows = []
+    for name, index in UPPER13_LANDMARK_INDICES.items():
+        landmark = _pose_landmark(landmarks, index)
+        x = _finite_float(getattr(landmark, "x", None))
+        y = _finite_float(getattr(landmark, "y", None))
+        valid = (image_width > 0 and image_height > 0
+                 and x is not None and y is not None
+                 and 0 <= x < 1 and 0 <= y < 1)
+        x_px = x * image_width if x is not None and image_width > 0 else None
+        y_px = y * image_height if y is not None and image_height > 0 else None
+        depth = (geometry.sample_aligned_depth_m(
+            aligned_depth, x_px, y_px, depth_scale_m
+        ) if valid else None)
+        rows.append({
+            "frame_index": frame_index,
+            "device_timestamp_ms": device_timestamp_ms,
+            "mediapipe_timestamp_ms": mediapipe_timestamp_ms,
+            "landmark_name": name, "landmark_index": index,
+            "x_px": x_px, "y_px": y_px,
+            "visibility": _finite_float(getattr(landmark, "visibility", None)),
+            "presence": _finite_float(getattr(landmark, "presence", None)),
+            "coordinate_valid": "true" if valid else "false",
+            "depth_m": depth, "depth_valid": "true" if depth is not None else "false",
+        })
+    return rows
+
+
+def _open_upper13_csv(path: str | None) -> tuple[Any | None, csv.DictWriter | None]:
+    if path is None:
+        return None, None
+    handle = open(os.path.abspath(path), "x", encoding="utf-8", newline="")
+    writer = csv.DictWriter(handle, fieldnames=UPPER13_CSV_FIELDS, extrasaction="raise")
+    writer.writeheader()
+    handle.flush()
+    return handle, writer
+
+
+def _sourced(value: Any, source: str) -> dict[str, Any]:
+    return {"value": value, "source": source}
+
+
+def _manual_session_value(value: Any) -> dict[str, Any]:
+    return _sourced(value, MANUAL_SOURCE if value is not None else UNKNOWN_SOURCE)
+
+
+def _session_id(started_at: datetime) -> str:
+    return (f"upper13_{started_at.strftime('%Y%m%d_%H%M%S_%f')}_"
+            f"{uuid.uuid4().hex}")
+
+
+def _profile_details(stream_profile: Any) -> dict[str, Any]:
+    video = stream_profile.as_video_stream_profile()
+    return {
+        "resolution": {"width": int(video.width()), "height": int(video.height())},
+        "fps": int(video.fps()),
+        "source": AUTOMATIC_PROFILE_SOURCE,
+    }
+
+
+def _intrinsics_details(stream_profile: Any) -> dict[str, Any]:
+    intrinsics = stream_profile.as_video_stream_profile().get_intrinsics()
+    return _sourced({
+        "width": int(intrinsics.width), "height": int(intrinsics.height),
+        "fx": float(intrinsics.fx), "fy": float(intrinsics.fy),
+        "ppx": float(intrinsics.ppx), "ppy": float(intrinsics.ppy),
+        "model": str(intrinsics.model),
+        "coeffs": [float(value) for value in intrinsics.coeffs],
+    }, AUTOMATIC_PROFILE_SOURCE)
+
+
+def _device_info(device: Any, key: Any, field: str,
+                 unknown_reasons: dict[str, str]) -> dict[str, Any]:
+    try:
+        if hasattr(device, "supports") and not device.supports(key):
+            raise RuntimeError("device information is not supported")
+        return _sourced(device.get_info(key), AUTOMATIC_DEVICE_SOURCE)
+    except Exception as error:
+        unknown_reasons[field] = str(error)
+        return _sourced(None, UNKNOWN_SOURCE)
+
+
+def _sensor_option(sensor: Any, option: Any, field: str,
+                   unknown_reasons: dict[str, str]) -> dict[str, Any]:
+    try:
+        if hasattr(sensor, "supports") and not sensor.supports(option):
+            raise RuntimeError("sensor option is not supported")
+        return _sourced(float(sensor.get_option(option)), AUTOMATIC_DEVICE_SOURCE)
+    except Exception as error:
+        unknown_reasons[field] = str(error)
+        return _sourced(None, UNKNOWN_SOURCE)
+
+
+def _depth_scale(sensor: Any, unknown_reasons: dict[str, str]) -> dict[str, Any]:
+    try:
+        return _sourced(float(sensor.get_depth_scale()), AUTOMATIC_DEVICE_SOURCE)
+    except Exception as error:
+        unknown_reasons["depth_scale_m"] = str(error)
+        return _sourced(None, UNKNOWN_SOURCE)
+
+
+def build_upper13_session_metadata(
+    profile: Any,
+    rs_module: Any,
+    upper13_csv_path: str,
+    *,
+    camera_height_m: float | None = None,
+    chair_distance_m: float | None = None,
+    installation_angle_deg: float | None = None,
+    lighting: str | None = None,
+    started_at: datetime | None = None,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """Build one non-canonical upper13 session sidecar from the active profile."""
+
+    started_at = started_at or datetime.now(SESSION_TIMEZONE)
+    if started_at.tzinfo is None or started_at.utcoffset() is None:
+        raise ValueError("started_at must include a UTC offset")
+    started_at = started_at.astimezone(SESSION_TIMEZONE)
+    session_id = session_id or _session_id(started_at)
+    device = profile.get_device()
+    color_profile = profile.get_stream(rs_module.stream.color)
+    depth_profile = profile.get_stream(rs_module.stream.depth)
+    unknown_reasons: dict[str, str] = {}
+
+    try:
+        color_sensor = device.first_color_sensor()
+    except Exception as error:
+        color_sensor = None
+        unknown_reasons["camera_controls.color"] = str(error)
+    try:
+        depth_sensor = device.first_depth_sensor()
+    except Exception as error:
+        depth_sensor = None
+        unknown_reasons["camera_controls.depth"] = str(error)
+
+    def control(sensor: Any, option: Any, field: str) -> dict[str, Any]:
+        if sensor is None:
+            unknown_reasons.setdefault(field, "sensor is unavailable")
+            return _sourced(None, UNKNOWN_SOURCE)
+        return _sensor_option(sensor, option, field, unknown_reasons)
+
+    manual_values = {
+        "camera_height_m": camera_height_m,
+        "chair_distance_m": chair_distance_m,
+        "installation_angle_deg": installation_angle_deg,
+        "lighting": lighting,
+    }
+    for field, value in manual_values.items():
+        if value is None:
+            unknown_reasons[f"installation.{field}"] = "not provided"
+
+    return {
+        "schema_version": UPPER13_SESSION_METADATA_SCHEMA,
+        "artifact_kind": "exploratory-upper13-session-metadata",
+        "session_id": session_id,
+        "session_id_source": "automatic_generated",
+        "session_started_at": started_at.isoformat(timespec="microseconds"),
+        "session_started_at_source": "automatic_system_clock",
+        "metadata_recorded_at": datetime.now(SESSION_TIMEZONE).isoformat(
+            timespec="microseconds"
+        ),
+        "metadata_recorded_at_source": "automatic_system_clock",
+        "upper13_csv": {
+            "path": os.path.abspath(upper13_csv_path),
+            "session_id": session_id,
+            "source": "cli_linkage",
+        },
+        "camera": {
+            "model": _device_info(
+                device, rs_module.camera_info.name, "camera.model", unknown_reasons
+            ),
+            "serial": _device_info(
+                device, rs_module.camera_info.serial_number, "camera.serial",
+                unknown_reasons,
+            ),
+            "firmware": _device_info(
+                device, rs_module.camera_info.firmware_version, "camera.firmware",
+                unknown_reasons,
+            ),
+        },
+        "streams": {
+            "color": _profile_details(color_profile),
+            "depth": _profile_details(depth_profile),
+        },
+        "intrinsics": {
+            "color": _intrinsics_details(color_profile),
+            "depth": _intrinsics_details(depth_profile),
+        },
+        "depth_alignment": {
+            "target": "color",
+            "source": "automatic_configuration",
+        },
+        "depth_scale_m": (
+            _depth_scale(depth_sensor, unknown_reasons)
+            if depth_sensor is not None else _sourced(None, UNKNOWN_SOURCE)
+        ),
+        "camera_controls": {
+            "color": {
+                "exposure": control(
+                    color_sensor, rs_module.option.exposure,
+                    "camera_controls.color.exposure",
+                ),
+                "gain": control(
+                    color_sensor, rs_module.option.gain,
+                    "camera_controls.color.gain",
+                ),
+            },
+            "depth": {
+                "exposure": control(
+                    depth_sensor, rs_module.option.exposure,
+                    "camera_controls.depth.exposure",
+                ),
+                "gain": control(
+                    depth_sensor, rs_module.option.gain,
+                    "camera_controls.depth.gain",
+                ),
+            },
+        },
+        "installation": {
+            field: _manual_session_value(value)
+            for field, value in manual_values.items()
+        },
+        "provenance_unknown_reasons": unknown_reasons,
+    }
+
+
+def write_upper13_session_metadata(path: str, metadata: Mapping[str, Any]) -> None:
+    """Write a new session sidecar without replacing any existing path."""
+
+    with open(os.path.abspath(path), "x", encoding="utf-8", newline="\n") as handle:
+        json.dump(metadata, handle, indent=2, ensure_ascii=False, allow_nan=False)
+        handle.write("\n")
+
+
 def _open_csv(path: str | None) -> tuple[Any | None, csv.DictWriter | None]:
     if path is None:
         return None, None
@@ -1670,6 +2027,12 @@ def run_probe(
     csv_path: str | None = None,
     *,
     face_diag_csv_path: str | None = None,
+    upper13_csv_path: str | None = None,
+    session_meta_json_path: str | None = None,
+    camera_height_m: float | None = None,
+    chair_distance_m: float | None = None,
+    installation_angle_deg: float | None = None,
+    lighting: str | None = None,
     show_3d_views: bool | str = False,
     panel_mode: str = "summary",
     pyvista_view: bool = False,
@@ -1686,6 +2049,11 @@ def run_probe(
 
     if rf_demo_model_path is not None and not f1_live:
         raise ValueError("rf_demo_model_path requires f1_live")
+    if session_meta_json_path is not None and upper13_csv_path is None:
+        raise ValueError("session_meta_json_path requires upper13_csv_path")
+    for output_path in (upper13_csv_path, session_meta_json_path):
+        if output_path is not None and os.path.lexists(os.path.abspath(output_path)):
+            raise FileExistsError(os.path.abspath(output_path))
 
     import cv2
     import mediapipe as mp
@@ -1730,6 +2098,7 @@ def run_probe(
 
     csv_handle = csv_writer = None
     face_diag_handle = face_diag_writer = None
+    upper13_handle = upper13_writer = None
     pipeline = rs.pipeline()
     profile = None
     pose_landmarker = None
@@ -1738,6 +2107,7 @@ def run_probe(
     pyvista_window = None
     try:
         csv_handle, csv_writer = _open_csv(csv_path)
+        upper13_handle, upper13_writer = _open_upper13_csv(upper13_csv_path)
         face_diag_handle, face_diag_writer = _open_face_diagnostic_csv(
             face_diag_csv_path
         )
@@ -1745,6 +2115,19 @@ def run_probe(
         align = rs.align(rs.stream.color)
         depth_scale_m = profile.get_device().first_depth_sensor().get_depth_scale()
         color_intrinsics = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+        if session_meta_json_path is not None:
+            write_upper13_session_metadata(
+                session_meta_json_path,
+                build_upper13_session_metadata(
+                    profile,
+                    rs,
+                    upper13_csv_path,
+                    camera_height_m=camera_height_m,
+                    chair_distance_m=chair_distance_m,
+                    installation_angle_deg=installation_angle_deg,
+                    lighting=lighting,
+                ),
+            )
         pose_landmarker = vision.PoseLandmarker.create_from_options(pose_options)
         face_landmarker = vision.FaceLandmarker.create_from_options(face_options)
         if face_detector_options is not None:
@@ -1767,6 +2150,8 @@ def run_probe(
         if face_detector is not None:
             print("[probe] F1-5 live (FEAT-009): calibration-free engineering "
                   "display only; not written to any file")
+        print("[probe] HIPLESS F1-extension/F2 candidates: UNAPPROVED EXPLORATORY; "
+              "debug display and optional engineering CSV only")
 
         while True:
             frames = pipeline.wait_for_frames()
@@ -1793,6 +2178,14 @@ def run_probe(
             )
             pose_detected = bool(pose_result.pose_landmarks)
             landmarks = pose_result.pose_landmarks[0] if pose_detected else None
+            if upper13_writer is not None:
+                upper13_writer.writerows(upper13_csv_rows(
+                    landmarks, bgr.shape[1], bgr.shape[0],
+                    aligned_depth=aligned_depth, depth_scale_m=depth_scale_m,
+                    frame_index=frame_index, device_timestamp_ms=device_timestamp_ms,
+                    mediapipe_timestamp_ms=timestamp_ms,
+                ))
+                upper13_handle.flush()
             face_landmarks = (
                 face_result.face_landmarks[0] if face_result.face_landmarks else None
             )
@@ -1826,11 +2219,22 @@ def run_probe(
                 aligned_depth=aligned_depth,
                 depth_scale_m=depth_scale_m,
             ))
+            chest_roi_point = geometry.sample_hipless_chest_roi(
+                points.get("left_shoulder"),
+                points.get("right_shoulder"),
+                aligned_depth,
+                depth_scale_m,
+            )
             points_3d = deproject_body_points(points, color_intrinsics, rs)
+            chest_roi_point_3d = deproject_geometry_point(
+                chest_roi_point, color_intrinsics, rs
+            )
             result = geometry.compute_candidate_geometry(
                 points,
                 focal_length_px=color_intrinsics.fx,
                 points_3d=points_3d,
+                chest_roi_point=chest_roi_point,
+                chest_roi_point_3d=chest_roi_point_3d,
             )
             overlay = geometry.draw_geometry_overlay(bgr, result)
             display = draw_engineering_panel(
@@ -1910,6 +2314,8 @@ def run_probe(
             csv_handle.close()
         if face_diag_handle is not None:
             face_diag_handle.close()
+        if upper13_handle is not None:
+            upper13_handle.close()
         if pyvista_window is not None:
             pyvista_window.close()
         cv2.destroyAllWindows()
@@ -1920,6 +2326,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_probe(
         args.csv,
         face_diag_csv_path=args.face_diag_csv,
+        upper13_csv_path=args.upper13_csv,
+        session_meta_json_path=args.session_meta_json,
+        camera_height_m=args.camera_height_m,
+        chair_distance_m=args.chair_distance_m,
+        installation_angle_deg=args.installation_angle_deg,
+        lighting=args.lighting,
         show_3d_views=args.views,
         panel_mode=args.panel_mode,
         pyvista_view=args.pyvista,
