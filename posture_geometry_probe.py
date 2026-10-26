@@ -333,6 +333,10 @@ CSV_FIELDS = (
     "artifact_kind",
     "timestamp_utc",
     "device_timestamp_ms",
+    "label",
+    "subject",
+    "recording_id",
+    "segment_id",
     "pose_detected",
     *(f"{name}_landmark_valid" for name in POINT_NAMES),
     *(f"{name}_depth_valid" for name in POINT_NAMES),
@@ -359,6 +363,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help=("write exploratory engineering measurements to a new CSV file; "
               "default: no file output"),
+    )
+    parser.add_argument(
+        "--subject",
+        default=None,
+        help="subject identifier written to every --csv frame",
+    )
+    parser.add_argument(
+        "--recording-id",
+        default=None,
+        help="recording identifier written to every --csv frame",
     )
     parser.add_argument(
         "--upper13-csv",
@@ -453,6 +467,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--rf-demo-model requires --f1-live")
     if args.session_meta_json is not None and args.upper13_csv is None:
         parser.error("--session-meta-json requires --upper13-csv")
+    if args.csv is not None:
+        if not args.subject or not args.subject.strip():
+            parser.error("--csv requires a non-empty --subject")
+        if not args.recording_id or not args.recording_id.strip():
+            parser.error("--csv requires a non-empty --recording-id")
+        args.subject = args.subject.strip()
+        args.recording_id = args.recording_id.strip()
+    elif args.subject is not None or args.recording_id is not None:
+        parser.error("--subject and --recording-id require --csv")
     return args
 
 
@@ -789,6 +812,10 @@ def exploratory_csv_row(
     pose_detected: bool,
     device_timestamp_ms: float,
     timestamp_utc: str,
+    label: str,
+    subject: str,
+    recording_id: str,
+    segment_id: int,
     face_matrix: Any = None,
 ) -> dict[str, Any]:
     """Build one explicitly non-canonical engineering row; ``None`` stays blank in CSV."""
@@ -797,6 +824,10 @@ def exploratory_csv_row(
         "artifact_kind": EXPLORATORY_ARTIFACT_KIND,
         "timestamp_utc": timestamp_utc,
         "device_timestamp_ms": device_timestamp_ms,
+        "label": label,
+        "subject": subject,
+        "recording_id": recording_id,
+        "segment_id": segment_id,
     }
     row.update(diagnostics_for(result, pose_detected))
     row.update(_point_3d_csv_values(result))
@@ -2023,9 +2054,37 @@ def handle_panel_key(
     return False, debug_page
 
 
+CAPTURE_LABEL_KEYS = MappingProxyType({
+    ord("1"): "upright",
+    ord("2"): "forward_head",
+    ord("3"): "lean_back",
+    ord("4"): "lean_left",
+    ord("5"): "lean_right",
+    ord("6"): "lean_forward",
+    ord("t"): "TRANSITION",
+})
+
+
+@dataclass(frozen=True)
+class CaptureSegment:
+    label: str = "PREP"
+    segment_id: int = 0
+
+
+def handle_capture_label_key(key: int, segment: CaptureSegment) -> CaptureSegment:
+    """Apply a non-conflicting posture/transition key for subsequent frames."""
+
+    label = CAPTURE_LABEL_KEYS.get(key & 0xFF)
+    if label is None or label == segment.label:
+        return segment
+    return CaptureSegment(label=label, segment_id=segment.segment_id + 1)
+
+
 def run_probe(
     csv_path: str | None = None,
     *,
+    subject: str | None = None,
+    recording_id: str | None = None,
     face_diag_csv_path: str | None = None,
     upper13_csv_path: str | None = None,
     session_meta_json_path: str | None = None,
@@ -2051,6 +2110,8 @@ def run_probe(
         raise ValueError("rf_demo_model_path requires f1_live")
     if session_meta_json_path is not None and upper13_csv_path is None:
         raise ValueError("session_meta_json_path requires upper13_csv_path")
+    if csv_path is not None and (not subject or not recording_id):
+        raise ValueError("csv_path requires subject and recording_id")
     for output_path in (upper13_csv_path, session_meta_json_path):
         if output_path is not None and os.path.lexists(os.path.abspath(output_path)):
             raise FileExistsError(os.path.abspath(output_path))
@@ -2141,7 +2202,12 @@ def run_probe(
         last_mediapipe_timestamp_ms = -1
         frame_index = 0
         debug_page = 0
+        capture_segment = CaptureSegment()
         print("[probe] live RGB + aligned depth started; press q in the window to quit")
+        if csv_writer is not None:
+            print("[probe] labels: 1=upright, 2=forward_head, 3=lean_back, "
+                  "4=lean_left, 5=lean_right, 6=lean_forward, t=TRANSITION; "
+                  "initial=PREP")
         if rf_demo_state is None:
             print("[probe] diagnostic-only: no posture classification and no production gate changes")
         else:
@@ -2280,6 +2346,10 @@ def run_probe(
                     pose_detected=pose_detected,
                     device_timestamp_ms=device_timestamp_ms,
                     timestamp_utc=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                    label=capture_segment.label,
+                    subject=subject,
+                    recording_id=recording_id,
+                    segment_id=capture_segment.segment_id,
                     face_matrix=face_matrix,
                 ))
                 csv_handle.flush()
@@ -2296,9 +2366,13 @@ def run_probe(
                 ))
                 face_diag_handle.flush()
 
-            should_quit, debug_page = handle_panel_key(
-                cv2.waitKey(1), panel_mode, debug_page
-            )
+            key = cv2.waitKey(1)
+            next_segment = handle_capture_label_key(key, capture_segment)
+            if next_segment != capture_segment:
+                capture_segment = next_segment
+                print(f"[probe] segment {capture_segment.segment_id}: "
+                      f"{capture_segment.label}")
+            should_quit, debug_page = handle_panel_key(key, panel_mode, debug_page)
             if should_quit:
                 break
     finally:
@@ -2325,6 +2399,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     run_probe(
         args.csv,
+        subject=args.subject,
+        recording_id=args.recording_id,
         face_diag_csv_path=args.face_diag_csv,
         upper13_csv_path=args.upper13_csv,
         session_meta_json_path=args.session_meta_json,

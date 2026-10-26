@@ -19,3 +19,8 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Local participant recordings and pilot evaluation outputs
+captures/
+h6_pilot_*.json
+h6_results.json
