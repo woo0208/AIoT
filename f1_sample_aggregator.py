@@ -221,30 +221,36 @@ class HFrameRecord:
     features: Mapping[str, float | None]
 
     def __post_init__(self) -> None:
-        for name in ("analysis_run_id", "recording_id", "subject", "step", "label"):
-            _require_text(name, getattr(self, name))
-        if self.round is not None:
-            _require_text("round", self.round)
-        if type(self.frame_index) is not int or self.frame_index < 1:
-            raise ValueError(f"invalid frame_index: {self.frame_index!r}")
-        if set(self.features) != set(H9_FEATURE_NAMES):
-            raise ValueError("H frame features must contain the exact H9 feature set")
-        clean: dict[str, float | None] = {}
-        for name in H9_FEATURE_NAMES:
-            value = self.features[name]
-            if value is None:
-                clean[name] = None
-            elif isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise ValueError(f"invalid H feature {name}: {value!r}")
-            elif not math.isfinite(float(value)):
-                raise ValueError(f"non-finite H feature {name}: {value!r}")
-            else:
-                clean[name] = float(value)
-        object.__setattr__(self, "features", MappingProxyType(clean))
+        _validate_h_frame_record(self, H9_FEATURE_NAMES, "H9")
 
     @property
     def frame_key(self) -> tuple[str, str, int]:
         return (self.analysis_run_id, self.recording_id, self.frame_index)
+
+
+def _validate_h_frame_record(record, feature_names, feature_set) -> None:
+    """Shared identity/missing-value validation for distinct H frame types."""
+
+    for name in ("analysis_run_id", "recording_id", "subject", "step", "label"):
+        _require_text(name, getattr(record, name))
+    if record.round is not None:
+        _require_text("round", record.round)
+    if type(record.frame_index) is not int or record.frame_index < 1:
+        raise ValueError(f"invalid frame_index: {record.frame_index!r}")
+    if set(record.features) != set(feature_names):
+        raise ValueError(f"H frame features must contain the exact {feature_set} feature set")
+    clean: dict[str, float | None] = {}
+    for name in feature_names:
+        value = record.features[name]
+        if value is None:
+            clean[name] = None
+        elif isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"invalid H feature {name}: {value!r}")
+        elif not math.isfinite(float(value)):
+            raise ValueError(f"non-finite H feature {name}: {value!r}")
+        else:
+            clean[name] = float(value)
+    object.__setattr__(record, "features", MappingProxyType(clean))
 
 
 @dataclass(frozen=True)
@@ -431,12 +437,21 @@ def aggregate_h5_h9_sample(records: Iterable[HFrameRecord]) -> HSampleResult:
     use the median; the directed face-axis angle uses a circular mean.
     """
 
+    return _aggregate_h_sample(
+        records, record_type=HFrameRecord, feature_names=H9_FEATURE_NAMES,
+        aggregation_spec=H_AGGREGATION_SPEC_ID, result_type=HSampleResult,
+    )
+
+
+def _aggregate_h_sample(records, *, record_type, feature_names, aggregation_spec, result_type):
+    """Common H aggregation; callers supply distinct record/result types and order."""
+
     frames = tuple(records)
     if not frames:
         raise ValueError("empty input: sample identity cannot be established")
     for record in frames:
-        if not isinstance(record, HFrameRecord):
-            raise ValueError(f"not an HFrameRecord: {type(record).__name__}")
+        if not isinstance(record, record_type):
+            raise ValueError(f"not an {record_type.__name__}: {type(record).__name__}")
     for field in _IDENTITY_FIELDS:
         values = {getattr(record, field) for record in frames}
         if len(values) > 1:
@@ -449,7 +464,7 @@ def aggregate_h5_h9_sample(records: Iterable[HFrameRecord]) -> HSampleResult:
     frames = tuple(sorted(frames, key=lambda record: record.frame_index))
     valid = tuple(
         record for record in frames
-        if all(record.features[name] is not None for name in H9_FEATURE_NAMES)
+        if all(record.features[name] is not None for name in feature_names)
     )
     n_frames = len(frames)
     valid_count = len(valid)
@@ -460,10 +475,10 @@ def aggregate_h5_h9_sample(records: Iterable[HFrameRecord]) -> HSampleResult:
     if coverage < H_MIN_COVERAGE:
         reasons.append(f"common_coverage<{H_MIN_COVERAGE:g}")
 
-    features: dict[str, float | None] = dict.fromkeys(H9_FEATURE_NAMES)
+    features: dict[str, float | None] = dict.fromkeys(feature_names)
     resultant = None
     if valid:
-        for name in H9_FEATURE_NAMES:
+        for name in feature_names:
             values = tuple(record.features[name] for record in valid)
             if name == H_FACE_AXIS_FEATURE:
                 features[name], resultant = _circular_mean_degrees(values)
@@ -473,8 +488,8 @@ def aggregate_h5_h9_sample(records: Iterable[HFrameRecord]) -> HSampleResult:
                 features[name] = float(statistics.median(values))
 
     first = frames[0]
-    return HSampleResult(
-        aggregation_spec=H_AGGREGATION_SPEC_ID,
+    return result_type(
+        aggregation_spec=aggregation_spec,
         sample_key=(first.analysis_run_id, first.recording_id, first.step),
         subject=first.subject,
         round=first.round,
@@ -487,7 +502,7 @@ def aggregate_h5_h9_sample(records: Iterable[HFrameRecord]) -> HSampleResult:
         features=features,
         missing_counts={
             name: sum(record.features[name] is None for record in frames)
-            for name in H9_FEATURE_NAMES
+            for name in feature_names
         },
         face_axis_resultant=resultant,
         eligible=not reasons,

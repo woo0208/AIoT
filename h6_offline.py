@@ -150,11 +150,38 @@ def load_probe_h_samples(metadata_paths):
 def load_labeled_probe_h_samples(paths):
     """Read continuous probe CSVs and aggregate only labelled posture segments."""
 
+    return _load_labeled_probe_samples(
+        paths, feature_names=H9_FEATURE_NAMES, record_type=HFrameRecord,
+        aggregate=aggregate_h5_h9_sample,
+    )
+
+
+def load_labeled_probe_h9_v2_samples(paths):
+    """Load F1..F8+C3 without fitting/evaluating or rewriting input files.
+
+    Returns H9V2SampleResults including ineligible segments. Sample keys and
+    input frame indices match load_labeled_probe_h_samples on the same files;
+    common_valid_frame_indices/count/coverage and missing_counts describe each
+    candidate's own support. Compare eligible sample-key intersections, keeping
+    those support diagnostics distinct. No legacy F9 column is required.
+    """
+
+    from h9_v2 import H9_V2_FEATURE_NAMES, H9V2FrameRecord, aggregate_h9_v2_sample
+
+    return _load_labeled_probe_samples(
+        paths, feature_names=H9_V2_FEATURE_NAMES, record_type=H9V2FrameRecord,
+        aggregate=aggregate_h9_v2_sample,
+    )
+
+
+def _load_labeled_probe_samples(paths, *, feature_names, record_type, aggregate):
+    """Shared labelled CSV parsing, segment identity and frame numbering."""
+
     groups, seen_recordings = {}, set()
     for path in paths:
         with open(path, encoding="utf-8-sig", newline="") as stream:
             reader = csv.DictReader(stream)
-            required = {"artifact_kind", *PROBE_IDENTITY_FIELDS, *H9_FEATURE_NAMES}
+            required = {"artifact_kind", *PROBE_IDENTITY_FIELDS, *feature_names}
             if (reader.fieldnames is None
                     or len(set(reader.fieldnames)) != len(reader.fieldnames)
                     or not required.issubset(reader.fieldnames)):
@@ -183,7 +210,7 @@ def load_labeled_probe_h_samples(paths):
                 label = analysis_label(identity["label"])
                 segment_id = identity["segment_id"]
                 key = (identity["recording_id"], segment_id)
-                record = HFrameRecord(
+                record = record_type(
                     analysis_run_id=f"probe-csv:{identity['recording_id']}",
                     recording_id=identity["recording_id"],
                     frame_index=frame_index,
@@ -193,7 +220,7 @@ def load_labeled_probe_h_samples(paths):
                     label=label,
                     features={
                         name: float(row[name]) if row[name].strip() else None
-                        for name in H9_FEATURE_NAMES
+                        for name in feature_names
                     },
                 )
                 previous = groups.setdefault(key, [])
@@ -203,7 +230,7 @@ def load_labeled_probe_h_samples(paths):
                 previous.append(record)
     if not groups:
         raise ValueError("labelled probe CSVs contain no six-posture frames")
-    return tuple(aggregate_h5_h9_sample(groups[key]) for key in sorted(groups))
+    return tuple(aggregate(groups[key]) for key in sorted(groups))
 
 
 def aggregation_audit(samples):
