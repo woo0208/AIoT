@@ -1,0 +1,12 @@
+{
+  "status": "PASS",
+  "recomputed_seed_scope_cases": 75,
+  "pooled_equals_sum_of_participants": true,
+  "metric_and_seed_semantics": "PASS",
+  "no_model_fitting": true,
+  "created_utc": "2026-10-29T04:56:11.845572+00:00",
+  "no_training_tuning_or_new_measurement": true,
+  "publication_is_aggregate_only": true,
+  "result_sha256": "1c9ed8ede97ea19e2d672f11bfd6f024485810eb74f7867ebeac3063613a29c8",
+  "protocol_sha256": "c5735d1f81ec64ceb22d4138312c119b09c08c1a6123ab606e082b24b637c946"
+}

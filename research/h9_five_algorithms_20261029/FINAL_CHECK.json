@@ -1,0 +1,96 @@
+{
+  "status": "PASS",
+  "checked_utc": "2026-10-29T04:59:06.397814+00:00",
+  "branch": "research/h9-five-algorithms-results-20261029",
+  "base_commit": "0bdd2a4a22d6d05c6ce0915950966c0ecc51037a",
+  "source_experiment_commit": "64e46932fe6af2ce36110037863bfe98e9b29fd6",
+  "metric_and_confusion_cases": 75,
+  "original_m0_baseline": "EXACT MATCH",
+  "original_report_matrices": 15,
+  "public_private_aggregate_and_cost_equality": true,
+  "csv_rows_compared": 105,
+  "tests": {
+    "command": "python -B -m unittest -v test_verify_results.py",
+    "tests_run": 15,
+    "failures": 0,
+    "errors": 0
+  },
+  "protected_original_files_unchanged": 51,
+  "original_worktree_head_branch_status_unchanged": true,
+  "no_training_tuning_new_measurement": true,
+  "included": "Historical experiment code, export and verification code/tests, anonymized aggregate results, method/settings/report/dependency versions only",
+  "excluded": "Raw recordings/CSV, segment features/predictions, fitted scaler values, model objects, local host paths, virtual environments and all 5-B candidate/model/preservation files",
+  "files": [
+    {
+      "path": "research/h9_five_algorithms_20261029/aggregate_results.json",
+      "size_bytes": 276900,
+      "sha256": "1c9ed8ede97ea19e2d672f11bfd6f024485810eb74f7867ebeac3063613a29c8"
+    },
+    {
+      "path": "research/h9_five_algorithms_20261029/class_metrics.csv",
+      "size_bytes": 5109,
+      "sha256": "8b7205c18ffcdd7c198994e0168d72138ce7db5e389e6863d32c40005ef5f760"
+    },
+    {
+      "path": "research/h9_five_algorithms_20261029/experiment/compare.py",
+      "size_bytes": 25113,
+      "sha256": "dacd3cf7aeaa6dc4a48761d0784a9f37b064c7eebe3485a80d34190991c74351"
+    },
+    {
+      "path": "research/h9_five_algorithms_20261029/experiment/compare_fixed.py",
+      "size_bytes": 25390,
+      "sha256": "16caee201cab99ea18d8844f197ca466091a708405ba79c441e629d9d1d61157"
+    },
+    {
+      "path": "research/h9_five_algorithms_20261029/experiment/EVALUATOR_FIX.json",
+      "size_bytes": 2464,
+      "sha256": "64675d859faf7059622c7ad7b763d79af8676c45a82675c755c4ac55b212750b"
+    },
+    {
+      "path": "research/h9_five_algorithms_20261029/experiment/README.md",
+      "size_bytes": 2020,
+      "sha256": "d9b9692acf3d2be550a13da227e99c597e687998b1a697d1697859d1e020875c"
+    },
+    {
+      "path": "research/h9_five_algorithms_20261029/performance.csv",
+      "size_bytes": 2322,
+      "sha256": "96cbd2d44156b958980e6a3a05d7593fa12c6b141ba8ce07d25bef896e18398a"
+    },
+    {
+      "path": "research/h9_five_algorithms_20261029/protocol.json",
+      "size_bytes": 3995,
+      "sha256": "c5735d1f81ec64ceb22d4138312c119b09c08c1a6123ab606e082b24b637c946"
+    },
+    {
+      "path": "research/h9_five_algorithms_20261029/publish_results.py",
+      "size_bytes": 15353,
+      "sha256": "ac0191dd0c3396a88b3e88b9cdd5932831ceb63e5ee43d77d4540b2a2d2e146c"
+    },
+    {
+      "path": "research/h9_five_algorithms_20261029/README.md",
+      "size_bytes": 16628,
+      "sha256": "26dab38856de976829ea17575333d5268e743185f32f44903937a183a58d18eb"
+    },
+    {
+      "path": "research/h9_five_algorithms_20261029/requirements.lock.txt",
+      "size_bytes": 125,
+      "sha256": "1bb2454414851ba50896cf487bf33467b89791bb210fe842a9e2e88046ad03a0"
+    },
+    {
+      "path": "research/h9_five_algorithms_20261029/test_verify_results.py",
+      "size_bytes": 6690,
+      "sha256": "bf3a6d094f7ae4cd912e92bb329bab6fc6d02abe895131fefabb1bc46a0b51ac"
+    },
+    {
+      "path": "research/h9_five_algorithms_20261029/verification.json",
+      "size_bytes": 491,
+      "sha256": "14251e11ac9aff2a6923c6a22c1eb97c5afc88d7b2addddd654b629d319804c6"
+    },
+    {
+      "path": "research/h9_five_algorithms_20261029/verify_results.py",
+      "size_bytes": 6924,
+      "sha256": "169ef5bc8983c58f1bd995f70abcff218f11f4a81f9150479e0727fc05326094"
+    }
+  ],
+  "self_hash_scope": "This final check excludes itself"
+}

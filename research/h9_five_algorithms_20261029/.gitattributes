@@ -1,0 +1,2 @@
+# Preserve archived evaluator and evidence bytes across Windows/Linux checkouts.
+* -text whitespace=cr-at-eol
