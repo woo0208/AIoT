@@ -1,0 +1,2 @@
+# Preserve evidence SHA-256 identities on Windows and Linux.
+* -text whitespace=cr-at-eol

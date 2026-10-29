@@ -1,0 +1,86 @@
+{
+  "conditions": {
+    "A": "original H9 F1..F9",
+    "B": "same H9 matrix with F9 column removed; no reaggregation",
+    "C": "native H9-v2 F1..F8+C3, unchanged existing calculation and aggregation"
+  },
+  "features": {
+    "A": [
+      "hipless_f1_candidate_head_center_dx_sw",
+      "hipless_f1_candidate_head_center_dy_sw",
+      "hipless_f1_candidate_face_axis_tilt_deg",
+      "hipless_f1_candidate_ear_eye_dy_sw",
+      "hipless_f1_candidate_nose_chin_distance_sw",
+      "hipless_f2_candidate_chest_depth_m",
+      "hipless_f2_candidate_chest_forward_from_shoulders_m",
+      "hipless_f2_candidate_nose_forward_from_chest_m",
+      "hipless_f2_candidate_nose_forward_from_chest_sw3d"
+    ],
+    "B": [
+      "hipless_f1_candidate_head_center_dx_sw",
+      "hipless_f1_candidate_head_center_dy_sw",
+      "hipless_f1_candidate_face_axis_tilt_deg",
+      "hipless_f1_candidate_ear_eye_dy_sw",
+      "hipless_f1_candidate_nose_chin_distance_sw",
+      "hipless_f2_candidate_chest_depth_m",
+      "hipless_f2_candidate_chest_forward_from_shoulders_m",
+      "hipless_f2_candidate_nose_forward_from_chest_m"
+    ],
+    "C": [
+      "hipless_f1_candidate_head_center_dx_sw",
+      "hipless_f1_candidate_head_center_dy_sw",
+      "hipless_f1_candidate_face_axis_tilt_deg",
+      "hipless_f1_candidate_ear_eye_dy_sw",
+      "hipless_f1_candidate_nose_chin_distance_sw",
+      "hipless_f2_candidate_chest_depth_m",
+      "hipless_f2_candidate_chest_forward_from_shoulders_m",
+      "hipless_f2_candidate_nose_forward_from_chest_m",
+      "sagittal_torso_lean_deg"
+    ]
+  },
+  "sample_count": 24,
+  "class_count": 6,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "model_parameters_seed0": {
+    "C": 1.0,
+    "class_weight": null,
+    "dual": false,
+    "fit_intercept": true,
+    "intercept_scaling": 1,
+    "l1_ratio": 0.0,
+    "max_iter": 10000,
+    "n_jobs": null,
+    "penalty": "deprecated",
+    "random_state": 0,
+    "solver": "lbfgs",
+    "tol": 0.0001,
+    "verbose": 0,
+    "warm_start": false
+  },
+  "preprocessing": "Separate StandardScaler per condition and training fold only; 12 training samples; no imputation",
+  "metric_semantics": "Per seed pool 24 OOF predictions, average six class F1s; then mean and population SD across seeds. Participant F1 means reported separately. Seeds are not additional people.",
+  "benchmark": {
+    "threads": 1,
+    "warmup_calls_per_condition_fold_seed": 24,
+    "timed_calls_per_condition_fold_seed": 120,
+    "boundary": "StandardScaler.transform(raw 1xd row) plus LR.predict; preallocated already aggregated row; no feature aggregation/image processing/I/O",
+    "clock": "perf_counter_ns",
+    "schedule": "round-robin conditions; rotate start by seed+fold; cycle the same 12 held-out segments",
+    "gc": "disabled in measured loops and restored",
+    "model_size": "uncompressed pickle protocol=5 classifier+scaler; not RAM or library size"
+  },
+  "common_support": {
+    "all_24_samples_retained": true,
+    "all_24_frame_supports_equal": true,
+    "first_eight_aggregated_columns_exactly_equal": true,
+    "c3_missing_frame_cells": 0,
+    "candidate_common_frames": 3613
+  },
+  "privacy": "Private inputs, sample-level matrices/predictions, fitted scalers and models are not included."
+}

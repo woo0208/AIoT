@@ -1,0 +1,111 @@
+{
+  "feature_set": "original H9 F1..F9; no H9-v2, feature removal, recalibration or imputation",
+  "sample_count": 24,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "model_parameters": {
+    "M0": {
+      "implementation": "unchanged rf_experiment.Forest",
+      "n_classes": 6,
+      "n_trees": 500,
+      "max_features": 2,
+      "split_w": null,
+      "criterion": "gini",
+      "bootstrap": true,
+      "seed": "each of 0,1,2,3,4"
+    },
+    "SVM-RBF": {
+      "C": 1.0,
+      "break_ties": false,
+      "cache_size": 200,
+      "class_weight": null,
+      "coef0": 0.0,
+      "decision_function_shape": "ovr",
+      "degree": 3,
+      "gamma": 0.1111111111111111,
+      "kernel": "rbf",
+      "max_iter": -1,
+      "probability": false,
+      "random_state": 0,
+      "shrinking": true,
+      "tol": 0.001,
+      "verbose": false
+    },
+    "Linear-SVM": {
+      "C": 1.0,
+      "class_weight": null,
+      "dual": false,
+      "fit_intercept": true,
+      "intercept_scaling": 1,
+      "loss": "squared_hinge",
+      "max_iter": 10000,
+      "multi_class": "ovr",
+      "penalty": "l2",
+      "random_state": 0,
+      "tol": 0.0001,
+      "verbose": 0
+    },
+    "Logistic-Regression": {
+      "C": 1.0,
+      "class_weight": null,
+      "dual": false,
+      "fit_intercept": true,
+      "intercept_scaling": 1,
+      "l1_ratio": 0.0,
+      "max_iter": 10000,
+      "n_jobs": null,
+      "penalty": "deprecated",
+      "random_state": 0,
+      "solver": "lbfgs",
+      "tol": 0.0001,
+      "verbose": 0,
+      "warm_start": false
+    },
+    "KNN": {
+      "algorithm": "brute",
+      "leaf_size": 30,
+      "metric": "minkowski",
+      "metric_params": null,
+      "n_jobs": 1,
+      "n_neighbors": 3,
+      "p": 2,
+      "weights": "uniform"
+    }
+  },
+  "preprocessing": {
+    "M0": "raw original H9 to reproduce the unchanged baseline",
+    "other_four": "StandardScaler mean and population SD fit on 12 training samples only; transform held-out without refit"
+  },
+  "tuning": "none; one fixed setting per model; no validation-based model or parameter search",
+  "seed_interpretation": "five paired computational repeats, not independent participants; deterministic models may repeat identical predictions",
+  "selection_rule": "rank pooled mean Macro-F1, inspect both participant scores and P1 errors, then cost; propose at most two follow-up candidates, not validated winners",
+  "benchmark": {
+    "unit": "one already aggregated float64 H9 sample",
+    "threads": 1,
+    "warmup_calls_per_fitted_model": 24,
+    "timed_calls_per_fitted_model": 120,
+    "input_schedule": "held-out 12 samples cycled in fixed source order",
+    "order": "rotate five models by seed plus fold; round-robin timed calls",
+    "classifier_only": "predict on preallocated transformed row; excludes scaling/aggregation/I/O/startup",
+    "pipeline": "scaler.transform plus predict on preallocated raw row, timed separately",
+    "gc": "disabled during measured loops; restored afterward",
+    "clock": "time.perf_counter_ns",
+    "model_size": "len(pickle.dumps(model, protocol=5)); uncompressed; pipeline includes scaler; libraries excluded"
+  },
+  "documentation_urls": [
+    "https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html",
+    "https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html",
+    "https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html",
+    "https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KNeighborsClassifier.html",
+    "https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.StandardScaler.html"
+  ],
+  "overall_macro_f1": "For each seed: mean six class F1s on pooled 24 OOF samples; then mean across five seeds.",
+  "distinct_participant_mean_macro_f1": "Mean of two participant-specific Macro-F1 seed means; reported separately.",
+  "original_plan_sha256": "9d610f633d69e4f74df16b0d700ad08f10a4794e3448124a4f22166f8a179028",
+  "no_new_experiment": true
+}

@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "saved_metric_cases": 45,
+  "no_training_or_diagnostics": true,
+  "private_original_metric_cases": 45,
+  "original_artifacts_verified": true,
+  "protected_original_file_hashes_verified": 107,
+  "private_result_sha256": "30532629c0341e616f35f86a60c00eb1dbf9149faaa379cc9a618d5671a05a53",
+  "diagnostic_material_included": false
+}
