@@ -1,0 +1,14 @@
+﻿metric,definition,unit,aggregation,status
+Accuracy,sum diagonal / N,fraction,per-seed pooled OOF then mean,existing result
+Precision_k,TP_k/(TP_k+FP_k); zero predicted support -> 0,fraction,per-seed class metric then mean,existing result
+Recall_k,TP_k/(TP_k+FN_k),fraction,per-seed class metric then mean; absent-support formal policy unresolved,existing result
+Macro-F1,mean_k 2TP/(2TP+FP+FN),fraction,"pool 24 OOF per seed, average six class F1, then average five seeds",existing result
+participant_mean_F1,mean participant-specific Macro-F1,fraction,"separate auxiliary indicator, not pooled F1",existing result
+directed_error_i_to_j,"C[i,j]/row_sum_i",fraction/count,per-seed count/support/rate with seed mean and SD,existing result
+predict_p50_p95,quantile of scaler.transform plus predict durations,ms/call,1200 calls per configuration within each source batch,measured reused
+total_classifier_package_size,uncompressed pickle protocol5 classifier+scaler container,bytes / KiB,mean/min/max over ten fitted fold-seed instances,measured reused
+CPU_one_core,100*delta process CPU time / delta host wall time,percent,future same-phase whole-delta mean and sampled p50/p95,not measured
+RAM,working set / private commit separately,MiB,future same-phase sampled p50/p95/max plus lifetime peak separately,not measured
+FPS,unique completed RGB-D pairs / matched stream duration,frames/s,future per run; not nominal FPS or redraws,not measured
+host_E2E,defined source host event to matching prediction UI submission,ms,future new prediction IDs only with counts/drops,not measured
+physical_E2E,sensor exposure or defined physical event to actual display presentation,ms,future external/common-clock measurement,not measured

@@ -1,0 +1,18 @@
+{
+  "kind": "research-sync-verification",
+  "date": "2026-10-29",
+  "tests": {
+    "structural_replay_integration": 90,
+    "existing_h9_public_aggregate": 15,
+    "existing_lr_public_aggregate": 5,
+    "total": 110,
+    "status": "PASS"
+  },
+  "no_training": true,
+  "no_hardware_execution": true,
+  "copied_source_tests": 14,
+  "copied_publication_files": 23,
+  "archived_scripts_parsed": 6,
+  "publication_checks": "pending staged validation",
+  "original_integrity_check": "pending final comparison"
+}

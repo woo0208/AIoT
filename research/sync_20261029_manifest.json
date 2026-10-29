@@ -1,0 +1,181 @@
+{
+  "kind": "research-publication-copy-manifest",
+  "date": "2026-10-29",
+  "source_head": "64e46932fe6af2ce36110037863bfe98e9b29fd6",
+  "h9_result_head": "ef9f38c2cf09be51ac52bc4374fe6aa3dba5340f",
+  "lr_result_head": "20b9076ee84275bf1a632b0821246ef30755823f",
+  "code_commit": "665a51a2a0fa17b0086ddfd64edc6a16adc08a57",
+  "copied_files": [
+    {
+      "source": "analysis/evaluation_framework_20261029_c82f4a/METRIC_DEFINITIONS.md",
+      "published": "research/evaluation_framework_20261029/METRIC_DEFINITIONS.md",
+      "source_sha256": "6ed1a07bb55e7e3ce39136f262a47ee7f618bd0e7ec49a4c497fee0441207d87",
+      "published_sha256_lf": "6ed1a07bb55e7e3ce39136f262a47ee7f618bd0e7ec49a4c497fee0441207d87",
+      "change": "markdown link relocation only"
+    },
+    {
+      "source": "analysis/evaluation_framework_20261029_c82f4a/CONFUSION_MATRICES.md",
+      "published": "research/evaluation_framework_20261029/CONFUSION_MATRICES.md",
+      "source_sha256": "02568c08f0bfdea851b55711c736d4869acacdeac807d4f703e985bf81878db8",
+      "published_sha256_lf": "02568c08f0bfdea851b55711c736d4869acacdeac807d4f703e985bf81878db8",
+      "change": "markdown link relocation only"
+    },
+    {
+      "source": "analysis/evaluation_framework_20261029_c82f4a/D455_MEASUREMENT_PROTOCOL_DRAFT.md",
+      "published": "research/evaluation_framework_20261029/D455_MEASUREMENT_PROTOCOL_DRAFT.md",
+      "source_sha256": "e0a19d2ee24c03a76aa168e37b0f136d566022229e88d85cc538b2e8fa31e843",
+      "published_sha256_lf": "e0a19d2ee24c03a76aa168e37b0f136d566022229e88d85cc538b2e8fa31e843",
+      "change": "markdown link relocation only"
+    },
+    {
+      "source": "analysis/evaluation_framework_20261029_c82f4a/class_metrics.csv",
+      "published": "research/evaluation_framework_20261029/class_metrics.csv",
+      "source_sha256": "b72b51f5ba9aafdb7d5bb5082feb42539e8e4b94f467137a084d38c60d8d93cc",
+      "published_sha256_lf": "b72b51f5ba9aafdb7d5bb5082feb42539e8e4b94f467137a084d38c60d8d93cc",
+      "change": "byte-identical copy"
+    },
+    {
+      "source": "analysis/evaluation_framework_20261029_c82f4a/confusion_matrices.csv",
+      "published": "research/evaluation_framework_20261029/confusion_matrices.csv",
+      "source_sha256": "f39a417c6f3ee4208910211adfcf693d91e0569effedf078634c99338b6ffb18",
+      "published_sha256_lf": "f39a417c6f3ee4208910211adfcf693d91e0569effedf078634c99338b6ffb18",
+      "change": "byte-identical copy"
+    },
+    {
+      "source": "analysis/evaluation_framework_20261029_c82f4a/efficiency.csv",
+      "published": "research/evaluation_framework_20261029/efficiency.csv",
+      "source_sha256": "6d3f1ece133a767e956d35e024f5abc89b37e731b8561f5d8781304b9b87380a",
+      "published_sha256_lf": "6d3f1ece133a767e956d35e024f5abc89b37e731b8561f5d8781304b9b87380a",
+      "change": "byte-identical copy"
+    },
+    {
+      "source": "analysis/evaluation_framework_20261029_c82f4a/major_errors.csv",
+      "published": "research/evaluation_framework_20261029/major_errors.csv",
+      "source_sha256": "edc93bbadf92a0db3cee05fab0f40ffea21cbec1adbdbf6edae0b24740119823",
+      "published_sha256_lf": "edc93bbadf92a0db3cee05fab0f40ffea21cbec1adbdbf6edae0b24740119823",
+      "change": "byte-identical copy"
+    },
+    {
+      "source": "analysis/evaluation_framework_20261029_c82f4a/measurement_status.csv",
+      "published": "research/evaluation_framework_20261029/measurement_status.csv",
+      "source_sha256": "12865dc2dc14e85051f74efa774edd9d269e1652645c5b68daaab79112e5dc95",
+      "published_sha256_lf": "12865dc2dc14e85051f74efa774edd9d269e1652645c5b68daaab79112e5dc95",
+      "change": "byte-identical copy"
+    },
+    {
+      "source": "analysis/evaluation_framework_20261029_c82f4a/metric_definitions.csv",
+      "published": "research/evaluation_framework_20261029/metric_definitions.csv",
+      "source_sha256": "7ee27d58e5ac32d4870513ffacd7e8502643021ed75dbc2e5bb197264bb3747c",
+      "published_sha256_lf": "7ee27d58e5ac32d4870513ffacd7e8502643021ed75dbc2e5bb197264bb3747c",
+      "change": "byte-identical copy"
+    },
+    {
+      "source": "analysis/evaluation_framework_20261029_c82f4a/performance.csv",
+      "published": "research/evaluation_framework_20261029/performance.csv",
+      "source_sha256": "9bcbc704bb1075ef5a48d36101e45e66e37a28286ed23df27b04456c16605284",
+      "published_sha256_lf": "9bcbc704bb1075ef5a48d36101e45e66e37a28286ed23df27b04456c16605284",
+      "change": "byte-identical copy"
+    },
+    {
+      "source": "analysis/evaluation_framework_20261029_c82f4a/seed_confusion_matrices.csv",
+      "published": "research/evaluation_framework_20261029/seed_confusion_matrices.csv",
+      "source_sha256": "80a713c9dcd20144c4d5cab47dba733996200e15ab2c774f876d9c05de99f6b2",
+      "published_sha256_lf": "80a713c9dcd20144c4d5cab47dba733996200e15ab2c774f876d9c05de99f6b2",
+      "change": "byte-identical copy"
+    },
+    {
+      "source": "analysis/formal6_capture_design_20261029_4d9f21/CAPTURE_PROTOCOL_DRAFT.md",
+      "published": "research/formal6_capture_design_20261029/CAPTURE_PROTOCOL_DRAFT.md",
+      "source_sha256": "97f2864e7411b00adc6069eb48c748eb0398c1258c02fbb7872a550411b82cad",
+      "published_sha256_lf": "cce785d4c6597285f2d790fe7a4ce98133bbe4ee99e830e8167a413a9a2e10b3",
+      "change": "markdown link relocation only"
+    },
+    {
+      "source": "analysis/formal6_capture_design_20261029_4d9f21/FORMAL_EVALUATION_PLAN.md",
+      "published": "research/formal6_capture_design_20261029/FORMAL_EVALUATION_PLAN.md",
+      "source_sha256": "4d01d2f4e66aab485b315952e21140b0b2ae31aea508f4efb9c94532f181b085",
+      "published_sha256_lf": "61e740b8b5f9b2137b731109be2a122004e431c5ec546a19a26a58cdeb5864e0",
+      "change": "markdown link relocation only"
+    },
+    {
+      "source": "analysis/formal6_capture_design_20261029_4d9f21/IRB_PROTOCOL_DIFF.md",
+      "published": "research/formal6_capture_design_20261029/IRB_PROTOCOL_DIFF.md",
+      "source_sha256": "02ae1faedb64cbf3bbe1245ee56b16437fde0ad9569c2732de5fa72ff9442495",
+      "published_sha256_lf": "6e32f6c9aee8eb1249ea2ef35aacf3bb372def9b97e7a6616d99e3a12106c9be",
+      "change": "markdown link relocation only"
+    },
+    {
+      "source": "analysis/h9/pilot_20261027_h9v2_loso_primary5/PREREGISTRATION_20261027.md",
+      "published": "research/h9/pilot_20261027_h9v2_loso_primary5/PREREGISTRATION_20261027.md",
+      "source_sha256": "a10994008e840c22776dba15d44b89d336fc960aed54da72fc859537137a5e44",
+      "published_sha256_lf": "a10994008e840c22776dba15d44b89d336fc960aed54da72fc859537137a5e44",
+      "change": "markdown link relocation only"
+    },
+    {
+      "source": "analysis/h9/pilot_20261027_h9v2_loso_primary5/REPORT_20261027.md",
+      "published": "research/h9/pilot_20261027_h9v2_loso_primary5/REPORT_20261027.md",
+      "source_sha256": "afb4205a513dce54ff73f405d8fb64c9d09735bd69102a6a2785445396f65469",
+      "published_sha256_lf": "afb4205a513dce54ff73f405d8fb64c9d09735bd69102a6a2785445396f65469",
+      "change": "markdown link relocation only"
+    },
+    {
+      "source": "analysis/h9/pilot_20261027_h9v2_loso_primary5/summarize_20261027.py",
+      "published": "research/h9/pilot_20261027_h9v2_loso_primary5/summarize_20261027.py",
+      "source_sha256": "e8336450e901be6ce9a0453b031b760c33bdf92f7111034e818574096c833b94",
+      "published_sha256_lf": "e8336450e901be6ce9a0453b031b760c33bdf92f7111034e818574096c833b94",
+      "change": "byte-identical copy"
+    },
+    {
+      "source": "analysis/h9/stage6_20261028/PREREGISTRATION.md",
+      "published": "research/h9/stage6_20261028/PREREGISTRATION.md",
+      "source_sha256": "812c535b661302982af3598bbf26f6f73013c8007e426696126a05094af183e0",
+      "published_sha256_lf": "812c535b661302982af3598bbf26f6f73013c8007e426696126a05094af183e0",
+      "change": "markdown link relocation only"
+    },
+    {
+      "source": "analysis/h9/stage6_20261028/evaluate.py",
+      "published": "research/h9/stage6_20261028/evaluate.py",
+      "source_sha256": "d4a003df174a097b61570db65c902c78ddbcfec1da126632b4161652e06b30f5",
+      "published_sha256_lf": "d4a003df174a097b61570db65c902c78ddbcfec1da126632b4161652e06b30f5",
+      "change": "byte-identical copy"
+    },
+    {
+      "source": "analysis/h9/stage6_20261028/summarize.py",
+      "published": "research/h9/stage6_20261028/summarize.py",
+      "source_sha256": "46102fe155dca874ae79a3df0c7bce3695fe73f10d578d75dd06c15f413cffdf",
+      "published_sha256_lf": "46102fe155dca874ae79a3df0c7bce3695fe73f10d578d75dd06c15f413cffdf",
+      "change": "byte-identical copy"
+    },
+    {
+      "source": "analysis/h9/pilot_20261026/h9_f9_m2_followup_20261027.py",
+      "published": "research/h9/pilot_20261026/h9_f9_m2_followup_20261027.py",
+      "source_sha256": "ad499ca241dcd80b7ba4fb81a7c274d6495feb82793eb11d2dc3a6275a527230",
+      "published_sha256_lf": "ad499ca241dcd80b7ba4fb81a7c274d6495feb82793eb11d2dc3a6275a527230",
+      "change": "byte-identical copy"
+    },
+    {
+      "source": "analysis/h9/pilot_20261026/h9_v2_candidate_validity_20261027.py",
+      "published": "research/h9/pilot_20261026/h9_v2_candidate_validity_20261027.py",
+      "source_sha256": "ce248c71808d0d4cdf895d8800bea30a474c8f1cb832220b88927ae9240a5f74",
+      "published_sha256_lf": "ce248c71808d0d4cdf895d8800bea30a474c8f1cb832220b88927ae9240a5f74",
+      "change": "byte-identical copy"
+    },
+    {
+      "source": "analysis/h9/quality_review_20261028/inspect_quality.py",
+      "published": "research/h9/quality_review_20261028/inspect_quality.py",
+      "source_sha256": "e51c06a07e40d54e19f911553b3bed5b99f5bc8cac2fce9e4d92f56d08a18830",
+      "published_sha256_lf": "e51c06a07e40d54e19f911553b3bed5b99f5bc8cac2fce9e4d92f56d08a18830",
+      "change": "byte-identical copy"
+    }
+  ],
+  "copied_counts": {
+    "markdown": 9,
+    "aggregate_csv": 8,
+    "archived_analysis_scripts": 6
+  },
+  "hash_note": "source_sha256 hashes exact original bytes; published_sha256_lf normalizes CRLF to LF for Git checkout portability",
+  "private_evidence_links_replaced_with_plain_labels": 3,
+  "originals_modified": false,
+  "models_trained": false,
+  "hardware_executed": false
+}

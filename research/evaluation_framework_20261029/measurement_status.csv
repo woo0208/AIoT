@@ -1,0 +1,13 @@
+﻿metric,status,value,boundary,source
+classification_accuracy_macro_f1_class_metrics_confusions,MEASURED_REUSED_PILOT,see performance/class_metrics/confusions,"two-person, 24-segment, six-class LOSO",E1/E2
+scaler_inclusive_predict_p50_p95,MEASURED_REUSED_HOST_MICROBENCHMARK,see efficiency.csv,one preaggregated row; no camera/geometry/window/UI,E1/E2
+classifier_scaler_serialized_size,MEASURED_REUSED_SERIALIZED_IN_MEMORY,see efficiency.csv,pickle protocol 5; excludes full application and RAM,E1/E2
+LR_error_scores_probabilities,RECONSTRUCTED_REUSED_DIAGNOSTIC,see diagnostic_summary.csv,same A/B folds/settings; historical coefficients were not saved,existing local LR diagnosis
+D455_process_CPU,NOT_MEASURED,,future process CPU/wall ratio,
+D455_process_RAM,NOT_MEASURED,,future working set/private commit; not pickle bytes,
+D455_processed_FPS,NOT_MEASURED,,future unique completed pairs/stream seconds,
+D455_host_prediction_latency,NOT_MEASURED,,future explicitly paired host events,
+physical_sensor_to_display_E2E,NOT_MEASURED,,requires physical presentation/exposure or shared external measurement,
+nominal_input_fps,CONFIGURATION_ONLY_NOT_MEASURED,15,candidate stream request; active profile unverified here,5-B candidate_settings
+window_update_stale_ms,CONFIGURATION_ONLY_NOT_MEASURED,4000/1000/2000,"existing development settings, not observed latency",5-B candidate_settings
+formal_5_class_performance_of_new_five_way_comparison,NOT_EVALUATED_HERE,,do not derive by deleting P5 from six-class matrix,

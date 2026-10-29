@@ -12,7 +12,7 @@
 - Depth 검토에서는 primary5 2,951프레임 중 10개 스파이크형 후보를 메모리에서 제외했을 때 최대 구간 집계 변화가 F7 0.125mm, F9 0.00146(무차원), F6/F8 0이었다. 기존 중앙값이 단발 이상값의 영향을 대부분 억제하므로 **자동 Depth 필터 구현은 보류**한다. 이는 모든 Depth 오류가 제거됐다는 뜻이 아니다. finite validity만으로 이상값은 차단되지 않으며 지속 편향은 미측정이다.
 - 구간 양끝 각 1초 제외 시 F3 최대 1.77° 변화는 자세/라벨 경계 민감도다. 해당 프레임을 확정 오류로 판정하거나 실제 특징에서 삭제하지 않는다. 현재 추가 필터·특징·모델 튜닝을 진행하지 않는다.
 
-근거: [6단계 상세 결과](../../analysis/h9/stage6_20261028/REPORT.md), [검증 기록](../../analysis/h9/stage6_20261028/verification.json), [Depth 검토 결과](../../analysis/h9/quality_review_20261028/results.json). 새 학습·정확도 재계산 없이 저장 결과만 인용했다.
+근거: 6단계 상세 결과 (local private evidence; excluded from GitHub), 검증 기록 (local private evidence; excluded from GitHub), Depth 검토 결과 (local private evidence; excluded from GitHub). 새 학습·정확도 재계산 없이 저장 결과만 인용했다.
 
 ## 보존 대상과 확인 범위
 
@@ -57,3 +57,8 @@
 다음 작업은 연구자가 위 차단 조건과 실시간 평가 범위를 결정하고, **새 최적화 없이 계측만 하는 별도 작업의 범위**를 고정하는 것이다. 현 단계에서 모델 학습·정확도 재평가·실시간 실행·카메라 접근·새 최적화·전체 테스트·commit/push는 하지 않았다. 기존 42개 테스트 PASS는 과거 실행 기록이며 이번에 재실행하지 않았다.
 
 이번에 새로 만든 파일은 본 종료 기록과 보존 목록 JSON 두 개뿐이다. 기존 코드·데이터·분석 결과·연구 결정 문서는 그대로다. 이 종료는 Patch 8 완료나 formal 실행 허가를 의미하지 않는다.
+
+
+### 2026-10-29 publication note
+
+Historical local evidence remains private. See the [published research index](../../research/SYNC_20261029.md) for the selected aggregates, archived source and DRAFT documents. This note does not change the historical findings or authorize execution.
