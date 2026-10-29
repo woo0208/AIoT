@@ -1,0 +1,63 @@
+{
+  "status": "PASS",
+  "task": "Preservation of LR feature comparison only; diagnostics excluded",
+  "base_commit": "ef9f38c2cf09be51ac52bc4374fe6aa3dba5340f",
+  "metric_cases": 45,
+  "shared_tests": 5,
+  "original_control_tests": 4,
+  "protected_original_files_unchanged": 107,
+  "public_original_aggregate_equality": true,
+  "no_training_for_publication": true,
+  "diagnostic_outputs_included": false,
+  "archived_code_is_unmodified": true,
+  "files": [
+    {
+      "path": "research/lr_feature_comparison_20261029/.gitattributes",
+      "sha256": "f10bce03f33d3afe3268d0484d12b792cee55d13bf9bd26fef3be21ee7c519f4"
+    },
+    {
+      "path": "research/lr_feature_comparison_20261029/aggregate_results.json",
+      "sha256": "36ae172a945b3b8f177fd2be825d1590d18dc7a96c90e4bcf0239debe7537ecb"
+    },
+    {
+      "path": "research/lr_feature_comparison_20261029/experiment/baseline.py",
+      "sha256": "16caee201cab99ea18d8844f197ca466091a708405ba79c441e629d9d1d61157"
+    },
+    {
+      "path": "research/lr_feature_comparison_20261029/experiment/evaluate.py",
+      "sha256": "431ae51c1bef317949e75c618660186c04780597bf6f389b0a32cab1e8c1ec27"
+    },
+    {
+      "path": "research/lr_feature_comparison_20261029/experiment/test_controls.py",
+      "sha256": "cf1795d8e984923b556a155e4a3f0580a1dbf2ea0cc1d8793f13dc06e0f4917d"
+    },
+    {
+      "path": "research/lr_feature_comparison_20261029/performance.csv",
+      "sha256": "0e46544adb1e3f6bb0c916ffb6faf6a7e9fb5d9a1d98e7277ac57acc8245de5d"
+    },
+    {
+      "path": "research/lr_feature_comparison_20261029/protocol.json",
+      "sha256": "b0c39d74d9318fa6d3a64a38a30224ce39464bf10635352c5c708215b537351e"
+    },
+    {
+      "path": "research/lr_feature_comparison_20261029/README.md",
+      "sha256": "121cbc414c4a9c9bb1599eaf6539e453da7ce207f4263d7df8826d4c04d7bc48"
+    },
+    {
+      "path": "research/lr_feature_comparison_20261029/requirements.lock.txt",
+      "sha256": "48c6ea0dc8c3df791b4b8f5c741800a05b1306023532841a02a71560ac97c247"
+    },
+    {
+      "path": "research/lr_feature_comparison_20261029/test_public.py",
+      "sha256": "3cc7a4f60a42b4141979ce8b87f57ee8f9dc77322dcc9ff31588b46878c94687"
+    },
+    {
+      "path": "research/lr_feature_comparison_20261029/verification.json",
+      "sha256": "e2caa955788e8a80bdfbeb8b8a2c1263fd1c67ad87dc96a55b983968abe64a77"
+    },
+    {
+      "path": "research/lr_feature_comparison_20261029/verify_public.py",
+      "sha256": "f06d69a33c1b6cadc28cbba507cea48c115ed918a57da70a647d9c8d5c029c5b"
+    }
+  ]
+}
