@@ -33,6 +33,7 @@ BASELINE_JSON = REPO / "pilot/h6_pilot_20261024_174708.json"
 PI_ABLATION_JSON = REPO / "pilot/H9_feature_ablation_results_20261026.json"
 PI_DIAGNOSTICS_JSON = REPO / "pilot/H9_feature_diagnostics_20261026.json"
 DROP_ONE_JSON = HERE / "depth_drop_one.json"
+H5_DROP_ONE_JSON = HERE / "h5_drop_one.json"
 
 
 def synthetic(per_class=2, seed=0):
@@ -314,6 +315,36 @@ class ReusedCorrelationCheckTests(unittest.TestCase):
             mask = self.participants == subject
             self.assertAlmostEqual(np.corrcoef(self.X[mask, 7], self.X[mask, 8])[0, 1],
                                    self.f8_f9["by_participant"][subject], places=9)
+
+
+@unittest.skipUnless(P01_CSV.exists() and P02_CSV.exists() and H5_DROP_ONE_JSON.exists(),
+                     "task B result or local pilot files not available")
+class H5MinusF4ObservationTests(unittest.TestCase):
+    """summary.md task B observation 5: H5-F4 predicts exactly like H5 although F4 is used."""
+
+    def test_f4_removed_but_predictions_unchanged(self):
+        result = json.loads(H5_DROP_ONE_JSON.read_text(encoding="utf-8"))
+        condition = result["conditions"]["H5-F4"]
+        self.assertEqual(condition["feature_ids"], ["F1", "F2", "F3", "F5"])
+        self.assertEqual(condition["predictions_per_seed"],
+                         result["baseline"]["result"]["predictions_per_seed"])
+
+    def test_f4_has_positive_training_importance_in_h5_models(self):
+        config = json.loads((HERE / "config.json").read_text(encoding="utf-8"))
+        model = config["model"]
+        X, y, participants, _ = ab.load_fixed_samples([P01_CSV, P02_CSV])
+        X5 = ab.select_columns(X, config["baselines"]["H5"]["features"])
+        shares = []
+        for seed in model["seeds"]:
+            for subject in sorted(set(participants)):
+                train = participants != subject
+                forest = ab.rf.Forest(6, model["n_trees"], model["max_features"], None, seed)
+                mdi = forest.fit(X5[train], y[train]).mdi
+                shares.append(mdi[3] / mdi.sum())
+        self.assertEqual(len(shares), 10)
+        self.assertTrue(all(share > 0 for share in shares), shares)
+        self.assertAlmostEqual(min(shares), 0.179, places=3)
+        self.assertAlmostEqual(max(shares), 0.221, places=3)
 
 
 if __name__ == "__main__":
