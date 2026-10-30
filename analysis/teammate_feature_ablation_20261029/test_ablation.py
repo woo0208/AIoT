@@ -3,7 +3,9 @@
 Synthetic tests check structure only (column selection, LOSO isolation,
 metric arithmetic, safety stops); they are not research evidence.  The
 real-data test only checks that the new tool reproduces the stored baseline,
-and is skipped when the local pilot files are absent.
+and is skipped when the local pilot files are absent.  The cross-check tests
+compare saved results with the PI's 2026-10-26 diagnostics (same data, same
+M0 settings) and are skipped when those files are absent.
 
 Run from the repository root:
 
@@ -28,6 +30,9 @@ REPO = ab.REPO
 P01_CSV = REPO / "pilot_data/P01_h9_20261024_170900.csv"
 P02_CSV = REPO / "pilot_data/P02_h9_20261024_173954.csv"
 BASELINE_JSON = REPO / "pilot/h6_pilot_20261024_174708.json"
+PI_ABLATION_JSON = REPO / "pilot/H9_feature_ablation_results_20261026.json"
+PI_DIAGNOSTICS_JSON = REPO / "pilot/H9_feature_diagnostics_20261026.json"
+DROP_ONE_JSON = HERE / "depth_drop_one.json"
 
 
 def synthetic(per_class=2, seed=0):
@@ -246,6 +251,69 @@ class RealBaselineReproductionTests(unittest.TestCase):
                                           model["seeds"], model["n_trees"], model["max_features"])
                 check = ab.check_against_stored_baseline(r, self.stored, name, self.keys)
                 self.assertTrue(check["all_identical"], check)
+
+
+def average_ranks(v):
+    """Ranks starting at 1, ties get their average rank (Spearman convention)."""
+    order = np.argsort(v, kind="stable")
+    ranks = np.empty(len(v))
+    ranks[order] = np.arange(1, len(v) + 1)
+    for value in np.unique(v):
+        tied = v == value
+        ranks[tied] = ranks[tied].mean()
+    return ranks
+
+
+@unittest.skipUnless(DROP_ONE_JSON.exists() and PI_ABLATION_JSON.exists(),
+                     "A-2 result or PI ablation file not available")
+class PiAblationCrossCheckTests(unittest.TestCase):
+    """A-2 vs PI's 2026-10-26 M0 ablation (H9, H9-F8, H9-F9 were run by both)."""
+
+    def test_overlapping_conditions_match_every_prediction(self):
+        ours = json.loads(DROP_ONE_JSON.read_text(encoding="utf-8"))
+        pi = json.loads(PI_ABLATION_JSON.read_text(encoding="utf-8-sig"))
+        self.assertEqual([s["sample_key"] for s in pi["samples"]], ours["samples"]["sample_keys"])
+        pairs = {"H9": ours["baseline"]["result"],
+                 "H9-F8": ours["conditions"]["H9-F8"],
+                 "H9-F9": ours["conditions"]["H9-F9"]}
+        for name, result in pairs.items():
+            with self.subTest(condition=name):
+                self.assertEqual(pi["results"][name]["M0"]["predictions_by_seed"],
+                                 result["predictions_per_seed"])
+
+
+@unittest.skipUnless(P01_CSV.exists() and P02_CSV.exists() and PI_DIAGNOSTICS_JSON.exists()
+                     and PI_ABLATION_JSON.exists(), "local pilot files not available")
+class ReusedCorrelationCheckTests(unittest.TestCase):
+    """Correlations reused in summary.md (A-3 item 4) equal a recompute on the 24 segments."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.X, _, cls.participants, _ = ab.load_fixed_samples([P01_CSV, P02_CSV])
+        cls.corr = json.loads(PI_DIAGNOSTICS_JSON.read_text(encoding="utf-8-sig"))["correlations"]
+        cls.f8_f9 = json.loads(PI_ABLATION_JSON.read_text(encoding="utf-8-sig"))["correlations_f8_f9"]
+
+    def test_pearson_and_spearman_match_recompute(self):
+        groups = {"all_24": np.ones(len(self.X), dtype=bool),
+                  "subject_P01_12": self.participants == "P01",
+                  "subject_P02_12": self.participants == "P02"}
+        for key, mask in groups.items():
+            for i, a in enumerate(ab.FEATURE_IDS):
+                for j, b in enumerate(ab.FEATURE_IDS):
+                    with self.subTest(group=key, pair=f"{a}-{b}"):
+                        r = np.corrcoef(self.X[mask, i], self.X[mask, j])[0, 1]
+                        self.assertAlmostEqual(r, self.corr[key]["pearson"][a][b], places=6)
+                        rho = np.corrcoef(average_ranks(self.X[mask, i]),
+                                          average_ranks(self.X[mask, j]))[0, 1]
+                        self.assertAlmostEqual(rho, self.corr[key]["spearman"][a][b], places=6)
+
+    def test_f8_f9_values_in_ablation_file_match(self):
+        self.assertAlmostEqual(np.corrcoef(self.X[:, 7], self.X[:, 8])[0, 1],
+                               self.f8_f9["all_samples"], places=9)
+        for subject in ("P01", "P02"):
+            mask = self.participants == subject
+            self.assertAlmostEqual(np.corrcoef(self.X[mask, 7], self.X[mask, 8])[0, 1],
+                                   self.f8_f9["by_participant"][subject], places=9)
 
 
 if __name__ == "__main__":
