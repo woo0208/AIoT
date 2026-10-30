@@ -1,0 +1,169 @@
+{
+  "kind": "teammate-feature-ablation-config",
+  "config_version": "1.0.0",
+  "created_at": "2026-10-29",
+  "fixed_before_results": true,
+  "guide": "guide/20261029.md",
+  "scope": "Offline exploratory pilot analysis only (P01/P02). Not formal IRB data, not an independent validation, not model selection. No D455 / Patch 8 execution, no new capture.",
+  "code_provenance": {
+    "branch": "research/h5-h9-ablation",
+    "base_commit": "8252b7b",
+    "reused_existing_code": [
+      "h6_offline.load_labeled_probe_h_samples",
+      "f1_sample_aggregator.aggregate_h5_h9_sample",
+      "rf_experiment.Forest",
+      "rf_experiment.macro_f1"
+    ],
+    "existing_code_modified": false,
+    "environment_at_config_time": {
+      "python": "3.14.4",
+      "numpy": "2.5.0"
+    }
+  },
+  "inputs": {
+    "feature_csvs": [
+      {
+        "file": "P01_h9_20261024_170900.csv",
+        "subject": "P01",
+        "sha256": "1d8f0c7e40b87f750bb4a351f52ed55b083a1c37e777a2e9088f54111ded3122"
+      },
+      {
+        "file": "P02_h9_20261024_173954.csv",
+        "subject": "P02",
+        "sha256": "6bbad505e9333e4029fe1be155e73ce745c9709077b57fda65eb49e3fc8b9f2e"
+      }
+    ],
+    "excluded_recordings": {
+      "files": [
+        "P02_h9_20261024_172010.csv",
+        "P02_h9_20261024_172217.csv",
+        "P02_h9_20261024_172501.csv",
+        "P02_h9_20261024_173706.csv"
+      ],
+      "reason": "Not the recordings used by the existing baseline (h6_pilot_20261024_174708.json); only the two successful recordings above are used, unchanged."
+    },
+    "baseline_result": {
+      "file": "h6_pilot_20261024_174708.json",
+      "sha256": "850552faee27e6da61335f9dd6e5440dfe5c6f82b12d1f95386d318b14e22dd1"
+    },
+    "existing_diagnostics_reused_for_correlation": [
+      "H9_feature_redundancy_20261026.md",
+      "H9_feature_ablation_results_20261026.json (correlations_f8_f9)",
+      "H9_correlation_matrix_20261026.png"
+    ]
+  },
+  "samples": {
+    "unit": "one stable posture segment = one classification sample (frames are not samples)",
+    "excluded_labels": ["PREP", "TRANSITION"],
+    "eligibility": {
+      "rule": "joint common support of all 9 H9 features",
+      "min_common_valid_frames": 30,
+      "min_common_coverage": 0.5
+    },
+    "aggregation_spec_id": "h5-h9-common-9-feature-aggregation/1.0.0",
+    "expected_sample_count": 24,
+    "expected_per_participant": 12,
+    "expected_per_class_per_participant": 2,
+    "expected_common_valid_frames": 3613,
+    "fixed_sample_set_rule": "Every condition uses the same 24 H9-eligible segments in the same order. Removing a feature never re-selects or re-aggregates samples."
+  },
+  "classes": {
+    "order": ["upright", "forward_head", "lean_back", "lean_left", "lean_right", "lean_forward"],
+    "posture_ids": ["P0", "P1", "P2", "P3", "P4", "P5"]
+  },
+  "features": {
+    "F1": "hipless_f1_candidate_head_center_dx_sw",
+    "F2": "hipless_f1_candidate_head_center_dy_sw",
+    "F3": "hipless_f1_candidate_face_axis_tilt_deg",
+    "F4": "hipless_f1_candidate_ear_eye_dy_sw",
+    "F5": "hipless_f1_candidate_nose_chin_distance_sw",
+    "F6": "hipless_f2_candidate_chest_depth_m",
+    "F7": "hipless_f2_candidate_chest_forward_from_shoulders_m",
+    "F8": "hipless_f2_candidate_nose_forward_from_chest_m",
+    "F9": "hipless_f2_candidate_nose_forward_from_chest_sw3d",
+    "note": "Column order follows the existing H9 matrix (F1..F9). Selected columns keep this relative order. No formula is recomputed."
+  },
+  "model": {
+    "name": "M0",
+    "implementation": "rf_experiment.Forest (existing direct RF; same class rf.fit_models uses for M0)",
+    "n_trees": 500,
+    "max_features": 2,
+    "split_weights": null,
+    "seeds": [0, 1, 2, 3, 4],
+    "retrain_per_condition": true,
+    "m1_m2_not_run_reason": "Guide task A/B uses M0 as the reference model. Also FEAT-010 allows weight policies only for p<=6 or p=9, so M1/M2 cannot be run for p=8 conditions."
+  },
+  "evaluation": {
+    "scheme": "participant-level LOSO",
+    "folds": [
+      {"train": ["P02"], "test": ["P01"]},
+      {"train": ["P01"], "test": ["P02"]}
+    ],
+    "pooled_metric": "per seed, pool both folds' 24 out-of-fold predictions into one 6x6 matrix; report mean over 5 seeds",
+    "confusion_matrix_axes": "rows=actual, columns=predicted",
+    "seed_note": "5 seeds are computational repeats on the same 24 segments, not independent participants or samples.",
+    "metrics": [
+      "accuracy",
+      "macro_f1",
+      "per_class_precision_recall_f1",
+      "confusion_matrix_per_seed",
+      "p1_to_p0_count",
+      "p1_to_p5_count",
+      "per_participant_metrics",
+      "per_seed_metrics",
+      "delta_vs_baseline_pp"
+    ],
+    "delta_unit": "percentage points (pp)"
+  },
+  "baselines": {
+    "H5": {"features": ["F1", "F2", "F3", "F4", "F5"], "expected_accuracy_pct": 62.50, "expected_macro_f1_pct": 56.88},
+    "H9": {"features": ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9"], "expected_accuracy_pct": 78.33, "expected_macro_f1_pct": 75.72},
+    "rule": "If the baseline is not reproduced, stop and report the difference before producing ablation results."
+  },
+  "conditions": {
+    "A-1_depth_add_one": {
+      "guide_section": "4. A-1",
+      "baseline": "H5",
+      "output": "depth_add_one.json",
+      "conditions": {
+        "H5+F6": ["F1", "F2", "F3", "F4", "F5", "F6"],
+        "H5+F7": ["F1", "F2", "F3", "F4", "F5", "F7"],
+        "H5+F8": ["F1", "F2", "F3", "F4", "F5", "F8"],
+        "H5+F9": ["F1", "F2", "F3", "F4", "F5", "F9"]
+      }
+    },
+    "A-2_depth_drop_one": {
+      "guide_section": "4. A-2",
+      "baseline": "H9",
+      "output": "depth_drop_one.json",
+      "conditions": {
+        "H9-F6": ["F1", "F2", "F3", "F4", "F5", "F7", "F8", "F9"],
+        "H9-F7": ["F1", "F2", "F3", "F4", "F5", "F6", "F8", "F9"],
+        "H9-F8": ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F9"],
+        "H9-F9": ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8"]
+      },
+      "cross_check": "H9-F8 and H9-F9 M0 results must match H9_feature_ablation_results_20261026.json (same data, same settings)."
+    },
+    "B_h5_drop_one": {
+      "guide_section": "5",
+      "baseline": "H5",
+      "output": "h5_drop_one.json",
+      "conditions": {
+        "H5-F1": ["F2", "F3", "F4", "F5"],
+        "H5-F2": ["F1", "F3", "F4", "F5"],
+        "H5-F3": ["F1", "F2", "F4", "F5"],
+        "H5-F4": ["F1", "F2", "F3", "F5"],
+        "H5-F5": ["F1", "F2", "F3", "F4"]
+      },
+      "forbidden_methods": "No zeroing feature values, no deleting features after training, no reuse of a trained model."
+    }
+  },
+  "not_done": [
+    "no hyperparameter or lambda tuning",
+    "no best-feature-combination search",
+    "no use of the 4 formal independent-validation participants",
+    "no comparison of accuracy with the original paper (5-class, different data)",
+    "no change to existing code, models, CSVs or results"
+  ],
+  "privacy": "Raw RGB/depth, participant CSVs and per-segment feature values are not committed. Outputs record pseudonymous sample keys only."
+}

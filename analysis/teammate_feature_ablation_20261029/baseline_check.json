@@ -1,0 +1,945 @@
+{
+  "kind": "teammate-feature-ablation-baseline-check",
+  "version": "1.0.0",
+  "checked_at": "2026-10-30",
+  "guide_rule": "Guide §3.4: reproduce H5/H9 baseline under the same data conditions before producing ablation results.",
+  "verdict": "REPRODUCED_EXACTLY",
+  "method": {
+    "command": "python -B h6_offline.py --probe-csv 데이터/P01_h9_20261024_170900.csv 데이터/P02_h9_20261024_173954.csv",
+    "comparison": "Whole JSON output of today's rerun compared with stored baseline (parsed JSON equality, all keys).",
+    "whole_json_identical": true,
+    "differing_top_level_keys": []
+  },
+  "code_provenance": {
+    "branch": "research/h5-h9-ablation",
+    "commit": "8252b7b3f161fdbd467474563b2e7270941cf643",
+    "tracked_files_modified": false,
+    "code_sha256": {
+      "h6_offline.py": "204b7ae9c38aff277180e0ab4a5e67068f8e5160bee71be21248c949f46f9e9f",
+      "rf_experiment.py": "59340c0d309dbf8e2b466c1f1c506ec9849db6120f2b345269bb27eb4dd17a08",
+      "f1_sample_aggregator.py": "b6fb8aaf54a7ca3c70e56feac4a31e7f4a474801421dfa0d5bce528b31a422f0",
+      "posture_geometry_probe.py": "1cf53a95ae6c03fbc9a5c6f2f60a8a996f0c811e75d076e36e4f01b5d15968cc"
+    },
+    "environment": {
+      "python": "3.14.4",
+      "numpy": "2.5.0"
+    }
+  },
+  "inputs": {
+    "feature_csvs": [
+      {
+        "file": "P01_h9_20261024_170900.csv",
+        "subject": "P01",
+        "sha256": "1d8f0c7e40b87f750bb4a351f52ed55b083a1c37e777a2e9088f54111ded3122"
+      },
+      {
+        "file": "P02_h9_20261024_173954.csv",
+        "subject": "P02",
+        "sha256": "6bbad505e9333e4029fe1be155e73ce745c9709077b57fda65eb49e3fc8b9f2e"
+      }
+    ],
+    "stored_baseline": {
+      "file": "h6_pilot_20261024_174708.json",
+      "sha256": "850552faee27e6da61335f9dd6e5440dfe5c6f82b12d1f95386d318b14e22dd1"
+    },
+    "hashes_match_config": true
+  },
+  "samples": {
+    "sample_count": 24,
+    "eligible_class_counts": {
+      "upright": 4,
+      "forward_head": 4,
+      "lean_back": 4,
+      "lean_left": 4,
+      "lean_right": 4,
+      "lean_forward": 4
+    },
+    "input_frame_count": 3613,
+    "common_valid_frame_count": 3613,
+    "excluded_sample_count": 0,
+    "per_participant": {
+      "P01": 12,
+      "P02": 12
+    },
+    "sample_keys_in_order": [
+      {
+        "index": 0,
+        "recording_id": "P01_h9_20261024_170900",
+        "segment_id": "1",
+        "subject": "P01",
+        "posture_id": "P0"
+      },
+      {
+        "index": 1,
+        "recording_id": "P01_h9_20261024_170900",
+        "segment_id": "11",
+        "subject": "P01",
+        "posture_id": "P5"
+      },
+      {
+        "index": 2,
+        "recording_id": "P01_h9_20261024_170900",
+        "segment_id": "13",
+        "subject": "P01",
+        "posture_id": "P0"
+      },
+      {
+        "index": 3,
+        "recording_id": "P01_h9_20261024_170900",
+        "segment_id": "15",
+        "subject": "P01",
+        "posture_id": "P1"
+      },
+      {
+        "index": 4,
+        "recording_id": "P01_h9_20261024_170900",
+        "segment_id": "17",
+        "subject": "P01",
+        "posture_id": "P2"
+      },
+      {
+        "index": 5,
+        "recording_id": "P01_h9_20261024_170900",
+        "segment_id": "19",
+        "subject": "P01",
+        "posture_id": "P3"
+      },
+      {
+        "index": 6,
+        "recording_id": "P01_h9_20261024_170900",
+        "segment_id": "21",
+        "subject": "P01",
+        "posture_id": "P4"
+      },
+      {
+        "index": 7,
+        "recording_id": "P01_h9_20261024_170900",
+        "segment_id": "23",
+        "subject": "P01",
+        "posture_id": "P5"
+      },
+      {
+        "index": 8,
+        "recording_id": "P01_h9_20261024_170900",
+        "segment_id": "3",
+        "subject": "P01",
+        "posture_id": "P1"
+      },
+      {
+        "index": 9,
+        "recording_id": "P01_h9_20261024_170900",
+        "segment_id": "5",
+        "subject": "P01",
+        "posture_id": "P2"
+      },
+      {
+        "index": 10,
+        "recording_id": "P01_h9_20261024_170900",
+        "segment_id": "7",
+        "subject": "P01",
+        "posture_id": "P3"
+      },
+      {
+        "index": 11,
+        "recording_id": "P01_h9_20261024_170900",
+        "segment_id": "9",
+        "subject": "P01",
+        "posture_id": "P4"
+      },
+      {
+        "index": 12,
+        "recording_id": "P02_h9_20261024_173954",
+        "segment_id": "1",
+        "subject": "P02",
+        "posture_id": "P0"
+      },
+      {
+        "index": 13,
+        "recording_id": "P02_h9_20261024_173954",
+        "segment_id": "11",
+        "subject": "P02",
+        "posture_id": "P5"
+      },
+      {
+        "index": 14,
+        "recording_id": "P02_h9_20261024_173954",
+        "segment_id": "13",
+        "subject": "P02",
+        "posture_id": "P0"
+      },
+      {
+        "index": 15,
+        "recording_id": "P02_h9_20261024_173954",
+        "segment_id": "15",
+        "subject": "P02",
+        "posture_id": "P1"
+      },
+      {
+        "index": 16,
+        "recording_id": "P02_h9_20261024_173954",
+        "segment_id": "17",
+        "subject": "P02",
+        "posture_id": "P2"
+      },
+      {
+        "index": 17,
+        "recording_id": "P02_h9_20261024_173954",
+        "segment_id": "19",
+        "subject": "P02",
+        "posture_id": "P3"
+      },
+      {
+        "index": 18,
+        "recording_id": "P02_h9_20261024_173954",
+        "segment_id": "21",
+        "subject": "P02",
+        "posture_id": "P4"
+      },
+      {
+        "index": 19,
+        "recording_id": "P02_h9_20261024_173954",
+        "segment_id": "23",
+        "subject": "P02",
+        "posture_id": "P5"
+      },
+      {
+        "index": 20,
+        "recording_id": "P02_h9_20261024_173954",
+        "segment_id": "3",
+        "subject": "P02",
+        "posture_id": "P1"
+      },
+      {
+        "index": 21,
+        "recording_id": "P02_h9_20261024_173954",
+        "segment_id": "5",
+        "subject": "P02",
+        "posture_id": "P2"
+      },
+      {
+        "index": 22,
+        "recording_id": "P02_h9_20261024_173954",
+        "segment_id": "7",
+        "subject": "P02",
+        "posture_id": "P3"
+      },
+      {
+        "index": 23,
+        "recording_id": "P02_h9_20261024_173954",
+        "segment_id": "9",
+        "subject": "P02",
+        "posture_id": "P4"
+      }
+    ],
+    "note": "These 24 keys, in this order, are the fixed sample set for every ablation condition."
+  },
+  "folds": [
+    {
+      "train": [
+        "P02"
+      ],
+      "test": [
+        "P01"
+      ]
+    },
+    {
+      "train": [
+        "P01"
+      ],
+      "test": [
+        "P02"
+      ]
+    }
+  ],
+  "class_order": [
+    "upright",
+    "forward_head",
+    "lean_back",
+    "lean_left",
+    "lean_right",
+    "lean_forward"
+  ],
+  "posture_ids": [
+    "P0",
+    "P1",
+    "P2",
+    "P3",
+    "P4",
+    "P5"
+  ],
+  "confusion_matrix_axes": "rows=actual, columns=predicted",
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "tree_count": 500,
+  "max_features": 2,
+  "baseline_vs_guide": {
+    "H5_M0": {
+      "guide": {
+        "accuracy_pct": 62.5,
+        "macro_f1_pct": 56.88
+      },
+      "reproduced": {
+        "accuracy_pct": 62.5,
+        "macro_f1_pct": 56.88
+      },
+      "match": true
+    },
+    "H9_M0": {
+      "guide": {
+        "accuracy_pct": 78.33,
+        "macro_f1_pct": 75.72
+      },
+      "reproduced": {
+        "accuracy_pct": 78.33,
+        "macro_f1_pct": 75.72
+      },
+      "match": true
+    },
+    "H9_minus_H5_pp": {
+      "accuracy": 15.83,
+      "macro_f1": 18.84
+    }
+  },
+  "metrics": {
+    "H5 M0": {
+      "feature_set": "H5",
+      "model": "M0",
+      "accuracy_pct": 62.5,
+      "macro_f1_pct": 56.88,
+      "accuracy_seed_sd_pct": 0.0,
+      "macro_f1_seed_sd_pct": 0.0,
+      "recomputed_from_confusion_matrices": {
+        "accuracy_pct": 62.5,
+        "macro_f1_pct": 56.88,
+        "agrees_with_reported": true
+      },
+      "mean_confusion_matrix_over_seeds": [
+        [
+          1.0,
+          0.0,
+          2.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          2.0,
+          0.0,
+          0.0,
+          2.0
+        ],
+        [
+          2.0,
+          0.0,
+          2.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          4.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          4.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          4.0
+        ]
+      ],
+      "per_seed": [
+        {
+          "seed": 0,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 56.88,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 1,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 56.88,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 2,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 56.88,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 3,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 56.88,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 4,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 56.88,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        }
+      ]
+    },
+    "H5 M1": {
+      "feature_set": "H5",
+      "model": "M1",
+      "accuracy_pct": 62.5,
+      "macro_f1_pct": 56.88,
+      "accuracy_seed_sd_pct": 0.0,
+      "macro_f1_seed_sd_pct": 0.0,
+      "recomputed_from_confusion_matrices": {
+        "accuracy_pct": 62.5,
+        "macro_f1_pct": 56.88,
+        "agrees_with_reported": true
+      },
+      "mean_confusion_matrix_over_seeds": [
+        [
+          1.0,
+          0.0,
+          2.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          2.0,
+          0.0,
+          0.0,
+          2.0
+        ],
+        [
+          2.0,
+          0.0,
+          2.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          4.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          4.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          4.0
+        ]
+      ],
+      "per_seed": [
+        {
+          "seed": 0,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 56.88,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 1,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 56.88,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 2,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 56.88,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 3,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 56.88,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 4,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 56.88,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        }
+      ]
+    },
+    "H5 M2(λ=0.5)": {
+      "feature_set": "H5",
+      "model": "M2(λ=0.5)",
+      "accuracy_pct": 61.67,
+      "macro_f1_pct": 56.92,
+      "accuracy_seed_sd_pct": 1.67,
+      "macro_f1_seed_sd_pct": 1.84,
+      "recomputed_from_confusion_matrices": {
+        "accuracy_pct": 61.67,
+        "macro_f1_pct": 56.92,
+        "agrees_with_reported": true
+      },
+      "mean_confusion_matrix_over_seeds": [
+        [
+          0.8,
+          1.2,
+          2.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.8,
+          0.2,
+          0.0,
+          2.0
+        ],
+        [
+          2.0,
+          0.0,
+          2.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          4.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          4.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          4.0
+        ]
+      ],
+      "per_seed": [
+        {
+          "seed": 0,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 58.1,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 1,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 56.98,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 2,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 58.1,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 3,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 58.1,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 4,
+          "accuracy_pct": 58.33,
+          "macro_f1_pct": 53.33,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 0,
+          "p1_to_p5": 2
+        }
+      ]
+    },
+    "H9 M0": {
+      "feature_set": "H9",
+      "model": "M0",
+      "accuracy_pct": 78.33,
+      "macro_f1_pct": 75.72,
+      "accuracy_seed_sd_pct": 3.12,
+      "macro_f1_seed_sd_pct": 4.14,
+      "recomputed_from_confusion_matrices": {
+        "accuracy_pct": 78.33,
+        "macro_f1_pct": 75.72,
+        "agrees_with_reported": true
+      },
+      "mean_confusion_matrix_over_seeds": [
+        [
+          1.8,
+          1.8,
+          0.4,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.4,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          1.6
+        ],
+        [
+          0.0,
+          0.0,
+          4.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          4.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          4.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          4.0
+        ]
+      ],
+      "per_seed": [
+        {
+          "seed": 0,
+          "accuracy_pct": 79.17,
+          "macro_f1_pct": 74.44,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 2,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 1,
+          "accuracy_pct": 79.17,
+          "macro_f1_pct": 77.91,
+          "p1_recall_pct": 25.0,
+          "p1_to_p0": 2,
+          "p1_to_p5": 1
+        },
+        {
+          "seed": 2,
+          "accuracy_pct": 83.33,
+          "macro_f1_pct": 82.67,
+          "p1_recall_pct": 50.0,
+          "p1_to_p0": 1,
+          "p1_to_p5": 1
+        },
+        {
+          "seed": 3,
+          "accuracy_pct": 75.0,
+          "macro_f1_pct": 71.8,
+          "p1_recall_pct": 25.0,
+          "p1_to_p0": 1,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 4,
+          "accuracy_pct": 75.0,
+          "macro_f1_pct": 71.8,
+          "p1_recall_pct": 25.0,
+          "p1_to_p0": 1,
+          "p1_to_p5": 2
+        }
+      ]
+    },
+    "H9 M1": {
+      "feature_set": "H9",
+      "model": "M1",
+      "accuracy_pct": 78.33,
+      "macro_f1_pct": 75.72,
+      "accuracy_seed_sd_pct": 3.12,
+      "macro_f1_seed_sd_pct": 4.14,
+      "recomputed_from_confusion_matrices": {
+        "accuracy_pct": 78.33,
+        "macro_f1_pct": 75.72,
+        "agrees_with_reported": true
+      },
+      "mean_confusion_matrix_over_seeds": [
+        [
+          1.8,
+          1.8,
+          0.4,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.4,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          1.6
+        ],
+        [
+          0.0,
+          0.0,
+          4.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          4.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          4.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          4.0
+        ]
+      ],
+      "per_seed": [
+        {
+          "seed": 0,
+          "accuracy_pct": 79.17,
+          "macro_f1_pct": 74.44,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 2,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 1,
+          "accuracy_pct": 79.17,
+          "macro_f1_pct": 77.91,
+          "p1_recall_pct": 25.0,
+          "p1_to_p0": 2,
+          "p1_to_p5": 1
+        },
+        {
+          "seed": 2,
+          "accuracy_pct": 83.33,
+          "macro_f1_pct": 82.67,
+          "p1_recall_pct": 50.0,
+          "p1_to_p0": 1,
+          "p1_to_p5": 1
+        },
+        {
+          "seed": 3,
+          "accuracy_pct": 75.0,
+          "macro_f1_pct": 71.8,
+          "p1_recall_pct": 25.0,
+          "p1_to_p0": 1,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 4,
+          "accuracy_pct": 75.0,
+          "macro_f1_pct": 71.8,
+          "p1_recall_pct": 25.0,
+          "p1_to_p0": 1,
+          "p1_to_p5": 2
+        }
+      ]
+    },
+    "H9 M2(λ=0.5)": {
+      "feature_set": "H9",
+      "model": "M2(λ=0.5)",
+      "accuracy_pct": 71.67,
+      "macro_f1_pct": 67.02,
+      "accuracy_seed_sd_pct": 4.86,
+      "macro_f1_seed_sd_pct": 4.53,
+      "recomputed_from_confusion_matrices": {
+        "accuracy_pct": 71.67,
+        "macro_f1_pct": 67.02,
+        "agrees_with_reported": true
+      },
+      "mean_confusion_matrix_over_seeds": [
+        [
+          1.4,
+          1.4,
+          1.0,
+          0.0,
+          0.2,
+          0.0
+        ],
+        [
+          1.6,
+          0.2,
+          0.0,
+          0.2,
+          0.0,
+          2.0
+        ],
+        [
+          0.4,
+          0.0,
+          3.6,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          4.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          4.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          4.0
+        ]
+      ],
+      "per_seed": [
+        {
+          "seed": 0,
+          "accuracy_pct": 75.0,
+          "macro_f1_pct": 69.81,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 2,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 1,
+          "accuracy_pct": 75.0,
+          "macro_f1_pct": 69.81,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 2,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 2,
+          "accuracy_pct": 62.5,
+          "macro_f1_pct": 58.51,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 1,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 3,
+          "accuracy_pct": 75.0,
+          "macro_f1_pct": 70.74,
+          "p1_recall_pct": 25.0,
+          "p1_to_p0": 1,
+          "p1_to_p5": 2
+        },
+        {
+          "seed": 4,
+          "accuracy_pct": 70.83,
+          "macro_f1_pct": 66.24,
+          "p1_recall_pct": 0.0,
+          "p1_to_p0": 2,
+          "p1_to_p5": 2
+        }
+      ]
+    }
+  },
+  "interpretation_limits": [
+    "2 participants, 24 segments: exploratory pilot, not generalization evidence.",
+    "5 seeds are computational repeats on the same 24 segments, not independent samples.",
+    "Reproduction proves software/data consistency only, not scientific validity."
+  ]
+}
