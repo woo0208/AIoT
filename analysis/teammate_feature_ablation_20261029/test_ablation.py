@@ -5,7 +5,9 @@ metric arithmetic, safety stops); they are not research evidence.  The
 real-data test only checks that the new tool reproduces the stored baseline,
 and is skipped when the local pilot files are absent.  The cross-check tests
 compare saved results with the PI's 2026-10-26 diagnostics (same data, same
-M0 settings) and are skipped when those files are absent.
+M0 settings) and are skipped when those files are absent.  The task B
+observation tests back a sentence in summary.md (H5-F4 predicts exactly like
+H5 although F4 is used in training) and are skipped when files are absent.
 
 Run from the repository root:
 
