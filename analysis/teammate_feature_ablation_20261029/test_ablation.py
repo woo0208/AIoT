@@ -10,13 +10,19 @@ observation tests back a sentence in summary.md (H5-F4 predicts exactly like
 H5 although F4 is used in training) and are skipped when files are absent.
 The change-source tests back summary.md tables 8 / B-8 and the related
 limitation sentences; they read only the result JSONs in this folder.
+The F0 reproducibility tests back f0_h5_comparison.md (task C): the pilot
+CSVs have no face detection box and no per-shoulder 2D columns, and the
+stored H5 F1..F5 equal the code formulas applied to the CSV's own 2D
+columns.  They are skipped when the local pilot files are absent.
 
 Run from the repository root:
 
     python -B -m unittest discover -s analysis/teammate_feature_ablation_20261029 -p "test_*.py"
 """
 
+import csv
 import json
+import math
 import sys
 import tempfile
 import unittest
@@ -426,6 +432,97 @@ class ChangeSourceObservationTests(unittest.TestCase):
             if result["baseline"]["name"] == "H5":
                 predictions = result["baseline"]["result"]["predictions_per_seed"]
                 self.assertEqual(sum(p.count(1) for p in predictions), 0)
+
+
+def read_csv_rows(path):
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        return reader.fieldnames, list(reader)
+
+
+def finite_or_none(text):
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    return value if math.isfinite(value) else None
+
+
+@unittest.skipUnless(P01_CSV.exists() and P02_CSV.exists(), "local pilot files not available")
+class F0ReproducibilityTests(unittest.TestCase):
+    """f0_h5_comparison.md sections 2 and 4: CSV columns and H5 formulas."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tables = {"P01": read_csv_rows(P01_CSV), "P02": read_csv_rows(P02_CSV)}
+
+    def test_csv_has_no_face_box_or_per_shoulder_2d_columns(self):
+        for subject, (columns, _) in self.tables.items():
+            with self.subTest(subject=subject):
+                self.assertEqual(len(columns), 161)
+                lowered = [c.lower() for c in columns]
+                for word in ("face_x", "face_y", "face_w", "face_h", "face_area", "bbox", "box"):
+                    self.assertFalse([c for c in lowered if word in c], word)
+                for side in ("left", "right"):
+                    self.assertNotIn(f"{side}_shoulder_2d_x_px", columns)
+                    self.assertNotIn(f"{side}_shoulder_2d_y_px", columns)
+                    self.assertIn(f"{side}_shoulder_3d_x_m", columns)
+                for present in ("shoulder_midpoint_2d_x_px", "shoulder_width_px", "shoulder_tilt_deg"):
+                    self.assertIn(present, columns)
+                # 2D points stored per frame: no face outline, so no box or area can be redrawn
+                points_2d = {c[:-len("_2d_x_px")] for c in columns if c.endswith("_2d_x_px")}
+                self.assertEqual(points_2d, {
+                    "nose", "left_eye", "right_eye", "left_ear", "right_ear", "chin",
+                    "ear_midpoint", "eye_midpoint", "hipless_f1_head_center",
+                    "hipless_chest_roi_center", "shoulder_midpoint", "hip_midpoint",
+                    "exploratory_neck_proxy", "exploratory_upper_chest_proxy"})
+
+    def test_h5_formulas_match_stored_values(self):
+        stored_names = dict(zip(("F1", "F2", "F3", "F4", "F5"), (
+            "hipless_f1_candidate_head_center_dx_sw", "hipless_f1_candidate_head_center_dy_sw",
+            "hipless_f1_candidate_face_axis_tilt_deg", "hipless_f1_candidate_ear_eye_dy_sw",
+            "hipless_f1_candidate_nose_chin_distance_sw")))
+        expected = {"P01": (3613, 0), "P02": (2553, 36)}
+        for subject, (_, rows) in self.tables.items():
+            missing = 0
+            for row in rows:
+                def point(name):
+                    x = finite_or_none(row[f"{name}_2d_x_px"])
+                    y = finite_or_none(row[f"{name}_2d_y_px"])
+                    return None if x is None or y is None else (x, y)
+
+                six = [point(n) for n in ("left_eye", "right_eye", "left_ear", "right_ear", "nose", "chin")]
+                shoulder_mid, eye_mid = point("shoulder_midpoint"), point("eye_midpoint")
+                ear_mid, nose, chin = point("ear_midpoint"), point("nose"), point("chin")
+                width = finite_or_none(row["shoulder_width_px"])
+                calc = dict.fromkeys(stored_names)
+                if all(six) and shoulder_mid and width and width > 1e-6:
+                    center = (sum(p[0] for p in six) / 6, sum(p[1] for p in six) / 6)
+                    calc["F1"] = (center[0] - shoulder_mid[0]) / width
+                    calc["F2"] = (center[1] - shoulder_mid[1]) / width
+                if eye_mid and chin and math.hypot(chin[0] - eye_mid[0], chin[1] - eye_mid[1]) > 1e-6:
+                    calc["F3"] = math.degrees(math.atan2(chin[0] - eye_mid[0], chin[1] - eye_mid[1]))
+                if ear_mid and eye_mid and width and width > 1e-6:
+                    calc["F4"] = (ear_mid[1] - eye_mid[1]) / width
+                if nose and chin and width and width > 1e-6:
+                    calc["F5"] = math.hypot(nose[0] - chin[0], nose[1] - chin[1]) / width
+                stored = {k: finite_or_none(row[name]) for k, name in stored_names.items()}
+                if all(v is None for v in stored.values()):
+                    missing += 1
+                for k in stored_names:
+                    if stored[k] is None or calc[k] is None:
+                        self.assertIsNone(stored[k], (subject, k))
+                        self.assertIsNone(calc[k], (subject, k))
+                    else:
+                        self.assertAlmostEqual(calc[k], stored[k], places=9, msg=(subject, k))
+            self.assertEqual((len(rows), missing), expected[subject])
+
+    def test_p01_row_count_only_coincides_with_baseline_frame_count(self):
+        stable = {subject: sum(r["label"] not in ("PREP", "TRANSITION") for r in rows)
+                  for subject, (_, rows) in self.tables.items()}
+        self.assertEqual(stable, {"P01": 1939, "P02": 1674})
+        baseline = json.loads((HERE / "baseline_check.json").read_text(encoding="utf-8"))
+        self.assertEqual(baseline["samples"]["input_frame_count"], sum(stable.values()))
 
 
 if __name__ == "__main__":
