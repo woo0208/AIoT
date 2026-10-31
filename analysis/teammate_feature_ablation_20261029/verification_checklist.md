@@ -62,7 +62,7 @@
 | 혼동행렬 합계와 정확도·재현율 재계산 일치 | ✅ | 저장된 예측에서 혼동행렬(합계 24), Accuracy, Macro-F1, 클래스별 Precision/Recall/분모, P1→P0·P1→P5, 참가자별 정확도, 기준선 대비 변화를 다시 계산해 모두 일치 | `ResultJsonRecomputeTests.test_stored_metrics_match_recompute`, `MetricTests` |
 | seed 반복을 독립 사람 표본처럼 세지 않음 | ✅ | 결과 JSON `seed_note`, `summary.md` 업무 A·B 한계("seed 5개는 같은 24개 구간의 계산 반복"), 업무 D 0절 | — |
 | 원본 코드·모델·CSV·기존 결과 변경 없음 | ✅ | 기준 커밋 `8252b7b` 이후 결과 폴더 밖의 추적 파일 변경 0개(`git diff --name-only 8252b7b -- . ':(exclude)analysis/teammate_feature_ablation_20261029'`가 비어 있음). 세 결과 JSON의 `tracked_files_modified` = false, 기록된 기존 코드 4개와 `ablation.py`의 SHA-256이 지금 파일과 같다. 입력 CSV·기준 결과의 SHA-256이 `config.json`과 같다 | `SafetyStopTests.test_wrong_input_hash_stops` |
-| 개인/원본 영상 데이터 Git stage·push 없음 | ✅ | 기준 커밋 이후 커밋한 파일은 결과 폴더의 파일뿐이다. 원본 영상·CSV·연구 주담당자 자료는 올리지 않았다. 파일을 하나씩 `git add -f`로 올리고 `git add .`/`git add -A`는 쓰지 않았다(가이드 §2). 아직 push하지 않았다 | — |
+| 개인/원본 영상 데이터 Git stage·push 없음 | ✅ | 기준 커밋 이후 커밋한 파일은 결과 폴더의 파일뿐이다. 원본 영상·CSV·연구 주담당자 자료는 올리지 않았다. 파일을 하나씩 `git add -f`로 올리고 `git add .`/`git add -A`는 쓰지 않았다(가이드 §2). push한 것도 결과 폴더의 파일뿐이다(`git diff --name-only 8252b7b HEAD`) | — |
 | `git diff --check`, 관련 최소 테스트 PASS | ✅ | `git diff --check` 통과, `test_ablation.py` 전체 통과(파일럿 자료가 없는 새 저장소 상태에서는 자료가 필요한 시험만 건너뜀) | 전체 |
 
 ## 5. §9 연구 결과 해석·논문 반영 원칙
@@ -95,4 +95,4 @@
 | 업무 A/B의 재현 가능한 결과가 있음 | ✅ | `ablation.py` 실행 방법(`README.md`), 다시 실행해 `provenance`·`run_date`를 빼고 비교하면 같다 |
 | 업무 C/D에서 확인된 사실과 미확인 가설을 분리 | ✅ | `f0_h5_comparison.md` 6절, `rf_failure_analysis.md` 4·6절 |
 | 기존 실험·실시간 시스템·원자료를 변경하지 않음 | ✅ | 위 4절 "원본 코드·모델·CSV·기존 결과 변경 없음", 5절 §9-7 |
-| 팀원 전용 브랜치에서 결과를 제출 | ⏳ | 업무 A~D의 분석 결과는 커밋 `d002ae5`에서 브랜치 `research/h5-h9-ablation`에 올렸고, 그 뒤 외부 검증을 반영한 문서 수정은 그다음 커밋으로 올린다(이 문서가 어느 커밋의 판인지는 `git log`로 확인). push는 이 체크리스트와 외부 검증을 마친 뒤에 한다 |
+| 팀원 전용 브랜치에서 결과를 제출 | ✅ | 업무 A~D의 분석 결과는 커밋 `d002ae5`에서 브랜치 `research/h5-h9-ablation`에 올렸고, 그 뒤 외부 검증을 반영한 문서 수정은 그다음 커밋으로 올렸다(이 문서가 어느 커밋의 판인지는 `git log`로 확인). 이 체크리스트와 외부 검증을 마친 뒤 2026-10-31에 원격 `origin`의 같은 브랜치로 push했다(첫 push 커밋 `5f3c236`). 기본 브랜치·다른 연구 브랜치에는 병합하지 않았다(가이드 §2-5) |
