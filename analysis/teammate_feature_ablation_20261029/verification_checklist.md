@@ -34,7 +34,7 @@
 | `rf_failure_analysis.md` | ✅ | 업무 D |
 | `summary.md` | ✅ | 논문용 주요 표·해석·한계 |
 
-- 가이드 목록 밖의 파일: `ablation.py`, `test_ablation.py`(가이드 §2-4 "별도 신규 분석 스크립트/테스트/결과 폴더를 만든다"), `kickoff_report.md`(§10 "0. 착수 보고"), 이 문서(§8 체크리스트의 근거). 기존 결과 파일은 덮어쓰지 않았다(`ablation.py`는 같은 이름의 결과가 있으면 멈춘다, `SafetyStopTests.test_refuses_to_overwrite_existing_output`).
+- 가이드 목록 밖의 파일: `ablation.py`, `test_ablation.py`(가이드 §2-4 "별도 신규 분석 스크립트/테스트/결과 폴더를 만든다"), `kickoff_report.md`(§10 "0. 착수 보고"), 이 문서(§8 체크리스트의 근거), `guide_flow.md`(가이드 흐름 쉬운 설명), `work_rationale.md`(업무별 질문·답 형식의 근거). 기존 결과 파일은 덮어쓰지 않았다(`ablation.py`는 같은 이름의 결과가 있으면 멈춘다, `SafetyStopTests.test_refuses_to_overwrite_existing_output`).
 
 ## 3. §8 필수 기록
 
