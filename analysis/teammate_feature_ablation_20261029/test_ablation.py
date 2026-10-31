@@ -14,6 +14,14 @@ The F0 reproducibility tests back f0_h5_comparison.md (task C): the pilot
 CSVs have no face detection box and no per-shoulder 2D columns, and the
 stored H5 F1..F5 equal the code formulas applied to the CSV's own 2D
 columns.  They are skipped when the local pilot files are absent.
+The result-recompute tests back verification_checklist.md (guide section 8):
+every stored confusion matrix, score, per-class value, P1 error count,
+participant result, fold split and delta is recomputed from the stored
+predictions of the three result JSONs.
+The task D tests back rf_failure_analysis.md: the positive-scaling test
+uses synthetic data only (structure, not evidence); the evidence tests
+recompute the cited numbers from the PI's stored JSONs without training
+and are skipped when those files are absent.
 
 Run from the repository root:
 
@@ -523,6 +531,209 @@ class F0ReproducibilityTests(unittest.TestCase):
         self.assertEqual(stable, {"P01": 1939, "P02": 1674})
         baseline = json.loads((HERE / "baseline_check.json").read_text(encoding="utf-8"))
         self.assertEqual(baseline["samples"]["input_frame_count"], sum(stable.values()))
+
+
+def recompute_metrics(y, pred):
+    cm = np.zeros((6, 6), dtype=int)
+    for actual, predicted in zip(y, pred):
+        cm[actual, predicted] += 1
+    per_class, f1 = {}, []
+    for k in range(6):
+        tp, fp, fn = cm[k, k], cm[:, k].sum() - cm[k, k], cm[k, :].sum() - cm[k, k]
+        precision = tp / (tp + fp) if tp + fp else 0.0
+        recall = tp / (tp + fn) if tp + fn else 0.0
+        per_class[f"P{k}"] = (precision, recall, int(cm[k].sum()))
+        f1.append(2 * precision * recall / (precision + recall) if precision + recall else 0.0)
+    return cm.tolist(), np.trace(cm) / cm.sum(), float(np.mean(f1)), per_class
+
+
+@unittest.skipUnless(all(p.exists() for p in RESULT_JSONS), "result JSON files not available")
+class ResultJsonRecomputeTests(unittest.TestCase):
+    """verification_checklist.md (guide section 8): every stored metric equals a recompute from predictions."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.results = [json.loads(p.read_text(encoding="utf-8")) for p in RESULT_JSONS]
+
+    def test_same_24_samples_everywhere(self):
+        keys = [r["samples"]["sample_keys"] for r in self.results]
+        self.assertTrue(keys[0] == keys[1] == keys[2])
+        self.assertEqual(len(keys[0]), 24)
+        baseline = json.loads((HERE / "baseline_check.json").read_text(encoding="utf-8"))
+        self.assertEqual([k[2] for k in keys[0]],
+                         [s["segment_id"] for s in baseline["samples"]["sample_keys_in_order"]])
+
+    def test_stored_metrics_match_recompute(self):
+        for result in self.results:
+            y = np.array(result["samples"]["y_true"])
+            participants = np.array(result["samples"]["participants"])
+            blocks = [(result["baseline"]["name"], result["baseline"]["result"])] + list(result["conditions"].items())
+            base = result["baseline"]["result"]["pooled"]["summary"]
+            for name, block in blocks:
+                with self.subTest(condition=name):
+                    preds = [np.array(p) for p in block["predictions_per_seed"]]
+                    self.assertEqual(len(preds), 5)
+                    accs, f1s = [], []
+                    for seed, pred in enumerate(preds):
+                        cm, acc, f1, per_class = recompute_metrics(y, pred)
+                        stored = block["pooled"]["per_seed"][seed]
+                        self.assertEqual(cm, stored["confusion_matrix"])
+                        self.assertEqual(sum(map(sum, cm)), 24)
+                        self.assertAlmostEqual(acc, stored["accuracy"], places=12)
+                        self.assertAlmostEqual(f1, stored["macro_f1"], places=12)
+                        for k, (precision, recall, support) in per_class.items():
+                            self.assertAlmostEqual(precision, stored["per_class"][k]["precision"], places=12)
+                            self.assertAlmostEqual(recall, stored["per_class"][k]["recall"], places=12)
+                            self.assertEqual(support, stored["per_class"][k]["support"])
+                            self.assertEqual(support, 4)
+                        accs.append(acc)
+                        f1s.append(f1)
+                    summary = block["pooled"]["summary"]
+                    self.assertAlmostEqual(np.mean(accs), summary["accuracy"], places=12)
+                    self.assertAlmostEqual(np.mean(f1s), summary["macro_f1"], places=12)
+                    self.assertAlmostEqual(np.mean([np.sum((y == 1) & (p == 0)) for p in preds]),
+                                           summary["p1_to_p0_mean"], places=12)
+                    self.assertAlmostEqual(np.mean([np.sum((y == 1) & (p == 5)) for p in preds]),
+                                           summary["p1_to_p5_mean"], places=12)
+                    for subject, part in block["by_participant"].items():
+                        mask = participants == subject
+                        self.assertAlmostEqual(np.mean([np.mean(p[mask] == y[mask]) for p in preds]),
+                                               part["summary"]["accuracy"], places=12)
+                    for fold in block["folds"]:
+                        train, test = set(fold["train_indices"]), set(fold["test_indices"])
+                        self.assertFalse(train & test)
+                        self.assertEqual(set(participants[sorted(test)]), {fold["held_out_participant"]})
+                        self.assertNotIn(fold["held_out_participant"], set(participants[sorted(train)]))
+                    self.assertEqual(sorted({f["seed"] for f in block["folds"]}), [0, 1, 2, 3, 4])
+                    if name != result["baseline"]["name"]:
+                        delta = block["delta_vs_baseline"]["pooled"]
+                        self.assertAlmostEqual(delta["accuracy"], (summary["accuracy"] - base["accuracy"]) * 100, places=9)
+                        self.assertAlmostEqual(delta["macro_f1"], (summary["macro_f1"] - base["macro_f1"]) * 100, places=9)
+
+
+class PositiveScalingStructureTests(unittest.TestCase):
+    """rf_failure_analysis.md section 1 mechanism, on synthetic data only (not research evidence)."""
+
+    def test_positive_input_scaling_keeps_tree_predictions(self):
+        X, y, _ = synthetic(per_class=4, seed=3)
+        w = ab.rf.rank_weights(np.arange(X.shape[1], 0, -1, dtype=float))
+        X_test = X + np.random.default_rng(9).normal(0, 0.2, size=X.shape)
+        m0 = ab.rf.Forest(6, 25, 2, None, 0).fit(X, y)
+        m1 = ab.rf.Forest(6, 25, 2, None, 0).fit(X * w, y)
+        np.testing.assert_array_equal(m0.predict(X_test), m1.predict(X_test * w))
+        for t0, t1 in zip(m0.trees, m1.trees):
+            np.testing.assert_array_equal(t0.feat, t1.feat)
+
+
+SPLIT_DIAG_JSON = REPO / "pilot/H9_M0_M2_split_diagnostics_20261026.json"
+
+
+@unittest.skipUnless(BASELINE_JSON.exists() and SPLIT_DIAG_JSON.exists(),
+                     "PI baseline / split diagnostic files not available")
+class RfFailureEvidenceTests(unittest.TestCase):
+    """rf_failure_analysis.md sections 0-3: numbers recomputed from the PI's stored JSONs."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.h6 = json.loads(BASELINE_JSON.read_text(encoding="utf-8-sig"))
+        cls.diag = json.loads(SPLIT_DIAG_JSON.read_text(encoding="utf-8-sig"))
+        cls.metrics = {(m["feature_set"], m["model"]): m for m in cls.h6["metrics"]}
+        cls.short = {name: f"F{i + 1}" for i, name in enumerate(cls.diag["metadata"]["feature_names"])}
+
+    def test_baseline_observation_and_m0_equals_m1(self):
+        for feature_set in ("H5", "H9"):
+            self.assertEqual(self.metrics[(feature_set, "M0")]["confusion_matrices"],
+                             self.metrics[(feature_set, "M1")]["confusion_matrices"])
+        rows = {}
+        for model in ("M0", "M1", "M2(λ=0.5)"):
+            cms = self.metrics[("H9", model)]["confusion_matrices"]
+            rows[model] = {r: [sum(cm[r][c] for cm in cms) for c in range(6)] for r in (0, 1, 5)}
+        self.assertEqual(rows["M0"], {0: [9, 9, 2, 0, 0, 0], 1: [7, 5, 0, 0, 0, 8], 5: [0, 0, 0, 0, 0, 20]})
+        self.assertEqual(rows["M1"], rows["M0"])
+        self.assertEqual(rows["M2(λ=0.5)"], {0: [7, 7, 5, 0, 1, 0], 1: [8, 1, 0, 1, 0, 10],
+                                              5: [0, 0, 0, 0, 0, 20]})
+        for model, (want_acc, want_f1) in {"M0": (78.33, 75.72), "M1": (78.33, 75.72),
+                                            "M2(λ=0.5)": (71.67, 67.02)}.items():
+            cms = [np.array(cm) for cm in self.metrics[("H9", model)]["confusion_matrices"]]
+            seed_acc, seed_f1 = [], []
+            for cm in cms:  # recompute from the matrices, not from the stored scores
+                seed_acc.append(np.trace(cm) / cm.sum())
+                f1 = []
+                for k in range(6):
+                    tp, fp, fn = cm[k, k], cm[:, k].sum() - cm[k, k], cm[k, :].sum() - cm[k, k]
+                    precision = tp / (tp + fp) if tp + fp else 0.0
+                    recall = tp / (tp + fn) if tp + fn else 0.0
+                    f1.append(2 * precision * recall / (precision + recall) if precision + recall else 0.0)
+                seed_f1.append(np.mean(f1))
+            self.assertAlmostEqual(np.mean(seed_acc) * 100, want_acc, places=2)
+            self.assertAlmostEqual(np.mean(seed_f1) * 100, want_f1, places=2)
+        weights = [w for fold in self.h6["folds"] for fs in ("H5", "H9") for w in fold["weights"][fs]]
+        self.assertEqual(len(weights), 140)
+        self.assertTrue(all(w > 0 for w in weights))
+        self.assertAlmostEqual(min(weights), 0.043478, places=6)
+
+    def test_m2_root_changes_weights_and_multipliers(self):
+        expected = {
+            "P01": {"F1": (293, 368), "F2": (285, 386), "F3": (312, 472), "F4": (324, 497), "F5": (264, 109),
+                    "F6": (225, 89), "F7": (290, 318), "F8": (252, 106), "F9": (255, 155)},
+            "P02": {"F1": (282, 335), "F2": (311, 391), "F3": (270, 263), "F4": (267, 170), "F5": (200, 82),
+                    "F6": (226, 99), "F7": (298, 420), "F8": (319, 332), "F9": (327, 408)},
+        }
+        observed = {ho: {f: [0, 0] for f in expected[ho]} for ho in expected}
+        for fold in self.diag["folds"]:
+            for k, model in enumerate(("M0", "M2(λ=0.5)")):
+                for name, count in fold["root_split_counts"][model].items():
+                    observed[fold["held_out"]][self.short[name]][k] += count
+        self.assertEqual({ho: {f: tuple(v) for f, v in d.items()} for ho, d in observed.items()}, expected)
+        self.assertEqual(sum(f["paired_same_root_count"] for f in self.diag["folds"]), 3524)
+        self.assertEqual(sum(f["n_trees"] for f in self.diag["folds"]), 5000)
+        multipliers = [v for f in self.diag["folds"] for v in f["split_multipliers"].values()]
+        self.assertAlmostEqual(min(multipliers), 0.69565, places=5)
+        self.assertAlmostEqual(max(multipliers), 1.67391, places=5)
+        f8 = self.diag["metadata"]["feature_names"][7]
+        p01 = [f for f in self.diag["folds"] if f["held_out"] == "P01"]
+        self.assertEqual(len(p01), 5)
+        for fold in p01:  # F8 is the lowest weight in every P01-held-out fold (stored to 5 decimals)
+            self.assertAlmostEqual(fold["feature_weights"][f8], 0.04348, places=5)
+            self.assertEqual(fold["feature_weights"][f8], min(fold["feature_weights"].values()))
+
+    def test_test_path_feature_shares_follow_fold_not_class(self):
+        groups = {"F3+F4": ("F3", "F4"), "F8+F9": ("F8", "F9"), "F7+F9": ("F7", "F9")}
+        expected = {  # (held_out, true): (M0 nodes, M2 nodes, {group: (M0 nodes, M2 nodes)})
+            ("P01", "P1"): (15292, 15145, {"F3+F4": (3937, 5908), "F8+F9": (3232, 1746), "F7+F9": (3312, 2824)}),
+            ("P01", "P0"): (14868, 14416, {"F3+F4": (3762, 5573), "F8+F9": (3201, 1698), "F7+F9": (3222, 2746)}),
+            ("P01", "P5"): (12596, 12599, {"F3+F4": (3247, 4978), "F8+F9": (2527, 1314), "F7+F9": (2674, 2324)}),
+            ("P02", "P1"): (13859, 13335, {"F3+F4": (2987, 2376), "F8+F9": (3375, 3998), "F7+F9": (3358, 4359)}),
+            ("P02", "P0"): (15827, 15714, {"F3+F4": (3402, 2734), "F8+F9": (3900, 4718), "F7+F9": (3930, 5272)}),
+            ("P02", "P5"): (12421, 12263, {"F3+F4": (2688, 2194), "F8+F9": (3005, 3685), "F7+F9": (2977, 4014)}),
+        }
+        observed = {}
+        for (held_out, true) in expected:
+            m0, m2 = {}, {}
+            for row in self.diag["sample_diagnostics"]:
+                if row["held_out"] == held_out and row["true"] == true:
+                    for name, count in row["m0_path_feature_counts"].items():
+                        m0[self.short[name]] = m0.get(self.short[name], 0) + count
+                    for name, count in row["m2_path_feature_counts"].items():
+                        m2[self.short[name]] = m2.get(self.short[name], 0) + count
+            observed[(held_out, true)] = (sum(m0.values()), sum(m2.values()), {
+                g: (sum(m0[f] for f in fs), sum(m2[f] for f in fs)) for g, fs in groups.items()})
+        self.assertEqual(observed, expected)
+
+    def test_p1_prediction_paths(self):
+        sequences = {}
+        for row in self.diag["sample_diagnostics"]:
+            if row["true"] == "P1":
+                seq = sequences.setdefault(row["sample_id"].split("_")[0] + " " + row["sample_id"].split(":")[1],
+                                           {"M0": [None] * 5, "M2": [None] * 5})
+                seq["M0"][row["seed"]] = row["m0_pred"]
+                seq["M2"][row["seed"]] = row["m2_pred"]
+        self.assertEqual(sequences, {
+            "P01 S15": {"M0": ["P0"] * 5, "M2": ["P0"] * 5},
+            "P01 S3": {"M0": ["P0", "P0", "P1", "P1", "P1"], "M2": ["P0", "P0", "P3", "P1", "P0"]},
+            "P02 S15": {"M0": ["P5", "P1", "P1", "P5", "P5"], "M2": ["P5"] * 5},
+            "P02 S3": {"M0": ["P5"] * 5, "M2": ["P5"] * 5},
+        })
 
 
 if __name__ == "__main__":
