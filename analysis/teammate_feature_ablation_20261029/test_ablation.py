@@ -8,6 +8,8 @@ compare saved results with the PI's 2026-10-26 diagnostics (same data, same
 M0 settings) and are skipped when those files are absent.  The task B
 observation tests back a sentence in summary.md (H5-F4 predicts exactly like
 H5 although F4 is used in training) and are skipped when files are absent.
+The change-source tests back summary.md tables 8 / B-8 and the related
+limitation sentences; they read only the result JSONs in this folder.
 
 Run from the repository root:
 
@@ -347,6 +349,83 @@ class H5MinusF4ObservationTests(unittest.TestCase):
         self.assertTrue(all(share > 0 for share in shares), shares)
         self.assertAlmostEqual(min(shares), 0.179, places=3)
         self.assertAlmostEqual(max(shares), 0.221, places=3)
+
+
+RESULT_JSONS = [HERE / "depth_add_one.json", HERE / "depth_drop_one.json", H5_DROP_ONE_JSON]
+
+
+@unittest.skipUnless(all(p.exists() for p in RESULT_JSONS), "result JSON files not available")
+class ChangeSourceObservationTests(unittest.TestCase):
+    """summary.md tables 8 / B-8: net change, changed predictions, changed segments."""
+
+    # condition: (net correct change, predictions differing from baseline,
+    #             {(participant, true class, segment id): (baseline correct seeds, condition correct seeds)})
+    EXPECTED = {
+        "H5+F6": (0, 19, {("P02", 0, "13"): (5, 2), ("P02", 1, "15"): (0, 3)}),
+        "H5+F7": (7, 14, {("P01", 1, "3"): (0, 5), ("P02", 1, "15"): (0, 2)}),
+        "H5+F8": (3, 16, {("P01", 1, "3"): (0, 5), ("P02", 0, "13"): (5, 3)}),
+        "H5+F9": (-5, 17, {("P02", 0, "13"): (5, 0)}),
+        "H9-F6": (-2, 9, {("P01", 0, "13"): (3, 0), ("P01", 1, "3"): (3, 4),
+                          ("P02", 0, "13"): (1, 3), ("P02", 1, "15"): (2, 0)}),
+        "H9-F7": (-7, 9, {("P01", 0, "13"): (3, 0), ("P01", 1, "3"): (3, 1),
+                          ("P02", 0, "13"): (1, 0), ("P02", 1, "15"): (2, 1)}),
+        "H9-F8": (-1, 13, {("P01", 0, "1"): (5, 4), ("P01", 0, "13"): (3, 0), ("P01", 1, "3"): (3, 0),
+                           ("P02", 0, "13"): (1, 4), ("P02", 1, "15"): (2, 5)}),
+        "H9-F9": (5, 13, {("P01", 0, "1"): (5, 4), ("P01", 0, "13"): (3, 0), ("P01", 1, "3"): (3, 5),
+                          ("P02", 0, "13"): (1, 5), ("P02", 1, "15"): (2, 5)}),
+        "H5-F1": (-5, 5, {("P02", 0, "13"): (5, 0)}),
+        "H5-F2": (1, 6, {("P01", 0, "1"): (0, 1)}),
+        "H5-F3": (-3, 7, {("P02", 0, "13"): (5, 2)}),
+        "H5-F4": (0, 0, {}),
+        "H5-F5": (-2, 17, {("P02", 0, "13"): (5, 3)}),
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.results = [json.loads(p.read_text(encoding="utf-8")) for p in RESULT_JSONS]
+
+    def test_change_sources_match_summary_tables(self):
+        seen = set()
+        observed = {}
+        for result in self.results:
+            y = result["samples"]["y_true"]
+            participants = result["samples"]["participants"]
+            keys = result["samples"]["sample_keys"]
+            base = result["baseline"]["result"]["predictions_per_seed"]
+            for name, condition in result["conditions"].items():
+                with self.subTest(condition=name):
+                    pred = condition["predictions_per_seed"]
+                    seeds = range(len(base))
+                    net = sum((pred[s][i] == y[i]) - (base[s][i] == y[i])
+                              for s in seeds for i in range(len(y)))
+                    changed = sum(pred[s][i] != base[s][i] for s in seeds for i in range(len(y)))
+                    segments = {}
+                    for i in range(len(y)):
+                        before = sum(base[s][i] == y[i] for s in seeds)
+                        after = sum(pred[s][i] == y[i] for s in seeds)
+                        if before != after:
+                            segments[(participants[i], y[i], keys[i][2])] = (before, after)
+                    self.assertEqual((net, changed, segments), self.EXPECTED[name])
+                    seen.add(name)
+                    observed[name] = set(segments)
+        self.assertEqual(seen, set(self.EXPECTED))
+        # summary.md overall line under table 8: 5 segments in total, P02 P0 #13 in 10 of 13
+        self.assertEqual(len(set().union(*observed.values())), 5)
+        self.assertEqual(sum(("P02", 0, "13") in s for s in observed.values()), 10)
+
+    def test_training_folds_and_h5_never_predicts_p1(self):
+        for result in self.results:
+            y = result["samples"]["y_true"]
+            for name, condition in result["conditions"].items():
+                for fold in condition["folds"]:
+                    with self.subTest(condition=name, seed=fold["seed"],
+                                      held_out=fold["held_out_participant"]):
+                        train = [y[i] for i in fold["train_indices"]]
+                        self.assertEqual(len(train), 12)
+                        self.assertEqual(sorted(train), sorted(list(range(6)) * 2))
+            if result["baseline"]["name"] == "H5":
+                predictions = result["baseline"]["result"]["predictions_per_seed"]
+                self.assertEqual(sum(p.count(1) for p in predictions), 0)
 
 
 if __name__ == "__main__":
