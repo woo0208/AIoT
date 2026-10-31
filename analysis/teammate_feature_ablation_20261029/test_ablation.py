@@ -477,6 +477,14 @@ class F0ReproducibilityTests(unittest.TestCase):
                     self.assertIn(f"{side}_shoulder_3d_x_m", columns)
                 for present in ("shoulder_midpoint_2d_x_px", "shoulder_width_px", "shoulder_tilt_deg"):
                     self.assertIn(present, columns)
+                # f0_h5_comparison.md R2, value range only: every stored tilt lies in [-90, 90).
+                # That the tilt is an undirected angle comes from the code (posture_geometry.py
+                # _undirected_line_angle_deg), not from this range check; whether left/right can be
+                # recovered from other columns is not tested here and stays unconfirmed.
+                tilts = [finite_or_none(r["shoulder_tilt_deg"]) for r in self.tables[subject][1]]
+                tilts = [t for t in tilts if t is not None]
+                self.assertTrue(tilts)
+                self.assertTrue(all(-90.0 <= t < 90.0 for t in tilts))
                 # 2D points stored per frame: no face outline, so no box or area can be redrawn
                 points_2d = {c[:-len("_2d_x_px")] for c in columns if c.endswith("_2d_x_px")}
                 self.assertEqual(points_2d, {
@@ -531,6 +539,10 @@ class F0ReproducibilityTests(unittest.TestCase):
         self.assertEqual(stable, {"P01": 1939, "P02": 1674})
         baseline = json.loads((HERE / "baseline_check.json").read_text(encoding="utf-8"))
         self.assertEqual(baseline["samples"]["input_frame_count"], sum(stable.values()))
+        if BASELINE_JSON.exists():  # independent of this CSV reading: the PI's stored per-segment frame counts
+            stored = json.loads(BASELINE_JSON.read_text(encoding="utf-8-sig"))
+            self.assertEqual({s: sum(x["frame_count"] for x in stored["samples"] if x["subject"] == s)
+                              for s in ("P01", "P02")}, {"P01": 1939, "P02": 1674})
 
 
 def recompute_metrics(y, pred):
@@ -647,11 +659,18 @@ class RfFailureEvidenceTests(unittest.TestCase):
         rows = {}
         for model in ("M0", "M1", "M2(λ=0.5)"):
             cms = self.metrics[("H9", model)]["confusion_matrices"]
-            rows[model] = {r: [sum(cm[r][c] for cm in cms) for c in range(6)] for r in (0, 1, 5)}
-        self.assertEqual(rows["M0"], {0: [9, 9, 2, 0, 0, 0], 1: [7, 5, 0, 0, 0, 8], 5: [0, 0, 0, 0, 0, 20]})
+            rows[model] = {r: [sum(cm[r][c] for cm in cms) for c in range(6)] for r in range(6)}
+        self.assertEqual({r: rows["M0"][r] for r in (0, 1, 2, 5)},
+                         {0: [9, 9, 2, 0, 0, 0], 1: [7, 5, 0, 0, 0, 8], 2: [0, 0, 20, 0, 0, 0],
+                          5: [0, 0, 0, 0, 0, 20]})
         self.assertEqual(rows["M1"], rows["M0"])
-        self.assertEqual(rows["M2(λ=0.5)"], {0: [7, 7, 5, 0, 1, 0], 1: [8, 1, 0, 1, 0, 10],
-                                              5: [0, 0, 0, 0, 0, 20]})
+        self.assertEqual({r: rows["M2(λ=0.5)"][r] for r in (0, 1, 2, 5)},
+                         {0: [7, 7, 5, 0, 1, 0], 1: [8, 1, 0, 1, 0, 10], 2: [2, 0, 18, 0, 0, 0],
+                          5: [0, 0, 0, 0, 0, 20]})
+        # rf_failure_analysis.md section 0: correct 94 -> 86, lost P1 4 / P0 2 / P2 2
+        diag = {model: [rows[model][k][k] for k in range(6)] for model in rows}
+        self.assertEqual((sum(diag["M0"]), sum(diag["M2(λ=0.5)"])), (94, 86))
+        self.assertEqual([b - a for a, b in zip(diag["M0"], diag["M2(λ=0.5)"])], [-2, -4, -2, 0, 0, 0])
         for model, (want_acc, want_f1) in {"M0": (78.33, 75.72), "M1": (78.33, 75.72),
                                             "M2(λ=0.5)": (71.67, 67.02)}.items():
             cms = [np.array(cm) for cm in self.metrics[("H9", model)]["confusion_matrices"]]
