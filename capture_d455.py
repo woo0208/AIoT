@@ -390,6 +390,45 @@ def intr_to_dict(i):
             "ppx": i.ppx, "ppy": i.ppy, "model": str(i.model), "coeffs": list(i.coeffs)}
 
 
+def _frameset_clock_evidence(frames):
+    """Snapshot one delivered frameset; never substitute host/previous time."""
+    try:
+        ts = frames.get_timestamp()
+        domain = frames.get_frame_timestamp_domain()
+        color = frames.get_color_frame()
+        number = color.get_frame_number() if color else None
+        if (type(ts) not in (int, float) or not math.isfinite(ts) or domain is None
+                or not str(domain).strip() or str(domain) in ("None", "unknown", "unknown_legacy")
+                or type(number) is not int or number < 0):
+            raise ValueError("frameset timestamp/domain/color identity unavailable")
+        return {"status": "recorded", "frame_timestamp_ms": ts,
+                "timestamp_domain": str(domain), "color_frame_number": number}
+    except (AttributeError, RuntimeError, TypeError, ValueError, OverflowError) as error:
+        return {"status": "unprocessed", "reason": str(error),
+                "frame_timestamp_ms": None, "timestamp_domain": None, "color_frame_number": None}
+
+
+def _normal_hold_end_timing(recording_id, start, frames, wall_time):
+    end = _frameset_clock_evidence(frames)
+    reason = None
+    if start is None or start.get("status") != "recorded":
+        reason = "hold_start_clock_evidence_missing"
+    elif end["status"] != "recorded":
+        reason = "hold_end_clock_evidence_missing"
+    elif start["timestamp_domain"] != end["timestamp_domain"]:
+        reason = "hold_clock_domain_changed"
+    elif (end["frame_timestamp_ms"] <= start["frame_timestamp_ms"]
+          or end["color_frame_number"] <= start["color_frame_number"]):
+        reason = "hold_end_frame_not_after_start"
+    return {"interface": "capture-hold-end-timing-engineering-v1", "recording_id": recording_id,
+            "status": "unprocessed" if reason else "recorded", "reason": reason,
+            "event_source": "normal_hold_duration_elapsed_frameset", "wall_time": wall_time,
+            "hold_start": start, "observed_end": end,
+            "frame_timestamp_ms": None if reason else end["frame_timestamp_ms"],
+            "timestamp_domain": None if reason else end["timestamp_domain"],
+            "color_frame_number": None if reason else end["color_frame_number"]}
+
+
 def record_phase(subject, rnd, start_info, seq, dataset_role):
     base, provenance = reserve_capture(subject, rnd, dataset_role)
     stamp = provenance["start_time"]
@@ -433,6 +472,7 @@ def record_phase(subject, rnd, start_info, seq, dataset_role):
     except Exception:
         info["stereo_baseline_mm"] = None
     provenance["record_file"] = os.path.basename(rec_file)
+    provenance["sidecar_files"]["end_timing"] = os.path.basename(base + "_end_timing.json")
     info.update(provenance)
     with open(base + "_camera.json", "w", encoding="utf-8") as f:
         json.dump(info, f, indent=2, ensure_ascii=False)
@@ -449,6 +489,7 @@ def record_phase(subject, rnd, start_info, seq, dataset_role):
 
     markers, samples = [], []
     ph_i, ph_start, aborted = -1, None, False
+    hold_start_clock, normal_end_timing = None, None
     ref_up = {"dist": None, "cx": None, "face_dist": None}  # 바로 앞 정상 자세 기준값
     dist, box, mode, n = None, None, "none", 0
     rec_t0 = time.time()
@@ -477,9 +518,13 @@ def record_phase(subject, rnd, start_info, seq, dataset_role):
                         ref_up["cx"] = statistics.median(uc)
                 ph_i += 1
                 if ph_i >= len(phases):
+                    normal_end_timing = _normal_hold_end_timing(
+                        provenance["recording_id"], hold_start_clock, frames, now)
                     break
                 ph_start = now
                 ph = phases[ph_i]
+                if ph["kind"] == "hold":
+                    hold_start_clock = _frameset_clock_evidence(frames)
                 markers.append({"wall_time": now, "frame_timestamp_ms": frames.get_timestamp(),
                                 "color_frame_number": color.get_frame_number(), "step": ph["step"],
                                 "phase": ph["kind"], "label": ph["key"] if ph["kind"] == "hold" else "transition",
@@ -571,7 +616,13 @@ def record_phase(subject, rnd, start_info, seq, dataset_role):
     finally:
         pipe.stop()
         total_sec = time.time() - rec_t0
-        markers.append({"wall_time": time.time(), "frame_timestamp_ms": None, "color_frame_number": None,
+        timing = normal_end_timing or {
+            "interface": "capture-hold-end-timing-engineering-v1",
+            "recording_id": provenance["recording_id"], "status": "unprocessed",
+            "reason": "normal_hold_end_event_not_observed", "wall_time": time.time(),
+            "frame_timestamp_ms": None, "timestamp_domain": None, "color_frame_number": None}
+        markers.append({"wall_time": timing["wall_time"], "frame_timestamp_ms": timing["frame_timestamp_ms"],
+                        "color_frame_number": timing["color_frame_number"],
                         "step": None, "phase": "end", "label": "aborted" if aborted else "end",
                         "planned_sec": None, "distance_m": dist, "distance_mode": mode,
                         "recording_id": provenance["recording_id"]})
@@ -579,6 +630,10 @@ def record_phase(subject, rnd, start_info, seq, dataset_role):
             wr = csv.DictWriter(f, fieldnames=list(markers[0].keys()))
             wr.writeheader()
             wr.writerows(markers)
+        timing.update(marker_index=len(markers) - 1, record_file=os.path.basename(rec_file),
+                      capture_script_sha256=provenance.get("capture_script_sha256"))
+        with open(base + "_end_timing.json", "x", encoding="utf-8") as f:
+            json.dump(timing, f, indent=2, ensure_ascii=False, allow_nan=False)
         if samples:
             with open(base + "_samples.csv", "w", newline="", encoding="utf-8") as f:
                 wr = csv.DictWriter(f, fieldnames=list(samples[0].keys()))

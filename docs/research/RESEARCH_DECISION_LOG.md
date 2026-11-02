@@ -1,8 +1,13 @@
 # Research Decision Log
 
-- 문서 버전: `v1.15`
+- 문서 버전: `v1.20`
 - 기준일: `2026-10-22` (branch `fix/patch8-opencv-distribution` 기준. `v1.12`는 branch `feat/rf-loso-prediction-audit`의 `FEAT-009` version row이며 본 branch에는 포함되지 않음 — §11 `v1.13`/`v1.14` 참조)
 - 상태: **ACTIVE / Append-Only**
+- 2026-11-02 후속 결정: EXP-007 / F0·F_cal·H5 + RF M0 비교 기준선 확정. EXP-005/006의 선정 후보·규칙은 유지한다.
+- 2026-11-02 수치 후속 결정: `EXP-006`이 5-D-8의 zero-support·동점·누락률 허용 범위·클래스 부족 차단을 구체화한다. EXP-005의 기존 entry는 보존한다.
+- 2026-11-02 후속 결정: `EXP-005` / 5-D-8 정식 평가·재촬영·모델 선정 규약. 기존 entry는 당시 기록으로 보존하며 이번 구체화 범위는 새 항목을 따른다.
+- 2026-11-02 후속 기록: `EXP-004` / 5-D-3 승인 규칙 동결. `EXP-003`의 미확정 기록은 당시 상태로 보존하며 현재 확정 범위는 새 항목을 따른다.
+- 2026-11-02 추가 기록: `EXP-003` / 연구 5-D-2. 기존 기준일·결정 본문은 역사적 기록으로 보존하며, 아래 새 항목에 한정해 현재 평가 규칙을 구체화한다.
 - 권장 위치: `docs/research/RESEARCH_DECISION_LOG.md`
 - 역할: 현재 Research Master에 반영된 중요한 연구·데이터·실험·거버넌스 결정을 **왜 그렇게 결정했는지** 기록
 
@@ -6874,3 +6879,184 @@ Supersedes:
 
 Resolves:
 - `OPEN-004`
+
+---
+
+## EXP-003 — 5-D-2 정식 6-class 평가·보정·공통 표본 규칙
+
+**Status:** CONFIRMED (아래 Decision에 열거한 범위만)
+**Logged:** 2026-11-02
+**Evidence / Source:** 연구자의 이번 5-D-2 명시적 채택 지시. 실제 수집·학습·검증 결과를 근거로 한 결정이 아니다.
+**Supersedes:** None
+**Clarifies:** FEAT-001 / FEAT-002 / EXP-001 / OPEN-005 (부분 구체화)
+**Resolves:** None — OPEN-005 전체 해소 아님
+
+### Decision
+
+1. 이번 정식 연구의 주 평가는 6-class이며 개발 2명 / 참가자 독립 검증 4명으로 분리한다. 동일 사람의 S1/S2는 같은 집단에 속한다. 기존 pilot/primary5는 별도 이력·과제로 보존하며 정식 자료로 승격하지 않는다. 검증 4명은 method freeze 전 개발·선택·튜닝에 사용하지 않는다.
+2. 자세 유지 구간의 마지막 10초를 분석한다. 전이/준비/복귀 자세를 목표 유지 구간으로 혼합하지 않는다.
+3. 참가자별 S1 첫 P0(upright)를 사전 지정 보정 참조로 고정하고 S2에도 동일 참조를 사용한다. 검증 참가자 자신의 이 사전 지정 참조는 F0/F_cal의 허용된 입력이며, 다른 평가 구간·예측 결과·다른 참가자로 baseline을 계산하지 않는다. 이 참조는 모델/scaler를 검증 자료에 fit하는 허가가 아니다.
+4. 해당 보정 참조 P0는 F0/F_cal의 학습과 평가 모두에서 제외한다. 특징군 공통 비교 표본에서도 제외한다. 공통 비교에 포함되는 다른 특징군에도 동일 제외 표본 집합을 적용하며, 기존 H9 산출물에 소급 적용하거나 덮어쓰지 않는다.
+5. 보정 실패 시 다른 P0로 자동 대체하지 않는다. 결측값의 0 대체와 자동 보간을 금지한다.
+6. 동일 특징·모델의 직접 비교는 동일 참가자·동일 구간·공통 적격 표본으로 한다. 특징군 간 직접 비교도 비교 대상 모두에 적격인 동일 구간 교집합을 사용하며, 특징군별 가용 표본 결과와 혼용하지 않는다. 적격성의 세부 기준은 아래 미확정 범위를 따른다.
+
+### Rationale / 기존 계획과 관계
+
+사전 보정과 평가 표본을 분리하고, 표본 구성 차이가 직접 비교 결과를 바꾸지 않도록 한다. FEAT-001의 F0/F_cal 비교 역할과 FEAT-002의 F1/F2 zero-personal-calibration 원칙을 유지한다.
+
+`analysis/formal6_capture_design_20261029_4d9f21/FORMAL_EVALUATION_PLAN.md`는 보존된 2026-10-29 DRAFT다. 그 문서의 6-class·인원·분석 창 관련 후보는 위 범위에서 이번 결정으로 채택되며, 초안 전체를 승인한 것은 아니다. 초안의 60/120은 보정 P0를 포함한 수집 목표이므로 F0/F_cal 및 공통 비교의 최종 분석 분모로 그대로 사용하지 않는다. 초안의 5회·S1 3회/S2 2회 설계가 별도로 유지되는 경우에만, 참조 1개/인 제외 후 결측 전 상한은 개발 58 / 검증 116 / 전체 174다. 실제 적격 수나 결과가 아니다.
+
+### Non-Decisions / 추가 연구 결정
+
+- H9 기존 30개·50%는 코드의 engineering eligibility다. F0/F_cal에 대한 수치 threshold 채택·공통 프레임 support·coverage 분모·보정 참조 적격성으로 자동 승격하지 않는다.
+- 상세 차이는 [5-D-2 적용 검토](F0_FCAL_5D2_EVALUATION_RULES.md)에 기록한다. 특히 구간 교집합과 프레임 교집합은 별개이며, 후자를 채택하지 않았다.
+- 마지막 10초의 정확한 시간축·경계 포함·짧은/누락 구간, 보정 실패/부분 결측의 최종 분석 처리, 실제 불완전 클래스·탈락 및 재촬영/선택 정책은 아직 고정하지 않는다.
+- 기존 F0/F_cal 수식·집계 구현 선택을 추가 승인하거나 변경하지 않는다. feature/model/scaler·seed·metric 전체 freeze 및 연구윤리/IRB 원문 확인을 대신하지 않는다.
+- EXP-002 / CAP-005~009 / frozen schema·selection·provenance 계약과 CAP-007 EXECUTION DEFERRED는 유지한다. 본 결정은 실행기 연결·학습·정식 수집·Patch 8 실행 승인이나 execution registry 생성 허가가 아니다.
+
+### Documentation revision
+
+Decision Log v1.16: 기존 항목을 수정하지 않고 EXP-003을 추가했다. Research Master v1.14 §24에 현재 범위를 연결했다. 보호된 초안·실행기·데이터·5-B는 변경하지 않았다.
+
+---
+
+## EXP-004 — 5-D-3 F0/F_cal 공동 support·보정 적격성 동결
+
+**Status:** CONFIRMED / DESIGN-FROZEN (열거 범위 한정)
+**Logged:** 2026-11-02
+**Evidence / Source:** 연구자의 이번 5-D-3 명시적 승인. 실제 연구 결과에 맞춘 사후 결정이 아니다.
+**Supersedes:** None — 기존 확정 규칙을 대체하지 않고 미확정 범위를 구체화한다.
+**Clarifies:** EXP-003 / OPEN-005 (부분)
+**Resolves:** None (OPEN ID 전체 해소 없음; OPEN-005의 아래 세부 항목만 부분 해결)
+
+### Decision
+
+상세 동결 문서는 [F0_FCAL_5D3_EVALUATION_FREEZE.md](F0_FCAL_5D3_EVALUATION_FREEZE.md)다.
+
+1. 같은 프레임의 bbox·양 어깨 및 F0 필요 관측이 모두 유효한 공동 support를 사용한다.
+2. 그 공동 support에서 원시 입력별 중앙값을 구한 뒤 기존 특징식을 적용한다.
+3. coverage 분모는 마지막10초 분석 창의 실제 입력 프레임 수다. 프레임 누락률은 별도로 기록한다.
+4. 목표와 첫 P0 참조 모두 공동 유효 >=30개 및 coverage >=50%를 요구한다. 참조 면적은 양수이며 기준 특징 5개가 모두 유효해야 한다.
+5. 부분 보정 실패도 해당 참가자 F0/F_cal 평가 불가로 처리하고 후속 P0로 대체하지 않는다. H5/H9 자체 평가에는 영향을 주지 않는다. F0/F_cal을 포함하는 공통 비교는 공통 적격 교집합을 유지한다.
+6. 자세 유지 종료 기준 `[종료-10초, 종료)`를 사용하고 전환 구간은 제외한다.
+7. 기존 S1 첫 P0 고정·S2 재사용·참조의 학습/평가/특징군 공통 표본 제외 및 공통 적격 구간 비교 규칙을 유지한다. 결측 0 대체·자동 보간 금지도 유지한다.
+
+### Rationale / Scope
+
+H9 수치를 F0/F_cal에 기계적으로 복사하지 않고, 동일 프레임 관측·집계 순서·실제 입력 분모·참조 적격성을 함께 명시해 연구자가 승인했다. 이전 5-D-2 문서의 해당 미확정 항목은 이제 이 범위에서 확정이다. 공동 support 적용은 향후 어댑터 구현 요건이며 기존 열별 support 코드가 이미 구현 완료된 것으로 간주하지 않는다.
+
+### OPEN 상태와 Non-Decisions
+
+- OPEN-005의 support·집계·coverage·목표/참조 30/50·부분 보정 실패·시간 경계만 부분 해결. 전체 protocol/선택·재촬영·불완전 클래스·ok_with_warnings·formal seed/metric은 미완료이며 OPEN-005 전체는 DEFERRED 유지.
+- 특징군 사이 동일 **원시 프레임** support 강제 여부, 짧은 구간/시간정보 부족의 처리와 별도 누락률 산출 근거는 미확정이다. 특징군 공통 적격 **구간** 비교와 coverage 실제 입력 분모는 확정이다.
+- OPEN-002/003과 기존 해소된 OPEN-001/004/006 상태는 변경하지 않는다. 기존 수식·H5/H9·모델·schema·보호 파일은 변경하지 않는다.
+- EXP-002 / CAP-005~009 및 CAP-007 EXECUTION DEFERRED 유지. 코드 변경·실행기 연결·학습·테스트·정식 실행/촬영 승인 없음.
+
+### Documentation revision
+
+Decision Log v1.17에 EXP-004 추가, Master v1.15 §25 동기화, 5-D-3 신규 동결 문서 및 5-D-2 후속 상태 안내를 기록했다. 기존 결정 본문은 소급 변경하지 않았다.
+
+---
+
+## EXP-005 — 5-D-8 정식 평가·추가 재촬영·모델 선정 규약
+
+**Status:** CONFIRMED / DESIGN-FROZEN (명시 범위)
+**Logged:** 2026-11-02
+**Evidence / Source:** 연구자의 이번 5-D-8 명시적 결정. 실제 결과에 맞춘 후속 튜닝이 아니다.
+**Supersedes:** None — 기존 확정 수식/계약은 유지하고 미확정·초안 범위를 구체화한다.
+**Clarifies:** EXP-003 / EXP-004 / OPEN-005 (부분), EXP-001의 검증 독립성 유지
+**Resolves:** None (OPEN ID 전체 해소 없음)
+
+### Decision
+
+상세 authority는 [STAGE_5D8_FORMAL_EVALUATION_FREEZE.md](STAGE_5D8_FORMAL_EVALUATION_FREEZE.md)다.
+
+1. P0~P5 6-class, 참가자 단위 개발2/독립검증4. 기존 primary5·5-B 별도 유지.
+2. 동일 참가자·목표 구간·10초 창·공통 적격 표본으로 비교. 특징군 전체 동일 원시 프레임 교집합은 비강제하고 각 support를 기록한다. F0/F_cal 내부 공동 support는 유지한다.
+3. 검증된 10초보다 짧거나 시간축 부족이면 unprocessed. 누락률은 신뢰 가능한 동일 스트림 원래 frame number로만 산출하고 coverage·실제 FPS와 구분한다.
+4. 계획 외 추가 재촬영 0회. 기술/라벨/보정 실패의 사유·원본을 보존한다. 예측 오류 재촬영·후속 P0 대체 금지. 정책 변경 시 IRB 범위 재확인.
+5. 예측과 독립된 수행 확인으로 confirmed이면서 기술 적격인 구간만 포함. ambiguous/mismatch/not_reviewable 별도 기록.
+6. 고정 6개 클래스와 참가자별 실제 support 유지. 클래스 누락은 INCOMPLETE이며 사후 클래스·참가자 삭제 금지. 기술적 제외와 보고서에서 참가자를 삭제하는 것은 구별한다.
+7. 정식 RF seeds=(0,1,2). LR B0 기존 결정적 설정 유지. 과거 파일럿의 0~4 코드/결과는 변경하지 않는다.
+8. 주 지표=독립4명 pooled 6-class Macro-F1. Accuracy·클래스 P/R/F1·P0/P1/P5 오류·참가자/세션 지표 보조. zero-support 수치와 INCOMPLETE 표시를 구분하며 정식 유의성 검정 없음.
+9. 개발2명 LOSO 공통 적격 표본의 Macro-F1 우선. 동점은 P0 Recall→P1 Recall→P5 Recall→Accuracy→적은 특징 수→고정 후보 순서. 후보 순서는 RF M0 H9, RF M1 H9, RF M2 H9, RF M0 H9−F9, LR B0 H9−F9. F0/F_cal/H5는 비교 기준선 유지.
+10. 최종 모델·특징·전처리·seed·코드/모델 hash를 독립4명 평가 전에 동결하고 검증 결과로 재선정하지 않는다.
+
+### 기존 결정·초안과의 관계
+
+EXP-003/004의 S1 첫 P0 고정·S2 재사용·참조 제외, 내부 공동 support·원시 중앙값·30/50·보정 실패·시간 반개구간·0 대체/보간 금지는 유지한다. 예전 5-D-3 미확정 목록은 당시 상태로 남고 이번 승인 범위만 후속 구체화됐다. Formal Evaluation Plan의 seed 0~4는 미확정 후보였으며 정식 RF는 이번 0~2를 따른다. 초안·과거 결과·보호 파일은 변경하지 않는다. 기존 selection의 재촬영 기능 존재는 이번 추가 재촬영 허가가 아니다.
+
+### 부분 해결 / 남은 차단
+
+OPEN-005의 평가 과제·표본 비교·시간 부족 처리·누락률 원천 제한·추가 재촬영 정책·라벨 포함·불완전 표시·RF seed·지표 역할·선정 순서/검증 전 동결만 부분 해결했다. OPEN-005 전체는 DEFERRED다.
+
+실제 support=0 클래스의 Recall/F1 및 고정6 Macro-F1 반영·빈 평가의 수치 집계, 동점 정밀도, 누락률 상세 산출은 임의 확정하지 않았다. 기존 지표의 예측 support=0 Precision=0 등 정의는 보존하되 기존 rf.macro_f1의 absent-class 건너뛰기를 정식 정책으로 자동 승인하지 않는다.
+
+IRB 승인/범위·계획 촬영 및 재촬영 허용 범위 확인, 동의·인물 독립성·라벨/접근 운영, 실제 runtime 검증·최종 모델 선정/해시 발급·전체 protocol과 기타 실행 조건은 남아 있다. OPEN-002/003과 기존 해소된 OPEN-001/004/006, EXP-002 및 CAP-007 EXECUTION DEFERRED는 변경하지 않는다. 이번 결정은 수집/학습/평가 실행 승인이 아니다.
+
+### Documentation revision
+
+Decision Log v1.18에 EXP-005 추가, Master v1.16 §26 동기화, 5-D-8 결정 문서 신규 작성. 과거 entry 삭제·소급 변경, 코드/모델/데이터/보호 파일 수정·테스트·commit/push 없음.
+
+---
+
+## EXP-006 — 5-D-8 수치 규칙 후속 확정
+
+**Status:** CONFIRMED / DESIGN-FROZEN (열거 범위)
+**Logged:** 2026-11-02
+**Evidence / Source:** 연구자의 이번 수치 규칙 명시적 승인. 연구 결과에 맞춘 사후 조정이 아니다.
+**Supersedes:** None — EXP-005의 미명시 수치와 차단 범위를 구체화하며 기존 확정 우선순위는 유지한다.
+**Clarifies:** EXP-005 / OPEN-005 (부분)
+**Resolves:** None (OPEN ID 전체 해소 없음)
+
+### Decision
+
+1. 실제 정답 support=0 클래스의 Recall=N/A. 해당 독립 평가=INCOMPLETE, 공식 6-class Macro-F1 미산출. 고정6·zero_division=0 진단 점수는 공식 지표와 구분해 별도 표시 가능.
+2. 모델 순위 동점은 반올림 전 점수의 절댓값 차이 <=1e-12. 기존 Macro-F1→P0/P1/P5 Recall 순차→Accuracy→적은 특징 수→고정 후보 순서를 유지한다.
+3. 누락률은 동일 스트림의 검증된 연속 frame number 내부 간격에서만 계산. 중복·리셋·출처 불확실이면 NOT_MEASURED. coverage·FPS와 분리한다.
+4. 개발 LOSO에서 필수 클래스가 부족하면 모델 자동 선정을 차단하고 사유를 기록한다. 클래스/참가자/fold를 사후 삭제하거나 검증 자료로 보충하지 않는다.
+
+상세 기록은 [5-D-8 문서의 후속 확정 절](STAGE_5D8_FORMAL_EVALUATION_FREEZE.md)에 추가했다. 기존 §6/9의 미명시 기록 및 EXP-005 본문은 당시 상태로 보존한다. 공식 Recall N/A·공식 Macro-F1 미산출·INCOMPLETE 상태와 선택적 zero_division=0 진단 점수를 혼용하지 않는다.
+
+### 부분 해결 및 남은 조건
+
+OPEN-005는 위 zero-support 보고/공식 지표 차단, 동점 수치, 누락률 허용 근거/NOT_MEASURED, 개발 클래스 부족 시 선정 차단만 추가 부분 해결이다. 전체 상태는 DEFERRED다. 누락률 세부 분모/산식·출력 단위와 실제 스트림 신뢰성은 별도 명세/검증이 필요하며 임의로 보충하지 않았다.
+
+IRB·계획 촬영/재촬영 허용 범위·동의/독립성/라벨·접근 운영, 실제 runtime 검증, 최종 모델 선정과 코드/모델 hash 동결 및 기타 실행 조건은 남아 있다. EXP-003/004/005의 다른 규칙, 다른 OPEN 상태, frozen 계약 및 CAP-007 EXECUTION DEFERRED는 유지한다. 이번 기록은 학습·촬영·평가 실행 승인이 아니다.
+
+### Documentation revision
+
+Decision Log v1.19에 EXP-006 추가, Master v1.17 §27 및 5-D-8 문서 후속 절에 반영했다. 기존 결정 삭제/소급 변경, 코드·모델·데이터·보호 파일 수정·학습·테스트·전체 감사·commit/push 없음.
+
+---
+
+## EXP-007 — 5-D-9 비교 기준선 3개 RF M0 조합 확정
+
+**Status:** CONFIRMED
+**Logged:** 2026-11-02
+**Evidence / Source:** 연구자의 이번 명시적 승인. 실제 결과에 맞춘 조합 탐색이 아니다.
+**Supersedes:** None
+**Clarifies:** EXP-005의 비교 기준선 모델 조합, EXP-006 수치 규칙 유지
+**Resolves:** None (OPEN ID 전체 해소 없음)
+
+### Decision / Purpose
+
+F0 + RF M0, F_cal + RF M0, H5 + RF M0를 정식 평가의 **비교 기준선**으로 확정한다. 입력 표현별 비교 기준을 제공하는 목적이며 최종 선정 후보에 추가하지 않는다. 기존 고정 P0 보정·입력 경로를 유지하고 각 6/6/5열을 그대로 사용한다. 0 패딩·새 특징 계산·탐색은 없다.
+
+기존 RF M0(6-class, 500 trees, max_features=2, split_w=None), seeds=(0,1,2), 개발2명 LOSO를 재사용한다. 동일 참가자·목표 구간·10초 창의 공통 적격 표본, 첫 P0 참조 제외·결측/confirmed·INCOMPLETE·클래스 부족 차단을 유지한다. 특징군 원시 프레임 support는 교차 강제하지 않는다.
+
+### 선정과 비교의 분리
+
+기존 선정 후보 5개(RF M0/M1/M2 H9, RF M0 H9−F9, LR B0 H9−F9)와 Macro-F1→P0/P1/P5 Recall→Accuracy→적은 특징 수→고정 순서, 1e-12 동점을 변경하지 않는다. 기준선은 선정 순위에 편입하지 않는다.
+
+선정은 기존 H9/H9−F9 공통 표본을 유지한다. 기준선 포함 8개 조합의 직접 비교는 5개 특징군의 공통 적격 표본에서 별도로 수행한다. 선정용 표본과 다르면 비교용 후보 결과도 같은 비교 표본에서 계산하며 기존 선정 범위/순위를 대체하지 않는다. F0/F_cal 보정 실패로 H5/H9 자체 적격성이나 기존 H 후보 평가를 바꾸지 않는다. 독립 검증의 동결 전 접근 차단을 유지한다.
+
+### Implementation evidence / Non-Decisions
+
+formal6_evaluation.py에 기존 RF M0로 연결했다. 신규3+기존9, 합성 **12 tests PASS**이며 테스트에서만 tree=2를 사용했다. 실제 참가자 자료·모델 최종 선정·최종 학습 artifact·새 알고리즘/탐색·추가 ablation은 없다. 상세는 [5-D-9 통합 문서](../../FORMAL6_5D9_INTEGRATION.md) 후속 절을 따른다.
+
+OPEN-005는 기준선 모델 조합 범위만 추가 구체화하고 전체 DEFERRED를 유지한다. 실제 QA/시간/lineage·runtime 검증, 최종 artifact/전처리·코드 hash 동결·독립 추론, IRB/운영·기타 실행 조건, 누락률 세부 산식은 해소하지 않는다. 다른 OPEN·frozen 계약·CAP-007 보류는 유지한다.
+
+### Documentation revision
+
+Decision Log v1.20에 EXP-007 추가, Master v1.18 §28과 5-D-8/5-D-9 평가 문서에 후속 범위를 연결했다. 기존 결정 본문·보호 모델·원본·5-B·계산식·frozen schema 변경 및 commit/push 없음.

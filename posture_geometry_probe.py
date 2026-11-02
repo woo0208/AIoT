@@ -8,12 +8,17 @@ opt-in ``--rf-demo-model`` mode shows the separate, unvalidated three-class
 F1-5 engineering RF demo (``f1_demo_rf``); it is not the LAB5 or an approved
 M0/M1/M2 research classifier and is display only.  Optional CSV output is
 explicitly exploratory engineering output and is disabled by default.
+
+``--h9-model`` adds the separate H9+M0 development window using the existing
+4000/1000/2000 ms runtime. ``--timing-output`` writes a new engineering host
+timing/resource JSON on shutdown. Neither option authorizes formal validation.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -21,6 +26,7 @@ import json
 import math
 from numbers import Real
 import os
+import sys
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Sequence
 import uuid
@@ -33,9 +39,16 @@ import f1_features
 import posture_geometry as geometry
 import posture_3d_viewer as viewer
 import posture_pyvista_viewer as pyvista_viewer
+import probe_timing
 
 
 WINDOW_NAME = "Exploratory D455 posture geometry probe"
+
+
+def _timed(metrics, name, frame_id=None):
+    return metrics.stage(name, frame_id) if metrics is not None else nullcontext()
+
+
 EXPLORATORY_ARTIFACT_KIND = "exploratory-posture-geometry-engineering-measurement"
 FACE_DIAGNOSTIC_ARTIFACT_KIND = (
     "exploratory-face-pipeline-engineering-diagnostic"
@@ -460,7 +473,28 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
               "and verified once at startup; requires --f1-live; display only, "
               "no file output, not a research or medical classifier"),
     )
+    parser.add_argument('--h9-model',default=None,metavar='PATH',
+                        help='optional separate H9+M0 development window display; no automatic transition/P5 detection')
+    parser.add_argument('--h9-recording-id',default=None,help='engineering H9 stream identifier')
+    parser.add_argument('--h9-subject',default=None,help='engineering H9 identifier; default unknown')
+    parser.add_argument('--timing-output',default=None,metavar='PATH',help='new host timing/resource JSON; never overwrite')
+    parser.add_argument('--timing-warmup-frames',type=int,default=0,
+                        help='report these initial processed frame timings separately; inputs/inference unchanged')
+    parser.add_argument('--timing-h9-warmup-calls',type=int,default=1,
+                        help='warmup calls per H9 stage: full-window aggregation and actual M0 calls independently; default 1')
+    parser.add_argument('--duration-seconds',type=float,default=None,
+                        help='optional host-monotonic stream duration; normal cleanup at deadline; 5-B uses 90')
     args = parser.parse_args(argv)
+    try:
+        probe_timing.ProbeRunControl(args.duration_seconds)
+    except ValueError as exc:
+        parser.error(str(exc))
+    if (args.h9_recording_id is not None or args.h9_subject is not None) and args.h9_model is None:
+        parser.error('--h9-recording-id/--h9-subject require --h9-model')
+    if args.timing_warmup_frames < 0 or (args.timing_warmup_frames and args.timing_output is None):
+        parser.error('--timing-warmup-frames requires --timing-output and a nonnegative count')
+    if args.timing_h9_warmup_calls < 0 or (args.timing_h9_warmup_calls != 1 and args.timing_output is None):
+        parser.error('--timing-h9-warmup-calls requires --timing-output and a nonnegative count')
     if args.pyvista_anchor != pyvista_viewer.VIEW_ANCHOR_SHOULDER and not args.pyvista:
         parser.error("--pyvista-anchor requires --pyvista")
     if args.rf_demo_model is not None and not args.f1_live:
@@ -584,11 +618,14 @@ def run_frame_inference(
     face_landmarker: Any,
     image: Any,
     mediapipe_timestamp_ms: int,
+    *, timing=None, frame_id=None,
 ) -> tuple[Any, Any]:
     """Run each landmarker exactly once for one shared RGB frame/timestamp."""
 
-    pose_result = pose_landmarker.detect_for_video(image, mediapipe_timestamp_ms)
-    face_result = face_landmarker.detect_for_video(image, mediapipe_timestamp_ms)
+    with _timed(timing,'mediapipe.pose',frame_id):
+        pose_result = pose_landmarker.detect_for_video(image, mediapipe_timestamp_ms)
+    with _timed(timing,'mediapipe.face',frame_id):
+        face_result = face_landmarker.detect_for_video(image, mediapipe_timestamp_ms)
     return pose_result, face_result
 
 
@@ -2099,11 +2136,19 @@ def run_probe(
     f1_live: bool = False,
     rf_demo_model_path: str | None = None,
     frame_callback: Callable[[ProbeFrame], None] | None = None,
+    h9_model_path: str | None = None,
+    h9_recording_id: str | None = None,
+    h9_subject: str | None = None,
+    timing_output_path: str | None = None,
+    timing_warmup_frames: int = 0,
+    timing_h9_warmup_calls: int = 1,
+    duration_seconds: float | None = None,
 ) -> None:
     """Run the live D455/MediaPipe loop.  Hardware dependencies load only here.
 
     ``frame_callback``, when given, receives each completed ``ProbeFrame``
     after the existing windows are drawn (e.g. the browser mesh avatar).
+    Optional H9 consumes the same GeometryResult and never changes rf_demo.
     """
 
     if rf_demo_model_path is not None and not f1_live:
@@ -2115,6 +2160,28 @@ def run_probe(
     for output_path in (upper13_csv_path, session_meta_json_path):
         if output_path is not None and os.path.lexists(os.path.abspath(output_path)):
             raise FileExistsError(os.path.abspath(output_path))
+
+    if (h9_recording_id is not None or h9_subject is not None) and h9_model_path is None:
+        raise ValueError('H9 stream identifiers require h9_model_path')
+    if timing_warmup_frames < 0 or (timing_warmup_frames and timing_output_path is None):
+        raise ValueError('timing warmup requires timing output and nonnegative frames')
+    if timing_h9_warmup_calls < 0 or (timing_h9_warmup_calls != 1 and timing_output_path is None):
+        raise ValueError('H9 timing warmup requires timing output and nonnegative calls')
+    metrics = (probe_timing.ProbeMetrics(timing_output_path,warmup_frames=timing_warmup_frames,
+               h9_warmup_calls=timing_h9_warmup_calls,
+               metadata=dict(purpose='non-formal engineering probe timing',h9_enabled=h9_model_path is not None,
+                             f1_live=f1_live,f1_demo_enabled=rf_demo_model_path is not None,
+                             views=show_3d_views,pyvista=pyvista_view,csv_enabled=csv_path is not None,
+                             face_diag_enabled=face_diag_csv_path is not None,upper13_enabled=upper13_csv_path is not None,
+                             callback_enabled=frame_callback is not None))
+               if timing_output_path is not None else None)
+    control = probe_timing.ProbeRunControl(duration_seconds,**(dict(clock_ns=metrics.clock_ns) if metrics is not None else {}))
+    h9 = None
+    h9_ui = None
+    if h9_model_path is not None:
+        import h9_probe_session as h9_ui
+        h9 = h9_ui.H9ProbeSession(h9_model_path,recording_id=h9_recording_id or 'h9-probe-development',
+                                 subject=h9_subject or 'unknown',metrics=metrics)
 
     import cv2
     import mediapipe as mp
@@ -2167,12 +2234,15 @@ def run_probe(
     face_detector = None
     pyvista_window = None
     try:
+        if metrics is not None:
+            metrics.start()
         csv_handle, csv_writer = _open_csv(csv_path)
         upper13_handle, upper13_writer = _open_upper13_csv(upper13_csv_path)
         face_diag_handle, face_diag_writer = _open_face_diagnostic_csv(
             face_diag_csv_path
         )
-        profile = pipeline.start(capture_d455.make_config())
+        with _timed(metrics, 'startup.pipeline'):
+            profile = pipeline.start(capture_d455.make_config())
         align = rs.align(rs.stream.color)
         depth_scale_m = profile.get_device().first_depth_sensor().get_depth_scale()
         color_intrinsics = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
@@ -2199,10 +2269,25 @@ def run_probe(
             pyvista_window = pyvista_viewer.PyVistaPostureViewer(
                 anchor_mode=pyvista_anchor
             )
+        if h9 is not None:
+            h9.start()
+            print('[probe] H9 + M0 DEVELOPMENT ONLY: separate window; r resets H9; '
+                  'unlabelled input has no automatic transition/P5 detection')
+        stream_start_ns = metrics.begin_stream() if metrics is not None else None
+        control.start(stream_start_ns)
         last_mediapipe_timestamp_ms = -1
         frame_index = 0
         debug_page = 0
         capture_segment = CaptureSegment()
+
+        def idle_h9_key():
+            # Pump UI even when no usable RGB-D pair reaches H9.
+            with _timed(metrics, 'ui.idle'):
+                snapshot = h9.snapshot()
+                cv2.imshow(h9_ui.WINDOW_NAME, h9_ui.draw_panel(snapshot))
+                h9.mark_displayed(snapshot)
+                return cv2.waitKey(1)
+
         print("[probe] live RGB + aligned depth started; press q in the window to quit")
         if csv_writer is not None:
             print("[probe] labels: 1=upright, 2=forward_head, 3=lean_back, "
@@ -2220,38 +2305,79 @@ def run_probe(
               "debug display and optional engineering CSV only")
 
         while True:
-            frames = pipeline.wait_for_frames()
+            if control.deadline_reached():
+                break
+            if h9 is not None:
+                h9.check_health()
+            with _timed(metrics, 'receive.wait'):
+                if h9 is None and duration_seconds is None:
+                    frames = pipeline.wait_for_frames()
+                    ready = True
+                else:
+                    ready, frames = pipeline.try_wait_for_frames(h9_ui.FRAME_WAIT_TIMEOUT_MS if h9 is not None else 250)
+            source_id = frames.get_frame_number() if ready and metrics is not None and hasattr(frames, 'get_frame_number') else None
+            token = metrics.input_received(source_id) if ready and metrics is not None else None
+            if not ready and metrics is not None:
+                metrics.receive_timeout()
+            if control.deadline_reached():
+                if token is not None:
+                    metrics.skip_at_deadline(token)
+                break
+            if not ready:
+                key = idle_h9_key() if h9 is not None else cv2.waitKey(1)
+                if h9 is not None:
+                    h9.handle_key(key)
+                capture_segment = handle_capture_label_key(key, capture_segment)
+                should_quit, debug_page = handle_panel_key(key, panel_mode, debug_page)
+                if should_quit:
+                    control.stop('q')
+                    break
+                continue
             device_timestamp_ms = float(frames.get_timestamp())
-            aligned = align.process(frames)
+            with _timed(metrics, 'receive.align'):
+                aligned = align.process(frames)
             color_frame = aligned.get_color_frame()
             depth_frame = aligned.get_depth_frame()
             if not color_frame or not depth_frame:
+                if metrics is not None:
+                    metrics.invalid_pair(token)
+                if h9 is not None:
+                    key = idle_h9_key()
+                    h9.handle_key(key)
+                    capture_segment = handle_capture_label_key(key, capture_segment)
+                    should_quit, debug_page = handle_panel_key(key, panel_mode, debug_page)
+                    if should_quit:
+                        control.stop('q')
+                        break
                 continue
 
-            bgr = np.asanyarray(color_frame.get_data())
-            aligned_depth = np.asanyarray(depth_frame.get_data())
-            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-            timestamp_ms = int(device_timestamp_ms)
-            if timestamp_ms <= last_mediapipe_timestamp_ms:
-                timestamp_ms = last_mediapipe_timestamp_ms + 1
-            last_mediapipe_timestamp_ms = timestamp_ms
-            frame_index += 1
+            with _timed(metrics, 'input.convert'):
+                bgr = np.asanyarray(color_frame.get_data())
+                aligned_depth = np.asanyarray(depth_frame.get_data())
+                rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                timestamp_ms = int(device_timestamp_ms)
+                if timestamp_ms <= last_mediapipe_timestamp_ms:
+                    timestamp_ms = last_mediapipe_timestamp_ms + 1
+                last_mediapipe_timestamp_ms = timestamp_ms
+                frame_index += 1
 
             # Both Tasks consume the exact same RGB image and MediaPipe timestamp.
+            inference_kwargs = dict(timing=metrics, frame_id=frame_index) if metrics is not None else {}
             pose_result, face_result = run_frame_inference(
-                pose_landmarker, face_landmarker, mp_image, timestamp_ms
+                pose_landmarker, face_landmarker, mp_image, timestamp_ms, **inference_kwargs
             )
             pose_detected = bool(pose_result.pose_landmarks)
             landmarks = pose_result.pose_landmarks[0] if pose_detected else None
             if upper13_writer is not None:
-                upper13_writer.writerows(upper13_csv_rows(
-                    landmarks, bgr.shape[1], bgr.shape[0],
-                    aligned_depth=aligned_depth, depth_scale_m=depth_scale_m,
-                    frame_index=frame_index, device_timestamp_ms=device_timestamp_ms,
-                    mediapipe_timestamp_ms=timestamp_ms,
-                ))
-                upper13_handle.flush()
+                with _timed(metrics, 'io.upper13', frame_index):
+                    upper13_writer.writerows(upper13_csv_rows(
+                        landmarks, bgr.shape[1], bgr.shape[0],
+                        aligned_depth=aligned_depth, depth_scale_m=depth_scale_m,
+                        frame_index=frame_index, device_timestamp_ms=device_timestamp_ms,
+                        mediapipe_timestamp_ms=timestamp_ms,
+                    ))
+                    upper13_handle.flush()
             face_landmarks = (
                 face_result.face_landmarks[0] if face_result.face_landmarks else None
             )
@@ -2262,137 +2388,177 @@ def run_probe(
             if face_detector is not None:
                 # IMAGE-mode FaceDetector on the same RGB image; the Pose
                 # result above is reused rather than inferred again.
-                live_f1 = compute_live_f1(
-                    face_detector.detect(mp_image),
-                    pose_result,
-                    bgr.shape[1],
-                    bgr.shape[0],
-                )
+                with _timed(metrics, 'f1.face_detector', frame_index):
+                    face_detection = face_detector.detect(mp_image)
+                with _timed(metrics, 'f1.compute', frame_index):
+                    live_f1 = compute_live_f1(
+                        face_detection,
+                        pose_result,
+                        bgr.shape[1],
+                        bgr.shape[0],
+                    )
                 if rf_demo_state is not None:
                     # Same F1-5 result as the F1 strip; no extra inference.
-                    rf_demo = rf_demo_frame(rf_demo_state, live_f1)
-            points = geometry.points_from_pose_landmarks(
-                landmarks,
-                bgr.shape[1],
-                bgr.shape[0],
-                aligned_depth=aligned_depth,
-                depth_scale_m=depth_scale_m,
-            )
-            points.update(geometry.points_from_face_landmarks(
-                face_landmarks,
-                bgr.shape[1],
-                bgr.shape[0],
-                aligned_depth=aligned_depth,
-                depth_scale_m=depth_scale_m,
-            ))
-            chest_roi_point = geometry.sample_hipless_chest_roi(
-                points.get("left_shoulder"),
-                points.get("right_shoulder"),
-                aligned_depth,
-                depth_scale_m,
-            )
-            points_3d = deproject_body_points(points, color_intrinsics, rs)
-            chest_roi_point_3d = deproject_geometry_point(
-                chest_roi_point, color_intrinsics, rs
-            )
-            result = geometry.compute_candidate_geometry(
-                points,
-                focal_length_px=color_intrinsics.fx,
-                points_3d=points_3d,
-                chest_roi_point=chest_roi_point,
-                chest_roi_point_3d=chest_roi_point_3d,
-            )
-            overlay = geometry.draw_geometry_overlay(bgr, result)
-            display = draw_engineering_panel(
-                overlay,
-                result,
-                pose_detected,
-                face_detected=bool(face_result.face_landmarks),
-                face_matrix=face_matrix,
-                face_matrix_values=face_matrix_values,
-                panel_mode=panel_mode,
-                debug_page=debug_page,
-                live_f1=live_f1,
-                rf_demo=rf_demo,
-            )
-            cv2.imshow(WINDOW_NAME, display)
-            if show_3d_views and show_3d_views != "none":
-                view_mode = (
-                    "side" if show_3d_views is True else str(show_3d_views)
+                    with _timed(metrics, 'f1_demo.rf', frame_index):
+                        rf_demo = rf_demo_frame(rf_demo_state, live_f1)
+            with _timed(metrics, 'depth_geometry', frame_index):
+                points = geometry.points_from_pose_landmarks(
+                    landmarks,
+                    bgr.shape[1],
+                    bgr.shape[0],
+                    aligned_depth=aligned_depth,
+                    depth_scale_m=depth_scale_m,
                 )
-                cv2.imshow(
-                    viewer.WINDOW_NAME,
-                    viewer.render_selected_views(result, view_mode),
+                points.update(geometry.points_from_face_landmarks(
+                    face_landmarks,
+                    bgr.shape[1],
+                    bgr.shape[0],
+                    aligned_depth=aligned_depth,
+                    depth_scale_m=depth_scale_m,
+                ))
+                chest_roi_point = geometry.sample_hipless_chest_roi(
+                    points.get("left_shoulder"),
+                    points.get("right_shoulder"),
+                    aligned_depth,
+                    depth_scale_m,
                 )
-            if pyvista_window is not None and not pyvista_window.update(
-                result, face_matrix_values
-            ):
-                pyvista_window = None
-                print("[probe] PyVista window closed; measurement loop continues")
-            if frame_callback is not None:
-                frame_callback(ProbeFrame(
-                    frame_index=frame_index,
-                    device_timestamp_ms=device_timestamp_ms,
-                    mediapipe_timestamp_ms=timestamp_ms,
-                    result=result,
-                    face_matrix_values=MappingProxyType(dict(face_matrix_values)),
+                points_3d = deproject_body_points(points, color_intrinsics, rs)
+                chest_roi_point_3d = deproject_geometry_point(
+                    chest_roi_point, color_intrinsics, rs
+                )
+                result = geometry.compute_candidate_geometry(
+                    points,
+                    focal_length_px=color_intrinsics.fx,
+                    points_3d=points_3d,
+                    chest_roi_point=chest_roi_point,
+                    chest_roi_point_3d=chest_roi_point_3d,
+                )
+            if h9 is not None:
+                with _timed(metrics, 'h9.dispatch', frame_index):
+                    h9.accept(result, frame_index=frame_index, device_timestamp_ms=device_timestamp_ms,
+                              segment_id=str(capture_segment.segment_id) if csv_writer is not None else None,
+                              source_label=capture_segment.label if csv_writer is not None else None)
+            with _timed(metrics, 'ui.render_submit', frame_index):
+                overlay = geometry.draw_geometry_overlay(bgr, result)
+                display = draw_engineering_panel(
+                    overlay,
+                    result,
+                    pose_detected,
+                    face_detected=bool(face_result.face_landmarks),
+                    face_matrix=face_matrix,
+                    face_matrix_values=face_matrix_values,
+                    panel_mode=panel_mode,
+                    debug_page=debug_page,
                     live_f1=live_f1,
                     rf_demo=rf_demo,
-                ))
+                )
+                cv2.imshow(WINDOW_NAME, display)
+                if h9 is not None:
+                    snapshot = h9.snapshot()
+                    cv2.imshow(h9_ui.WINDOW_NAME, h9_ui.draw_panel(snapshot))
+                    h9.mark_displayed(snapshot)
+                if show_3d_views and show_3d_views != "none":
+                    view_mode = (
+                        "side" if show_3d_views is True else str(show_3d_views)
+                    )
+                    cv2.imshow(
+                        viewer.WINDOW_NAME,
+                        viewer.render_selected_views(result, view_mode),
+                    )
+                if pyvista_window is not None and not pyvista_window.update(
+                    result, face_matrix_values
+                ):
+                    pyvista_window = None
+                    print("[probe] PyVista window closed; measurement loop continues")
+            if metrics is not None:
+                metrics.ui_submitted(token, frame_index)
+            if frame_callback is not None:
+                with _timed(metrics, 'io.callback', frame_index):
+                    frame_callback(ProbeFrame(
+                        frame_index=frame_index,
+                        device_timestamp_ms=device_timestamp_ms,
+                        mediapipe_timestamp_ms=timestamp_ms,
+                        result=result,
+                        face_matrix_values=MappingProxyType(dict(face_matrix_values)),
+                        live_f1=live_f1,
+                        rf_demo=rf_demo,
+                    ))
 
             if csv_writer is not None:
-                csv_writer.writerow(exploratory_csv_row(
-                    result,
-                    pose_detected=pose_detected,
-                    device_timestamp_ms=device_timestamp_ms,
-                    timestamp_utc=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
-                    label=capture_segment.label,
-                    subject=subject,
-                    recording_id=recording_id,
-                    segment_id=capture_segment.segment_id,
-                    face_matrix=face_matrix,
-                ))
-                csv_handle.flush()
+                with _timed(metrics, 'io.csv', frame_index):
+                    csv_writer.writerow(exploratory_csv_row(
+                        result,
+                        pose_detected=pose_detected,
+                        device_timestamp_ms=device_timestamp_ms,
+                        timestamp_utc=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                        label=capture_segment.label,
+                        subject=subject,
+                        recording_id=recording_id,
+                        segment_id=capture_segment.segment_id,
+                        face_matrix=face_matrix,
+                    ))
+                    csv_handle.flush()
 
             if face_diag_writer is not None:
-                face_diag_writer.writerow(face_pipeline_diagnostic_row(
-                    face_result,
-                    frame_index=frame_index,
-                    device_timestamp_ms=device_timestamp_ms,
-                    mediapipe_timestamp_ms=timestamp_ms,
-                    rgb_width=bgr.shape[1],
-                    rgb_height=bgr.shape[0],
-                    pose_detected=pose_detected,
-                ))
-                face_diag_handle.flush()
+                with _timed(metrics, 'io.face_diag', frame_index):
+                    face_diag_writer.writerow(face_pipeline_diagnostic_row(
+                        face_result,
+                        frame_index=frame_index,
+                        device_timestamp_ms=device_timestamp_ms,
+                        mediapipe_timestamp_ms=timestamp_ms,
+                        rgb_width=bgr.shape[1],
+                        rgb_height=bgr.shape[0],
+                        pose_detected=pose_detected,
+                    ))
+                    face_diag_handle.flush()
 
-            key = cv2.waitKey(1)
+            with _timed(metrics, 'ui.key_wait', frame_index):
+                key = cv2.waitKey(1)
+            if h9 is not None:
+                h9.handle_key(key)
             next_segment = handle_capture_label_key(key, capture_segment)
             if next_segment != capture_segment:
                 capture_segment = next_segment
                 print(f"[probe] segment {capture_segment.segment_id}: "
                       f"{capture_segment.label}")
             should_quit, debug_page = handle_panel_key(key, panel_mode, debug_page)
+            if metrics is not None:
+                metrics.frame_completed(token, frame_index)
             if should_quit:
+                control.stop('q')
                 break
     finally:
-        if pose_landmarker is not None:
-            pose_landmarker.close()
-        if face_landmarker is not None:
-            face_landmarker.close()
-        if face_detector is not None:
-            face_detector.close()
+        primary_error = sys.exc_info()[1]
+        if primary_error is not None:
+            control.stop('keyboard_interrupt' if isinstance(primary_error,KeyboardInterrupt) else 'error')
+        cleanup_errors = []
+        # A timer/SDK close failure must not skip the remaining resources.
+        actions = [h9.stop] if h9 is not None else []
+        if metrics is not None:
+            # Include completion of an already-running H9 tick in actual time.
+            actions.append(metrics.end_stream)
+        actions += [obj.close for obj in (pose_landmarker, face_landmarker, face_detector) if obj is not None]
         if profile is not None:
-            pipeline.stop()
-        if csv_handle is not None:
-            csv_handle.close()
-        if face_diag_handle is not None:
-            face_diag_handle.close()
-        if upper13_handle is not None:
-            upper13_handle.close()
-        if pyvista_window is not None:
-            pyvista_window.close()
-        cv2.destroyAllWindows()
+            actions.append(pipeline.stop)
+        actions += [obj.close for obj in (csv_handle, face_diag_handle, upper13_handle, pyvista_window) if obj is not None]
+        actions.append(cv2.destroyAllWindows)
+        for close in actions:
+            try:
+                close()
+            except Exception as exc:
+                cleanup_errors.append(exc)
+        if metrics is not None:
+            if h9 is not None:
+                metrics.metadata['h9_runtime'] = h9.statistics()
+            try:
+                metrics.finish(error=primary_error, cleanup_errors=cleanup_errors,termination=control.summary())
+            except Exception as exc:
+                cleanup_errors.append(exc)
+        if primary_error is not None:
+            for exc in cleanup_errors:
+                print(f'[probe] cleanup error: {exc}', file=sys.stderr)
+        elif cleanup_errors:
+            raise RuntimeError('probe cleanup failed: '+ '; '.join(str(e) for e in cleanup_errors)) from cleanup_errors[0]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -2414,6 +2580,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         pyvista_anchor=args.pyvista_anchor,
         f1_live=args.f1_live,
         rf_demo_model_path=args.rf_demo_model,
+        h9_model_path=args.h9_model,
+        h9_recording_id=args.h9_recording_id,
+        h9_subject=args.h9_subject,
+        timing_output_path=args.timing_output,
+        timing_warmup_frames=args.timing_warmup_frames,
+        timing_h9_warmup_calls=args.timing_h9_warmup_calls,
+        duration_seconds=args.duration_seconds,
     )
     return 0
 
