@@ -59,6 +59,9 @@ class NativePackets:
                          "native_timeout_not_verified_EOF")
                 self.completed = True
                 return
+            # Read-only SDK frames for offline geometry alignment; valid until
+            # the next iteration. The original packet arrays remain unaligned.
+            self.current_frames = frames
             packet = source.receive(frames)
             # MediaPipe accepts integer milliseconds, not an invented +1 time
             # when the SDK reuses a color child in a new depth frameset.
