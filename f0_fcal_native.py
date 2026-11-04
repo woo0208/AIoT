@@ -9,17 +9,19 @@ and is marked in every generated provenance artifact.
 from contextlib import contextmanager
 from dataclasses import dataclass
 import csv
+import hashlib
 import json
 import math
 from pathlib import Path
 
 import analyze_d455 as canonical
 import capture_d455
+import f0_fcal_input as input_validation
 import live_f1_d455 as live
 from research_d455 import PacketSource, open_observer
 from rf_experiment import file_identity, read_pinned_json, verify_file
 from f0_fcal_features import Segment, first_upright_references
-from f0_fcal_input import INTERFACE, InsufficientInput, _Sources, _require, load_evaluation_input
+from f0_fcal_input import INTERFACE, InsufficientInput, _Sources, _ReplayClock, _require, load_evaluation_input
 
 
 REQUEST_INTERFACE = "f0-fcal-native-request-engineering-v1"
@@ -57,7 +59,13 @@ class NativePackets:
                          "native_timeout_not_verified_EOF")
                 self.completed = True
                 return
-            yield source.receive(frames)
+            packet = source.receive(frames)
+            # MediaPipe accepts integer milliseconds, not an invented +1 time
+            # when the SDK reuses a color child in a new depth frameset.
+            color = packet.timing["color"]
+            packet.timing["mediapipe_ts_ms"] = int(color["timestamp_ms"]) if color else None
+            packet.validate()
+            yield packet
 
     def __exit__(self, *args):
         self.pipe.stop()
@@ -74,6 +82,16 @@ def observation_from_results(face, pose, width, height):
     return row
 
 
+def _stream_evidence(packet, name):
+    descriptor = packet.timing.get(name)
+    if descriptor is None:
+        return None
+    array = packet.color_bgr if name == "color" else packet.depth_z16
+    return {**{key: descriptor[key] for key in
+               ("frame_number", "timestamp_ms", "timestamp_domain", "height", "width", "format")},
+            "payload_sha256": hashlib.sha256(array.tobytes()).hexdigest()}
+
+
 @contextmanager
 def native_observer(model_dir):
     paths = live.verified_model_paths(model_dir)  # Existing locks; never downloads.
@@ -81,18 +99,37 @@ def native_observer(model_dir):
         class F0Observer:
             kind = "locked-mediapipe-face-pose"
             model_artifacts = {name: file_identity(path) for name, path in paths.items()}
+            previous_color = None
+            previous_observation = None
+            previous_mp_timestamp = None
 
             def observe(self, packet):
                 if packet.color_bgr is None:
                     return observation_from_results(None, None, 0, 0)
+                color = _stream_evidence(packet, "color")
+                if self.previous_color is not None:
+                    if color["frame_number"] == self.previous_color["frame_number"]:
+                        _require(color == self.previous_color, "native_color_reuse_mismatch")
+                        return dict(self.previous_observation)
+                    _require(color["timestamp_domain"] == self.previous_color["timestamp_domain"] and
+                             color["frame_number"] > self.previous_color["frame_number"] and
+                             color["timestamp_ms"] > self.previous_color["timestamp_ms"],
+                             "native_color_clock_invalid")
+                timestamp = packet.timing["mediapipe_ts_ms"]
+                _require(timestamp == int(color["timestamp_ms"]) and
+                         (self.previous_mp_timestamp is None or timestamp > self.previous_mp_timestamp),
+                         "native_mediapipe_time_not_original_or_nonmonotonic")
                 import cv2
                 import mediapipe as mp
                 height, width = packet.color_bgr.shape[:2]
                 rgb = cv2.cvtColor(packet.color_bgr, cv2.COLOR_BGR2RGB)
                 image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
                 face = observer.face_detector.detect(image)
-                pose = observer.pose_detector.detect_for_video(image, packet.timing["mediapipe_ts_ms"])
-                return observation_from_results(face, pose, width, height)
+                pose = observer.pose_detector.detect_for_video(image, timestamp)
+                obs = observation_from_results(face, pose, width, height)
+                self.previous_color, self.previous_observation = color, dict(obs)
+                self.previous_mp_timestamp = timestamp
+                return obs
         yield F0Observer()
 
 
@@ -170,18 +207,15 @@ def _markers(recording, sources):
 def _extract(recording, sources, model_dir, packet_factory, observer_factory):
     raw, marker_path, camera, producer, marks, times, intervals = _markers(recording, sources)
     observations, inventory, rows, domain = [], [], [], None
-    previous = None
+    replay_clock = _ReplayClock()
     with packet_factory(raw) as reader, observer_factory(model_dir) as observer:
         for index, packet in enumerate(reader, 1):
             packet.validate()
             ts = packet.timing.get("frameset_timestamp_ms")
             current_domain = packet.timing.get("frameset_timestamp_domain")
-            _require(type(ts) in (int, float) and math.isfinite(ts) and
-                     (previous is None or ts > previous), "replay_timestamp_invalid_or_nonmonotonic")
-            _require(isinstance(current_domain, str) and bool(current_domain), "replay_clock_domain_missing")
-            domain = domain or current_domain
-            _require(domain == current_domain, "replay_clock_domain_changed")
-            previous = ts
+            streams = {name: _stream_evidence(packet, name) for name in ("color", "depth")}
+            replay_clock.accept(ts, current_domain, streams)
+            domain = replay_clock.domain
             obs = observer.observe(packet)
             # Sensor/model absence remains a row, not a frame drop.
             canonical._validate_frame_row(dict(obs, frame_schema_version=canonical.FRAME_SCHEMA_VERSION,
@@ -192,7 +226,7 @@ def _extract(recording, sources, model_dir, packet_factory, observer_factory):
                         "color_frame_number": (packet.timing.get("color") or {}).get("frame_number"),
                         "depth_frame_number": (packet.timing.get("depth") or {}).get("frame_number"),
                         "mediapipe_ts_ms": packet.timing.get("mediapipe_ts_ms")}
-            inventory.append(dict(metadata))
+            inventory.append(dict(metadata, native_streams=streams))
             observations.append(dict(recording_id=recording["recording_id"],
                                      analysis_run_id=recording["analysis_run_id"],
                                      **metadata, timing=packet.timing, observations=obs))
@@ -211,18 +245,24 @@ def _extract(recording, sources, model_dir, packet_factory, observer_factory):
         for artifact in observer.model_artifacts.values():
             sources.path(artifact)
     _require(bool(inventory), "no_delivered_frames")
-    by_ts = {r["ts_ms"]: r for r in inventory}
+    by_ts = {}
+    for row in inventory:
+        by_ts.setdefault(row["ts_ms"], []).append(row)
     selected_boundaries = {s[k] for s in recording["segments"]
                            for k in ("hold_start_marker_index", "hold_end_marker_index")}
     bindings = []
     for i in sorted(selected_boundaries):
         mark, ts = marks[i], times[i]
         _require(ts in by_ts, "marker_not_bound_to_native_frame")
+        candidates = by_ts[ts]
         number = mark.get("color_frame_number")
         if number not in (None, "", "None"):
-            _require(float(number) == by_ts[ts]["color_frame_number"], "marker_color_frame_number_mismatch")
-        bindings.append(dict(marker_index=i, ts_ms=ts, frame_index=by_ts[ts]["frame_index"],
-                             color_frame_number=by_ts[ts]["color_frame_number"]))
+            candidates = [r for r in candidates if float(number) == r["color_frame_number"]]
+            _require(bool(candidates), "marker_color_frame_number_mismatch")
+        _require(len(candidates) == 1, "marker_native_frame_binding_ambiguous")
+        bound = candidates[0]
+        bindings.append(dict(marker_index=i, ts_ms=ts, frame_index=bound["frame_index"],
+                             color_frame_number=bound["color_frame_number"]))
     sources.recheck()
     return dict(recording=recording, raw=raw, markers=marker_path, camera=camera,
                 producer=producer, observations=observations, inventory=inventory,
@@ -273,12 +313,14 @@ def generate_evaluation_input(request_path, *, request_sha256, output_root, mode
             directory.mkdir(parents=True)
             settings = dict(raw_extraction_applied=True, trim_start_s=0, trim_end_s=0,
                             depth_alignment_target=None, f0_observations_only=True,
-                            full_observations_preserved=True, canonical_projection="explicit_hold_intervals")
+                            full_observations_preserved=True, canonical_projection="explicit_hold_intervals",
+                            native_clock_validation="sensor-identity-and-payload-progress-v1")
             proof = dict(request=_pin(request_path), capture_producer=data["producer"],
                          generator=file_identity(__file__), backend=data["backend"],
                          marker_bindings=data["marker_bindings"],
                          dependencies={name: file_identity(module.__file__) for name, module in
-                                       (("canonical", canonical), ("live_observation", live))})
+                                       (("canonical", canonical), ("live_observation", live),
+                                        ("input_validation", input_validation))})
             observations = directory / "all_observations.jsonl"
             with observations.open("x", encoding="utf-8") as stream:
                 for obs in data["observations"]:

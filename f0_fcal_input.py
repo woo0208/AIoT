@@ -32,6 +32,61 @@ def _finite(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
+class _ReplayClock:
+    """Validate composite time without mistaking a reused child for a duplicate set.
+
+    Legacy inventories without sensor evidence still require strictly increasing
+    time. Equal composite time needs an unchanged child and a different advancing
+    child, with original sensor identities and payload hashes preserved.
+    """
+
+    def __init__(self):
+        self.previous = None
+        self.domain = None
+        self.streams = {}
+
+    def accept(self, ts, domain, streams=None):
+        _require(streams is None or isinstance(streams, dict), "native_sensor_evidence_invalid")
+        _require(_finite(ts) and (self.previous is None or ts >= self.previous),
+                 "replay_timestamp_invalid_or_nonmonotonic")
+        _require(isinstance(domain, str) and bool(domain), "replay_clock_domain_missing")
+        self.domain = self.domain or domain
+        _require(domain == self.domain, "replay_clock_domain_changed")
+        equal = self.previous is not None and ts == self.previous
+        advanced, repeated_clock_child, clock_child, present = False, False, False, False
+        for name in ("color", "depth"):
+            current = (streams or {}).get(name)
+            if current is None:
+                continue
+            _require(isinstance(current, dict), "native_sensor_evidence_invalid")
+            present = True
+            number, stamp = current.get("frame_number"), current.get("timestamp_ms")
+            child_domain, digest = current.get("timestamp_domain"), current.get("payload_sha256")
+            _require(type(number) is int and number >= 0 and _finite(stamp) and
+                     isinstance(child_domain, str) and bool(child_domain) and
+                     isinstance(digest, str) and len(digest) == 64 and
+                     all(c in "0123456789abcdef" for c in digest), "native_sensor_evidence_invalid")
+            old = self.streams.get(name)
+            clock_match = stamp == ts and child_domain == domain
+            clock_child |= clock_match
+            if old is not None:
+                _require(child_domain == old["timestamp_domain"], "native_sensor_clock_domain_changed")
+                _require(number >= old["frame_number"], "native_sensor_number_reversed")
+                if number == old["frame_number"]:
+                    _require(current == old, "native_sensor_reuse_identity_or_payload_mismatch")
+                    repeated_clock_child |= clock_match
+                else:
+                    _require(stamp > old["timestamp_ms"], "native_sensor_time_not_increasing")
+                    advanced = True
+            else:
+                advanced = True
+            self.streams[name] = dict(current)
+        _require(not present or clock_child, "frameset_clock_not_bound_to_sensor")
+        _require(not equal or (advanced and repeated_clock_child),
+                 "replay_timestamp_equal_without_verified_sensor_progress")
+        self.previous = ts
+
+
 @dataclass(frozen=True)
 class LoadedInput:
     status: str
@@ -160,14 +215,14 @@ def _load_segment(entry, sources):
              "inventory_does_not_cover_hold")
     delivered = inventory.get("frames")
     _require(isinstance(delivered, list), "delivered_frame_list_missing")
-    indexed, previous = {}, None
+    indexed, replay_clock = {}, _ReplayClock()
     for frame in delivered:
         _require(isinstance(frame, dict) and type(frame.get("frame_index")) is int and
                  frame["frame_index"] >= 1 and _finite(frame.get("ts_ms")), "inventory_frame_invalid")
         idx, ts = frame["frame_index"], frame["ts_ms"]
-        _require(idx not in indexed and (previous is None or ts > previous),
-                 "duplicate_or_nonmonotonic_inventory")
-        indexed[idx], previous = ts, ts
+        _require(idx not in indexed, "duplicate_or_nonmonotonic_inventory")
+        replay_clock.accept(ts, inventory["clock_domain"], frame.get("native_streams"))
+        indexed[idx] = ts
 
     rows = read_canonical_frame_rows(str(paths["frames"]))
     frame_ids = set()

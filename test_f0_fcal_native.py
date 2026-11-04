@@ -1,20 +1,23 @@
 """Synthetic packet replay only. Never opens an SDK recording or model."""
 
 from contextlib import contextmanager
+from dataclasses import replace
 import csv
 import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace as NS
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
 import capture_d455
 from f1_csv_adapter import read_canonical_frame_rows
 from f0_fcal_native import (
-    REQUEST_INTERFACE, generate_evaluation_input, observation_from_results,
+    REQUEST_INTERFACE, NativePackets, generate_evaluation_input, observation_from_results, native_observer,
 )
+from f0_fcal_input import _ReplayClock, InsufficientInput
 from research_recording import RGBDPacket
 from rf_experiment import file_identity
 
@@ -59,6 +62,19 @@ class SyntheticPackets:
                 mediapipe_ts_ms=ts if color is not None else None,
                 host_monotonic_ns=n, host_utc="synthetic-host-time"))
         self.completed = self.finish
+
+
+class ReusedDepthPackets(SyntheticPackets):
+    """A new RGB child paired with the same depth child and composite time."""
+    def __iter__(self):
+        for n, packet in enumerate(super().__iter__()):
+            if n < 2:
+                timing = dict(packet.timing)
+                timing['depth'] = dict(frame_number=1, timestamp_ms=0, timestamp_domain='synthetic_clock',
+                                       height=4, width=6, format='z16')
+                timing['frameset_timestamp_ms'] = 0
+                packet = replace(packet, depth_z16=np.zeros((4, 6), dtype=np.uint16), timing=timing)
+            yield packet
 
 
 @contextmanager
@@ -157,6 +173,25 @@ class NativeGenerationTests(unittest.TestCase):
         self.assertEqual(clock["provenance"]["request"]["sha256"], pin(self.request_path)["sha256"])
         self.assertEqual(owner["outputs"][0]["sha256"], pin(directory / "f0_frames.csv")["sha256"])
 
+    def test_verified_reused_child_survives_extraction_and_inventory_loader(self):
+        result = self.run_generation(ReusedDepthPackets)
+        self.assertEqual(result.status, 'prepared', result.reasons)
+        directory = self.root / 'output/analysis/SYN01/ar_SYN01'
+        inventory = json.loads((directory / 'input_inventory.json').read_text())['frames']
+        self.assertEqual(len(inventory), 89)
+        self.assertEqual([r['ts_ms'] for r in inventory[:2]], [0, 0])
+        self.assertEqual([r['color_frame_number'] for r in inventory[:2]], [1, 2])
+        self.assertEqual(inventory[0]['native_streams']['depth'], inventory[1]['native_streams']['depth'])
+        clock = json.loads((directory / 'clock_evidence.json').read_text())
+        self.assertEqual(clock['provenance']['marker_bindings'][0]['frame_index'], 1)
+
+    def test_repeated_timestamp_marker_requires_unique_color_binding(self):
+        self.marks[0]['color_frame_number'] = None
+        result = self.run_generation(ReusedDepthPackets)
+        self.assertEqual(result.status, 'unprocessed')
+        self.assertIn('marker_native_frame_binding_ambiguous', result.reasons[0])
+        self.assertFalse((self.root / 'output').exists())
+
     def test_missing_end_timestamp_does_not_open_reader_or_write(self):
         self.marks[-1]["frame_timestamp_ms"] = None
         def forbidden(path):
@@ -199,6 +234,77 @@ class NativeGenerationTests(unittest.TestCase):
         result = self.run_generation()
         self.assertIn("fixed_first_P0_reference", result.reasons[0])
         self.assertFalse((self.root / "output").exists())
+
+
+class CompositeClockTests(unittest.TestCase):
+    def stream(self, number, ts, digest='a' * 64):
+        return dict(frame_number=number, timestamp_ms=ts, timestamp_domain='clock',
+                    payload_sha256=digest, height=4, width=6, format='synthetic')
+
+    def test_new_depth_with_reused_rgb_is_kept_then_new_rgb_with_reused_depth(self):
+        clock = _ReplayClock()
+        color, depth = self.stream(1, 100), self.stream(1, 100)
+        clock.accept(100, 'clock', dict(color=color, depth=depth))
+        depth = self.stream(2, 200)
+        clock.accept(200, 'clock', dict(color=color, depth=depth))
+        clock.accept(200, 'clock', dict(color=self.stream(2, 210), depth=depth))
+        self.assertEqual(clock.previous, 200)
+        self.assertEqual(clock.streams['color']['timestamp_ms'], 210)
+
+    def test_ambiguous_time_reset_domain_and_reuse_corruption_are_rejected(self):
+        cases = [
+            (100, 'clock', dict(color=self.stream(1,100), depth=self.stream(1,100))),
+            (99, 'clock', dict(color=self.stream(2,99))),
+            (200, 'other', dict(color=self.stream(2,200))),
+            (200, 'clock', dict(color=self.stream(1,100,'b'*64), depth=self.stream(2,200))),
+            (100, 'clock', dict(color=self.stream(2,100))),
+            (200, 'clock', dict(color=self.stream(0,200))),
+            (200, 'clock', dict(color=self.stream(2,210))),
+            (100, 'clock', None),
+            (100, 'clock', []),
+            (100, 'clock', dict(color='invalid')),
+        ]
+        for ts, domain, streams in cases:
+            with self.subTest(ts=ts, domain=domain, streams=streams):
+                clock = _ReplayClock()
+                clock.accept(100, 'clock', dict(color=self.stream(1,100), depth=self.stream(1,100)))
+                with self.assertRaises(InsufficientInput):
+                    clock.accept(ts, domain, streams)
+
+    def test_native_reader_does_not_increment_reused_color_time(self):
+        packets = list(SyntheticPackets('synthetic'))[:2]
+        timing = dict(packets[1].timing, color=dict(packets[0].timing['color']), mediapipe_ts_ms=1)
+        packets[1] = replace(packets[1], timing=timing)
+        reader = NativePackets('not opened')
+        reader.pipe = NS(try_wait_for_frames=lambda timeout: next(events))
+        reader.rs = NS(playback_status=NS(stopped='stopped'))
+        reader.playback = NS(current_status=lambda: 'stopped')
+        events = iter([(True, 1), (True, 2), (False, None)])
+        with patch('f0_fcal_native.PacketSource') as source:
+            source.return_value.receive.side_effect = packets
+            actual = list(reader)
+        self.assertEqual([p.timing['mediapipe_ts_ms'] for p in actual], [0, 0])
+        self.assertTrue(reader.completed)
+
+    def test_native_observer_reuses_observation_without_advancing_model_time(self):
+        calls = []
+        @contextmanager
+        def fake_observer(paths):
+            yield NS(face_detector=NS(detect=lambda image: None),
+                     pose_detector=NS(detect_for_video=lambda image, ts: calls.append(ts)))
+        packets = list(SyntheticPackets('synthetic'))[:2]
+        reused = replace(packets[1], timing=dict(packets[1].timing,
+            color=dict(packets[0].timing['color']), mediapipe_ts_ms=0))
+        with patch('f0_fcal_native.live.verified_model_paths', return_value={}), \
+             patch('f0_fcal_native.open_observer', fake_observer), native_observer('unused') as observer:
+            first = observer.observe(packets[0])
+            self.assertEqual(observer.observe(reused), first)
+            self.assertEqual(calls, [0])
+            self.assertEqual(observer.observe(packets[1]), first)
+            self.assertEqual(calls, [0, 250])
+            corrupt = replace(packets[1], color_bgr=np.ones_like(packets[1].color_bgr))
+            with self.assertRaisesRegex(InsufficientInput, 'native_color_reuse_mismatch'):
+                observer.observe(corrupt)
 
 
 if __name__ == "__main__":
