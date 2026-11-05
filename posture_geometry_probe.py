@@ -40,6 +40,7 @@ import posture_geometry as geometry
 import posture_3d_viewer as viewer
 import posture_pyvista_viewer as pyvista_viewer
 import probe_timing
+import performance_output
 
 
 WINDOW_NAME = "Exploratory D455 posture geometry probe"
@@ -473,11 +474,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
               "and verified once at startup; requires --f1-live; display only, "
               "no file output, not a research or medical classifier"),
     )
+    parser.add_argument('--six-class-synthetic-demo', action='store_true',
+                        help='standalone Korean six-class SYNTHETIC DEMO; no camera or model execution')
     parser.add_argument('--h9-model',default=None,metavar='PATH',
                         help='optional separate H9+M0 development window display; no automatic transition/P5 detection')
     parser.add_argument('--h9-recording-id',default=None,help='engineering H9 stream identifier')
     parser.add_argument('--h9-subject',default=None,help='engineering H9 identifier; default unknown')
     parser.add_argument('--timing-output',default=None,metavar='PATH',help='new host timing/resource JSON; never overwrite')
+    parser.add_argument('--performance-output-dir', default=None, metavar='NEW_DIR',
+                        help='opt-in non-formal performance JSON/events/four CSVs in a new directory')
+    parser.add_argument('--performance-data-id', default='live-unlabelled-engineering',
+                        help='engineering input identifier; no research dataset role is assigned')
     parser.add_argument('--timing-warmup-frames',type=int,default=0,
                         help='report these initial processed frame timings separately; inputs/inference unchanged')
     parser.add_argument('--timing-h9-warmup-calls',type=int,default=1,
@@ -491,9 +498,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error(str(exc))
     if (args.h9_recording_id is not None or args.h9_subject is not None) and args.h9_model is None:
         parser.error('--h9-recording-id/--h9-subject require --h9-model')
-    if args.timing_warmup_frames < 0 or (args.timing_warmup_frames and args.timing_output is None):
+    if args.timing_warmup_frames < 0 or (args.timing_warmup_frames and args.timing_output is None and args.performance_output_dir is None):
         parser.error('--timing-warmup-frames requires --timing-output and a nonnegative count')
-    if args.timing_h9_warmup_calls < 0 or (args.timing_h9_warmup_calls != 1 and args.timing_output is None):
+    if args.timing_h9_warmup_calls < 0 or (args.timing_h9_warmup_calls != 1 and args.timing_output is None and args.performance_output_dir is None):
         parser.error('--timing-h9-warmup-calls requires --timing-output and a nonnegative count')
     if args.pyvista_anchor != pyvista_viewer.VIEW_ANCHOR_SHOULDER and not args.pyvista:
         parser.error("--pyvista-anchor requires --pyvista")
@@ -2143,6 +2150,8 @@ def run_probe(
     timing_warmup_frames: int = 0,
     timing_h9_warmup_calls: int = 1,
     duration_seconds: float | None = None,
+    performance_output_dir: str | None = None,
+    performance_data_id: str = 'live-unlabelled-engineering',
 ) -> None:
     """Run the live D455/MediaPipe loop.  Hardware dependencies load only here.
 
@@ -2163,77 +2172,116 @@ def run_probe(
 
     if (h9_recording_id is not None or h9_subject is not None) and h9_model_path is None:
         raise ValueError('H9 stream identifiers require h9_model_path')
-    if timing_warmup_frames < 0 or (timing_warmup_frames and timing_output_path is None):
+    if timing_warmup_frames < 0 or (timing_warmup_frames and timing_output_path is None and performance_output_dir is None):
         raise ValueError('timing warmup requires timing output and nonnegative frames')
-    if timing_h9_warmup_calls < 0 or (timing_h9_warmup_calls != 1 and timing_output_path is None):
+    if timing_h9_warmup_calls < 0 or (timing_h9_warmup_calls != 1 and timing_output_path is None and performance_output_dir is None):
         raise ValueError('H9 timing warmup requires timing output and nonnegative calls')
-    metrics = (probe_timing.ProbeMetrics(timing_output_path,warmup_frames=timing_warmup_frames,
-               h9_warmup_calls=timing_h9_warmup_calls,
-               metadata=dict(purpose='non-formal engineering probe timing',h9_enabled=h9_model_path is not None,
-                             f1_live=f1_live,f1_demo_enabled=rf_demo_model_path is not None,
-                             views=show_3d_views,pyvista=pyvista_view,csv_enabled=csv_path is not None,
-                             face_diag_enabled=face_diag_csv_path is not None,upper13_enabled=upper13_csv_path is not None,
-                             callback_enabled=frame_callback is not None))
-               if timing_output_path is not None else None)
+    probe_timing.ProbeRunControl(duration_seconds)
+    performance = None
+    if performance_output_dir is not None:
+        for output_path in (csv_path, face_diag_csv_path, upper13_csv_path, session_meta_json_path):
+            if output_path is not None and os.path.lexists(os.path.abspath(output_path)):
+                raise FileExistsError(os.path.abspath(output_path))
+        if type(timing_warmup_frames) is not int or type(timing_h9_warmup_calls) is not int:
+            raise ValueError('performance warmup counts must be nonnegative integers')
+        options = dict(locals())
+        # Output locations/stream labels are identity metadata, not processing configuration.
+        for name in ('csv_path', 'face_diag_csv_path', 'upper13_csv_path', 'session_meta_json_path',
+                     'timing_output_path', 'performance_output_dir', 'performance_data_id',
+                     'subject', 'recording_id', 'h9_subject', 'h9_recording_id', 'performance', 'output_path'):
+            options.pop(name, None)
+        for name, value in (('csv_enabled', csv_path), ('face_diag_enabled', face_diag_csv_path),
+                            ('upper13_enabled', upper13_csv_path), ('callback_enabled', frame_callback)):
+            options[name] = value is not None
+        options.pop('frame_callback')
+        # Model bytes are pinned independently, so output paths do not define a model identity.
+        options['h9_enabled'] = options.pop('h9_model_path') is not None
+        options['rf_demo_enabled'] = options.pop('rf_demo_model_path') is not None
+        performance = performance_output.PerformanceRecorder(
+            performance_output_dir, config=options, data_id=performance_data_id,
+            timing_path=timing_output_path,
+            other_paths=(csv_path, face_diag_csv_path, upper13_csv_path, session_meta_json_path,
+                         h9_model_path, rf_demo_model_path))
+        if timing_output_path is None:
+            timing_output_path = str(performance.directory / 'host_timing.json')
+    try:
+        metrics = (probe_timing.ProbeMetrics(timing_output_path,warmup_frames=timing_warmup_frames,
+                   h9_warmup_calls=timing_h9_warmup_calls,
+                   performance=performance,
+                   metadata=dict(purpose='non-formal engineering probe timing',h9_enabled=h9_model_path is not None,
+                                 f1_live=f1_live,f1_demo_enabled=rf_demo_model_path is not None,
+                                 views=show_3d_views,pyvista=pyvista_view,csv_enabled=csv_path is not None,
+                                 face_diag_enabled=face_diag_csv_path is not None,upper13_enabled=upper13_csv_path is not None,
+                                 callback_enabled=frame_callback is not None))
+                   if timing_output_path is not None else None)
+    except BaseException as exc:
+        if performance is not None:
+            performance.fail_setup(exc)
+        raise
     control = probe_timing.ProbeRunControl(duration_seconds,**(dict(clock_ns=metrics.clock_ns) if metrics is not None else {}))
     h9 = None
     h9_ui = None
-    if h9_model_path is not None:
-        import h9_probe_session as h9_ui
-        h9 = h9_ui.H9ProbeSession(h9_model_path,recording_id=h9_recording_id or 'h9-probe-development',
-                                 subject=h9_subject or 'unknown',metrics=metrics)
-
-    import cv2
-    import mediapipe as mp
-    import numpy as np
-    import pyrealsense2 as rs
-    from mediapipe.tasks import python as mpt
-    from mediapipe.tasks.python import vision
-
-    import analyze_d455
-    import capture_d455
-
-    if pyvista_view:
-        # Fail before opening the camera when the optional viewer is absent.
-        pyvista_viewer.require_pyvista()
-
-    rf_demo_state = None
-    if rf_demo_model_path is not None:
-        # Verified once; every frame reuses this same in-memory model.
-        rf_demo_state = load_rf_demo_model(rf_demo_model_path)
-        print(f"[probe] RF demo model {rf_demo_state.status}: "
-              f"{rf_demo_state.artifact_name} ({rf_demo_state.detail})")
-
-    model_paths = analyze_d455.ensure_models()
-    pose_options = vision.PoseLandmarkerOptions(
-        base_options=mpt.BaseOptions(model_asset_path=model_paths["pose"]),
-        running_mode=vision.RunningMode.VIDEO,
-        num_poses=analyze_d455.POSE_NUM_POSES,
-    )
-    face_options = vision.FaceLandmarkerOptions(
-        base_options=mpt.BaseOptions(model_asset_path=model_paths["mesh"]),
-        running_mode=vision.RunningMode.VIDEO,
-        num_faces=analyze_d455.FACE_NUM_FACES,
-        output_facial_transformation_matrixes=True,
-    )
-    face_detector_options = None
-    if f1_live:
-        # Same locked model and options as analyze_d455 (default IMAGE mode).
-        face_detector_options = vision.FaceDetectorOptions(
-            base_options=mpt.BaseOptions(model_asset_path=model_paths["face"]),
-            min_detection_confidence=analyze_d455.FACE_MIN_DETECTION_CONFIDENCE,
-        )
-
     csv_handle = csv_writer = None
     face_diag_handle = face_diag_writer = None
     upper13_handle = upper13_writer = None
-    pipeline = rs.pipeline()
+    cv2 = None
+    pipeline = None
     profile = None
     pose_landmarker = None
     face_landmarker = None
     face_detector = None
     pyvista_window = None
     try:
+        if h9_model_path is not None:
+            import h9_probe_session as h9_ui
+            h9 = h9_ui.H9ProbeSession(h9_model_path,recording_id=h9_recording_id or 'h9-probe-development',
+                                     subject=h9_subject or 'unknown',metrics=metrics)
+
+        import cv2
+        import mediapipe as mp
+        import numpy as np
+        import pyrealsense2 as rs
+        from mediapipe.tasks import python as mpt
+        from mediapipe.tasks.python import vision
+
+        import analyze_d455
+        import capture_d455
+
+        if pyvista_view:
+            # Fail before opening the camera when the optional viewer is absent.
+            pyvista_viewer.require_pyvista()
+
+        rf_demo_state = None
+        if rf_demo_model_path is not None:
+            # Verified once; every frame reuses this same in-memory model.
+            rf_demo_state = load_rf_demo_model(rf_demo_model_path)
+            print(f"[probe] RF demo model {rf_demo_state.status}: "
+                  f"{rf_demo_state.artifact_name} ({rf_demo_state.detail})")
+
+        model_paths = analyze_d455.ensure_models()
+        if performance is not None:
+            performance.pin_models(dict(pose=model_paths['pose'], mesh=model_paths['mesh'],
+                                        face=model_paths['face'] if f1_live else None,
+                                        h9=h9_model_path, rf_demo=rf_demo_model_path))
+        pose_options = vision.PoseLandmarkerOptions(
+            base_options=mpt.BaseOptions(model_asset_path=model_paths["pose"]),
+            running_mode=vision.RunningMode.VIDEO,
+            num_poses=analyze_d455.POSE_NUM_POSES,
+        )
+        face_options = vision.FaceLandmarkerOptions(
+            base_options=mpt.BaseOptions(model_asset_path=model_paths["mesh"]),
+            running_mode=vision.RunningMode.VIDEO,
+            num_faces=analyze_d455.FACE_NUM_FACES,
+            output_facial_transformation_matrixes=True,
+        )
+        face_detector_options = None
+        if f1_live:
+            # Same locked model and options as analyze_d455 (default IMAGE mode).
+            face_detector_options = vision.FaceDetectorOptions(
+                base_options=mpt.BaseOptions(model_asset_path=model_paths["face"]),
+                min_detection_confidence=analyze_d455.FACE_MIN_DETECTION_CONFIDENCE,
+            )
+        pipeline = rs.pipeline()
         if metrics is not None:
             metrics.start()
         csv_handle, csv_writer = _open_csv(csv_path)
@@ -2243,6 +2291,8 @@ def run_probe(
         )
         with _timed(metrics, 'startup.pipeline'):
             profile = pipeline.start(capture_d455.make_config())
+        if performance is not None:
+            performance.device_environment(profile, rs)
         align = rs.align(rs.stream.color)
         depth_scale_m = profile.get_device().first_depth_sensor().get_depth_scale()
         color_intrinsics = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
@@ -2317,6 +2367,8 @@ def run_probe(
                     ready, frames = pipeline.try_wait_for_frames(h9_ui.FRAME_WAIT_TIMEOUT_MS if h9 is not None else 250)
             source_id = frames.get_frame_number() if ready and metrics is not None and hasattr(frames, 'get_frame_number') else None
             token = metrics.input_received(source_id) if ready and metrics is not None else None
+            if ready and performance is not None:
+                performance.sensor_frames(token, frames)
             if not ready and metrics is not None:
                 metrics.receive_timeout()
             if control.deadline_reached():
@@ -2362,6 +2414,8 @@ def run_probe(
                 last_mediapipe_timestamp_ms = timestamp_ms
                 frame_index += 1
 
+            if performance is not None:
+                performance.event('frame_started', token=token, frame_id=frame_index)
             # Both Tasks consume the exact same RGB image and MediaPipe timestamp.
             inference_kwargs = dict(timing=metrics, frame_id=frame_index) if metrics is not None else {}
             pose_result, face_result = run_frame_inference(
@@ -2541,7 +2595,8 @@ def run_probe(
         if profile is not None:
             actions.append(pipeline.stop)
         actions += [obj.close for obj in (csv_handle, face_diag_handle, upper13_handle, pyvista_window) if obj is not None]
-        actions.append(cv2.destroyAllWindows)
+        if cv2 is not None:
+            actions.append(cv2.destroyAllWindows)
         for close in actions:
             try:
                 close()
@@ -2563,6 +2618,10 @@ def run_probe(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.six_class_synthetic_demo:
+        from prediction_adapter import run_synthetic_demo
+        run_synthetic_demo()
+        return 0
     run_probe(
         args.csv,
         subject=args.subject,
@@ -2587,6 +2646,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         timing_warmup_frames=args.timing_warmup_frames,
         timing_h9_warmup_calls=args.timing_h9_warmup_calls,
         duration_seconds=args.duration_seconds,
+        performance_output_dir=args.performance_output_dir,
+        performance_data_id=args.performance_data_id,
     )
     return 0
 

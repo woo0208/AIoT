@@ -95,7 +95,8 @@ class ProbeMetrics:
     """
 
     def __init__(self, output_path, *, warmup_frames=0, h9_warmup_calls=1, clock_ns=time.monotonic_ns,
-                 cpu_clock_ns=time.process_time_ns, memory_reader=process_memory, metadata=None):
+                 cpu_clock_ns=time.process_time_ns, memory_reader=process_memory, metadata=None,
+                 performance=None):
         self.output_path = Path(output_path)
         if self.output_path.exists() or self.output_path.is_symlink():
             raise FileExistsError(f'refusing to overwrite timing output: {self.output_path}')
@@ -109,6 +110,7 @@ class ProbeMetrics:
         self.h9_warmup_calls = h9_warmup_calls
         self.clock_ns,self.cpu_clock_ns,self.memory_reader = clock_ns,cpu_clock_ns,memory_reader
         self.metadata = dict(metadata or {})
+        self.performance = performance
         self._lock = threading.RLock()
         self._stages = defaultdict(list)
         self._warmup = defaultdict(list)
@@ -138,6 +140,10 @@ class ProbeMetrics:
                 phase = 'warmup' if frame_id is not None and frame_id <= self.warmup_frames else 'steady'
             bucket = {'collection':self._collection,'warmup':self._warmup,'steady':self._stages}[phase]
             bucket[name].append(duration_ns/1_000_000)
+            if self.performance is not None:
+                self.performance.event('stage', name=name, duration_ns=duration_ns,
+                                       frame_id=frame_id, phase=phase,
+                                       host_monotonic_ns=self.clock_ns())
 
     @contextmanager
     def h9_stage(self,name,*,collecting=False):
@@ -175,10 +181,21 @@ class ProbeMetrics:
                     collection_start_host_ms=prediction['accumulation_start_host_ms'],
                     collection_start_to_ready_ms=(now-origin)/1_000_000,
                     stream_start_to_ready_ms=(now-self._stream_start)/1_000_000 if self._stream_start is not None else None)
+            if self.performance is not None:
+                prediction = row['display_prediction']
+                self.performance.event('h9_prediction_ready', name='h9.prediction',
+                                       prediction_id=prediction['prediction_id'],
+                                       frame_id=prediction.get('source_last_input_frame_index'),
+                                       host_monotonic_ns=self.clock_ns())
 
     def h9_ui_submitted(self,prediction,now):
         """First displayed prediction may differ from the first generated one."""
         with self._lock:
+            if self.performance is not None:
+                self.performance.event('h9_ui_submit', name='h9.ui_submit',
+                                       prediction_id=prediction['prediction_id'],
+                                       frame_id=prediction.get('source_last_input_frame_index'),
+                                       host_monotonic_ns=now)
             if self._first_h9_ui is None:
                 origin = int(Decimal(prediction['accumulation_start_host_ms'])*1_000_000)
                 self._first_h9_ui = dict(prediction_id=prediction['prediction_id'],
@@ -222,6 +239,8 @@ class ProbeMetrics:
                 row['cpu_one_core_percent'] = None
             self._last_resource = now,cpu,phase
             self._resources.append(row)
+            if self.performance is not None:
+                self.performance.event('resource', **row)
 
     def begin_stream(self):
         self._stream_start = self.clock_ns()
@@ -238,6 +257,9 @@ class ProbeMetrics:
             self._counts['input_framesets'] += 1
             token = self._counts['input_framesets']
             self._pending[token] = self.clock_ns()
+            if self.performance is not None:
+                self.performance.event('input', token=token, source_frameset_number=source_id,
+                                       host_monotonic_ns=self._pending[token])
             if type(source_id) is int:
                 self._counts['source_duplicate_ids'] += int(source_id in self._source_ids)
                 if self._last_source_id is not None:
@@ -250,26 +272,37 @@ class ProbeMetrics:
             return token
 
     def receive_timeout(self):
-        with self._lock:self._counts['receive_timeouts'] += 1
+        with self._lock:
+            self._counts['receive_timeouts'] += 1
+            if self.performance is not None:
+                self.performance.event('receive_timeout', host_monotonic_ns=self.clock_ns())
 
     def invalid_pair(self,token):
         with self._lock:
             self._counts['missing_color_or_depth'] += 1
             self._pending.pop(token,None)
+            if self.performance is not None:
+                self.performance.event('invalid_pair', token=token)
 
     def skip_at_deadline(self,token):
         with self._lock:
             self._counts['duration_boundary_frames_skipped'] += 1
             self._pending.pop(token,None)
+            if self.performance is not None:
+                self.performance.event('deadline_skip', token=token)
 
     def ui_submitted(self,token,frame_id):
         with self._lock:
             self.record_ns('latency.host_receive_to_ui_submit',self.clock_ns()-self._pending[token],frame_id)
+            if self.performance is not None:
+                self.performance.event('ui_submit', token=token, frame_id=frame_id)
 
     def frame_completed(self,token,frame_id):
         with self._lock:
             self.record_ns('frame.processing',self.clock_ns()-self._pending.pop(token),frame_id)
             self._counts['processed_frames'] += 1
+            if self.performance is not None:
+                self.performance.event('frame_completed', token=token, frame_id=frame_id)
 
     def finish(self,*,error=None,cleanup_errors=(),termination=None):
         if self._finished:
@@ -338,7 +371,14 @@ class ProbeMetrics:
                                  'CPU uses one-core=100%; divide by logical_cpus for machine-normalized percent.',
                                  'RAM is this process working set/private memory; external browser/GPU memory is excluded.',
                                  'UI endpoint is application submission, not physical display or sensor-to-screen latency.'])
-            with self.output_path.open('x',encoding='utf-8') as stream:
-                json.dump(report,stream,ensure_ascii=False,allow_nan=False,indent=2);stream.write('\n')
+            try:
+                with self.output_path.open('x',encoding='utf-8') as stream:
+                    json.dump(report,stream,ensure_ascii=False,allow_nan=False,indent=2);stream.write('\n')
+            except Exception as exc:
+                if self.performance is not None:
+                    self.performance.finish(report, timing_error=exc)
+                raise
+            if self.performance is not None:
+                self.performance.finish(report)
             self._finished = True
         return report
