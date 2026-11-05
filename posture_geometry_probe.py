@@ -481,6 +481,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument('--h9-recording-id',default=None,help='engineering H9 stream identifier')
     parser.add_argument('--h9-subject',default=None,help='engineering H9 identifier; default unknown')
     parser.add_argument('--timing-output',default=None,metavar='PATH',help='new host timing/resource JSON; never overwrite')
+    parser.add_argument('--headless', action='store_true',
+                        help='opt-in engineering mode: skip built-in UI rendering/imshow/waitKey; requires duration')
+    parser.add_argument('--engineering-diagnostics-dir', default=None, metavar='NEW_DIR',
+                        help='opt-in independent perf_counter_ns diagnostic sidecar; requires timing/performance')
+    parser.add_argument('--frame-provenance-dir', default=None, metavar='NEW_DIR',
+                        help='opt-in raw/aligned SDK metadata sidecar; requires duration and timing/performance')
     parser.add_argument('--performance-output-dir', default=None, metavar='NEW_DIR',
                         help='opt-in non-formal performance JSON/events/four CSVs in a new directory')
     parser.add_argument('--performance-data-id', default='live-unlabelled-engineering',
@@ -496,6 +502,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         probe_timing.ProbeRunControl(args.duration_seconds)
     except ValueError as exc:
         parser.error(str(exc))
+    if args.headless and (args.duration_seconds is None or args.pyvista or args.views not in (None, 'none')
+                          or args.six_class_synthetic_demo):
+        parser.error('--headless requires duration and no optional UI/synthetic-demo')
+    if args.engineering_diagnostics_dir is not None and args.timing_output is None and args.performance_output_dir is None:
+        parser.error('--engineering-diagnostics-dir requires timing/performance output')
+    if args.frame_provenance_dir is not None and (args.duration_seconds is None or
+            (args.timing_output is None and args.performance_output_dir is None)):
+        parser.error('--frame-provenance-dir requires duration and timing/performance output')
     if (args.h9_recording_id is not None or args.h9_subject is not None) and args.h9_model is None:
         parser.error('--h9-recording-id/--h9-subject require --h9-model')
     if args.timing_warmup_frames < 0 or (args.timing_warmup_frames and args.timing_output is None and args.performance_output_dir is None):
@@ -2152,6 +2166,9 @@ def run_probe(
     duration_seconds: float | None = None,
     performance_output_dir: str | None = None,
     performance_data_id: str = 'live-unlabelled-engineering',
+    headless: bool = False,
+    diagnostics_output_dir: str | None = None,
+    frame_provenance_dir: str | None = None,
 ) -> None:
     """Run the live D455/MediaPipe loop.  Hardware dependencies load only here.
 
@@ -2177,6 +2194,22 @@ def run_probe(
     if timing_h9_warmup_calls < 0 or (timing_h9_warmup_calls != 1 and timing_output_path is None and performance_output_dir is None):
         raise ValueError('H9 timing warmup requires timing output and nonnegative calls')
     probe_timing.ProbeRunControl(duration_seconds)
+    if headless and (duration_seconds is None or pyvista_view or show_3d_views not in (None, False, 'none')):
+        raise ValueError('headless requires duration and no optional UI')
+    if diagnostics_output_dir is not None and timing_output_path is None and performance_output_dir is None:
+        raise ValueError('diagnostics require timing/performance output')
+    if frame_provenance_dir is not None:
+        if duration_seconds is None or (timing_output_path is None and performance_output_dir is None):
+            raise ValueError('frame provenance requires duration and timing/performance output')
+        performance_output.validate_paths(frame_provenance_dir, None,
+            tuple(p for p in (diagnostics_output_dir, timing_output_path, performance_output_dir, csv_path,
+                face_diag_csv_path, upper13_csv_path, session_meta_json_path, h9_model_path, rf_demo_model_path) if p is not None))
+    if diagnostics_output_dir is not None:
+        performance_output.validate_paths(diagnostics_output_dir, None,
+            (timing_output_path, performance_output_dir, csv_path, face_diag_csv_path, upper13_csv_path,
+             session_meta_json_path, h9_model_path, rf_demo_model_path))
+    diagnostics = None
+    provenance = None
     performance = None
     if performance_output_dir is not None:
         for output_path in (csv_path, face_diag_csv_path, upper13_csv_path, session_meta_json_path):
@@ -2188,8 +2221,15 @@ def run_probe(
         # Output locations/stream labels are identity metadata, not processing configuration.
         for name in ('csv_path', 'face_diag_csv_path', 'upper13_csv_path', 'session_meta_json_path',
                      'timing_output_path', 'performance_output_dir', 'performance_data_id',
-                     'subject', 'recording_id', 'h9_subject', 'h9_recording_id', 'performance', 'output_path'):
+                     'subject', 'recording_id', 'h9_subject', 'h9_recording_id', 'performance', 'output_path',
+                     'diagnostics', 'diagnostics_output_dir', 'provenance', 'frame_provenance_dir'):
             options.pop(name, None)
+        if not headless:
+            options.pop('headless')
+        if diagnostics_output_dir is not None:
+            options['engineering_diagnostics_enabled'] = True
+        if frame_provenance_dir is not None:
+            options['frame_provenance_enabled'] = True
         for name, value in (('csv_enabled', csv_path), ('face_diag_enabled', face_diag_csv_path),
                             ('upper13_enabled', upper13_csv_path), ('callback_enabled', frame_callback)):
             options[name] = value is not None
@@ -2205,18 +2245,32 @@ def run_probe(
         if timing_output_path is None:
             timing_output_path = str(performance.directory / 'host_timing.json')
     try:
+        if frame_provenance_dir is not None:
+            from frame_provenance import FrameProvenance
+            provenance = FrameProvenance(frame_provenance_dir, headless=headless)
+        if diagnostics_output_dir is not None:
+            from probe_diagnostics import ProbeDiagnostics
+            diagnostics = ProbeDiagnostics(diagnostics_output_dir, headless=headless)
         metrics = (probe_timing.ProbeMetrics(timing_output_path,warmup_frames=timing_warmup_frames,
                    h9_warmup_calls=timing_h9_warmup_calls,
-                   performance=performance,
+                   performance=performance, **(dict(diagnostics=diagnostics) if diagnostics is not None else {}),
                    metadata=dict(purpose='non-formal engineering probe timing',h9_enabled=h9_model_path is not None,
                                  f1_live=f1_live,f1_demo_enabled=rf_demo_model_path is not None,
                                  views=show_3d_views,pyvista=pyvista_view,csv_enabled=csv_path is not None,
                                  face_diag_enabled=face_diag_csv_path is not None,upper13_enabled=upper13_csv_path is not None,
                                  callback_enabled=frame_callback is not None))
                    if timing_output_path is not None else None)
+        if metrics is not None and headless:
+            metrics.metadata['headless'] = True
+        if metrics is not None and diagnostics is not None:
+            metrics.metadata['engineering_diagnostics_enabled'] = True
     except BaseException as exc:
         if performance is not None:
             performance.fail_setup(exc)
+        if diagnostics is not None:
+            diagnostics.finish(status='FAILED', error=exc)
+        if provenance is not None:
+            provenance.finish(status='FAILED', error=exc)
         raise
     control = probe_timing.ProbeRunControl(duration_seconds,**(dict(clock_ns=metrics.clock_ns) if metrics is not None else {}))
     h9 = None
@@ -2293,6 +2347,8 @@ def run_probe(
             profile = pipeline.start(capture_d455.make_config())
         if performance is not None:
             performance.device_environment(profile, rs)
+        if provenance is not None:
+            provenance.device_environment(profile, rs)
         align = rs.align(rs.stream.color)
         depth_scale_m = profile.get_device().first_depth_sensor().get_depth_scale()
         color_intrinsics = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
@@ -2332,13 +2388,16 @@ def run_probe(
 
         def idle_h9_key():
             # Pump UI even when no usable RGB-D pair reaches H9.
+            if headless:
+                return -1
             with _timed(metrics, 'ui.idle'):
                 snapshot = h9.snapshot()
                 cv2.imshow(h9_ui.WINDOW_NAME, h9_ui.draw_panel(snapshot))
                 h9.mark_displayed(snapshot)
                 return cv2.waitKey(1)
 
-        print("[probe] live RGB + aligned depth started; press q in the window to quit")
+        print('[probe] headless: duration-based stop; built-in UI/key input disabled' if headless else
+              '[probe] live RGB + aligned depth started; press q in the window to quit')
         if csv_writer is not None:
             print("[probe] labels: 1=upright, 2=forward_head, 3=lean_back, "
                   "4=lean_left, 5=lean_right, 6=lean_forward, t=TRANSITION; "
@@ -2359,14 +2418,18 @@ def run_probe(
                 break
             if h9 is not None:
                 h9.check_health()
+            provenance_row = provenance.begin_receive() if provenance is not None else None
             with _timed(metrics, 'receive.wait'):
                 if h9 is None and duration_seconds is None:
                     frames = pipeline.wait_for_frames()
                     ready = True
                 else:
                     ready, frames = pipeline.try_wait_for_frames(h9_ui.FRAME_WAIT_TIMEOUT_MS if h9 is not None else 250)
+                receive_end_qpc_ns = provenance.clock_ns() if provenance is not None else None
             source_id = frames.get_frame_number() if ready and metrics is not None and hasattr(frames, 'get_frame_number') else None
             token = metrics.input_received(source_id) if ready and metrics is not None else None
+            if provenance is not None:
+                provenance.received(provenance_row, ready, frames, receive_end_qpc_ns, token)
             if ready and performance is not None:
                 performance.sensor_frames(token, frames)
             if not ready and metrics is not None:
@@ -2374,9 +2437,11 @@ def run_probe(
             if control.deadline_reached():
                 if token is not None:
                     metrics.skip_at_deadline(token)
+                    if provenance is not None:
+                        provenance_row['status'] = 'deadline_skip'
                 break
             if not ready:
-                key = idle_h9_key() if h9 is not None else cv2.waitKey(1)
+                key = -1 if headless else idle_h9_key() if h9 is not None else cv2.waitKey(1)
                 if h9 is not None:
                     h9.handle_key(key)
                 capture_segment = handle_capture_label_key(key, capture_segment)
@@ -2390,7 +2455,11 @@ def run_probe(
                 aligned = align.process(frames)
             color_frame = aligned.get_color_frame()
             depth_frame = aligned.get_depth_frame()
+            if provenance is not None:
+                provenance.aligned(provenance_row, color_frame, depth_frame)
             if not color_frame or not depth_frame:
+                if provenance is not None:
+                    provenance_row['status'] = 'invalid_pair'
                 if metrics is not None:
                     metrics.invalid_pair(token)
                 if h9 is not None:
@@ -2416,6 +2485,8 @@ def run_probe(
 
             if performance is not None:
                 performance.event('frame_started', token=token, frame_id=frame_index)
+            if provenance is not None:
+                provenance.processing_started(provenance_row, frame_index)
             # Both Tasks consume the exact same RGB image and MediaPipe timestamp.
             inference_kwargs = dict(timing=metrics, frame_id=frame_index) if metrics is not None else {}
             pose_result, face_result = run_frame_inference(
@@ -2492,40 +2563,41 @@ def run_probe(
                     h9.accept(result, frame_index=frame_index, device_timestamp_ms=device_timestamp_ms,
                               segment_id=str(capture_segment.segment_id) if csv_writer is not None else None,
                               source_label=capture_segment.label if csv_writer is not None else None)
-            with _timed(metrics, 'ui.render_submit', frame_index):
-                overlay = geometry.draw_geometry_overlay(bgr, result)
-                display = draw_engineering_panel(
-                    overlay,
-                    result,
-                    pose_detected,
-                    face_detected=bool(face_result.face_landmarks),
-                    face_matrix=face_matrix,
-                    face_matrix_values=face_matrix_values,
-                    panel_mode=panel_mode,
-                    debug_page=debug_page,
-                    live_f1=live_f1,
-                    rf_demo=rf_demo,
-                )
-                cv2.imshow(WINDOW_NAME, display)
-                if h9 is not None:
-                    snapshot = h9.snapshot()
-                    cv2.imshow(h9_ui.WINDOW_NAME, h9_ui.draw_panel(snapshot))
-                    h9.mark_displayed(snapshot)
-                if show_3d_views and show_3d_views != "none":
-                    view_mode = (
-                        "side" if show_3d_views is True else str(show_3d_views)
-                    )
-                    cv2.imshow(
-                        viewer.WINDOW_NAME,
-                        viewer.render_selected_views(result, view_mode),
-                    )
-                if pyvista_window is not None and not pyvista_window.update(
-                    result, face_matrix_values
-                ):
-                    pyvista_window = None
-                    print("[probe] PyVista window closed; measurement loop continues")
-            if metrics is not None:
-                metrics.ui_submitted(token, frame_index)
+            if not headless:
+                diagnostic_phase = 'warmup' if frame_index <= timing_warmup_frames else 'steady'
+                with _timed(metrics, 'ui.render_submit', frame_index):
+                    with diagnostics.stage('ui.image_build', frame_index, diagnostic_phase) if diagnostics is not None else nullcontext():
+                        overlay = geometry.draw_geometry_overlay(bgr, result)
+                        display = draw_engineering_panel(
+                            overlay, result, pose_detected,
+                            face_detected=bool(face_result.face_landmarks),
+                            face_matrix=face_matrix, face_matrix_values=face_matrix_values,
+                            panel_mode=panel_mode, debug_page=debug_page, live_f1=live_f1, rf_demo=rf_demo,
+                        )
+                    with diagnostics.stage('ui.imshow', frame_index, diagnostic_phase) if diagnostics is not None else nullcontext():
+                        cv2.imshow(WINDOW_NAME, display)
+                    if h9 is not None:
+                        snapshot = h9.snapshot()
+                        with diagnostics.stage('ui.h9_image_build', frame_index, diagnostic_phase) if diagnostics is not None else nullcontext():
+                            h9_panel = h9_ui.draw_panel(snapshot)
+                        with diagnostics.stage('ui.imshow', frame_index, diagnostic_phase) if diagnostics is not None else nullcontext():
+                            cv2.imshow(h9_ui.WINDOW_NAME, h9_panel)
+                        h9.mark_displayed(snapshot)
+                    if show_3d_views and show_3d_views != "none":
+                        view_mode = (
+                            "side" if show_3d_views is True else str(show_3d_views)
+                        )
+                        cv2.imshow(
+                            viewer.WINDOW_NAME,
+                            viewer.render_selected_views(result, view_mode),
+                        )
+                    if pyvista_window is not None and not pyvista_window.update(
+                        result, face_matrix_values
+                    ):
+                        pyvista_window = None
+                        print("[probe] PyVista window closed; measurement loop continues")
+                if metrics is not None:
+                    metrics.ui_submitted(token, frame_index)
             if frame_callback is not None:
                 with _timed(metrics, 'io.callback', frame_index):
                     frame_callback(ProbeFrame(
@@ -2566,8 +2638,10 @@ def run_probe(
                     ))
                     face_diag_handle.flush()
 
-            with _timed(metrics, 'ui.key_wait', frame_index):
-                key = cv2.waitKey(1)
+            key = -1
+            if not headless:
+                with _timed(metrics, 'ui.key_wait', frame_index):
+                    key = cv2.waitKey(1)
             if h9 is not None:
                 h9.handle_key(key)
             next_segment = handle_capture_label_key(key, capture_segment)
@@ -2578,6 +2652,8 @@ def run_probe(
             should_quit, debug_page = handle_panel_key(key, panel_mode, debug_page)
             if metrics is not None:
                 metrics.frame_completed(token, frame_index)
+            if provenance is not None:
+                provenance.processing_completed(provenance_row)
             if should_quit:
                 control.stop('q')
                 break
@@ -2595,7 +2671,7 @@ def run_probe(
         if profile is not None:
             actions.append(pipeline.stop)
         actions += [obj.close for obj in (csv_handle, face_diag_handle, upper13_handle, pyvista_window) if obj is not None]
-        if cv2 is not None:
+        if cv2 is not None and not headless:
             actions.append(cv2.destroyAllWindows)
         for close in actions:
             try:
@@ -2609,6 +2685,24 @@ def run_probe(
                 metrics.finish(error=primary_error, cleanup_errors=cleanup_errors,termination=control.summary())
             except Exception as exc:
                 cleanup_errors.append(exc)
+        if diagnostics is not None or provenance is not None:
+            reason = control.summary()['reason']
+            status = ('FAILED' if primary_error is not None or cleanup_errors else
+                      'INTERRUPTED' if reason in ('q','keyboard_interrupt') else
+                      'COMPLETED' if reason in ('completed','duration_elapsed') else 'INCOMPLETE')
+            if isinstance(primary_error, KeyboardInterrupt):
+                status = 'INTERRUPTED'
+            try:
+                if diagnostics is not None:
+                    diagnostics.finish(status=status, error=primary_error, cleanup_errors=cleanup_errors)
+            except Exception as exc:
+                cleanup_errors.append(exc)
+            if provenance is not None:
+                try:
+                    provenance.finish(status='FAILED' if cleanup_errors else status,
+                                      error=primary_error, cleanup_errors=cleanup_errors)
+                except Exception as exc:
+                    cleanup_errors.append(exc)
         if primary_error is not None:
             for exc in cleanup_errors:
                 print(f'[probe] cleanup error: {exc}', file=sys.stderr)
@@ -2648,6 +2742,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         duration_seconds=args.duration_seconds,
         performance_output_dir=args.performance_output_dir,
         performance_data_id=args.performance_data_id,
+        headless=args.headless,
+        diagnostics_output_dir=args.engineering_diagnostics_dir,
+        frame_provenance_dir=args.frame_provenance_dir,
     )
     return 0
 

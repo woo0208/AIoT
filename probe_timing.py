@@ -96,7 +96,7 @@ class ProbeMetrics:
 
     def __init__(self, output_path, *, warmup_frames=0, h9_warmup_calls=1, clock_ns=time.monotonic_ns,
                  cpu_clock_ns=time.process_time_ns, memory_reader=process_memory, metadata=None,
-                 performance=None):
+                 performance=None, diagnostics=None):
         self.output_path = Path(output_path)
         if self.output_path.exists() or self.output_path.is_symlink():
             raise FileExistsError(f'refusing to overwrite timing output: {self.output_path}')
@@ -111,6 +111,7 @@ class ProbeMetrics:
         self.clock_ns,self.cpu_clock_ns,self.memory_reader = clock_ns,cpu_clock_ns,memory_reader
         self.metadata = dict(metadata or {})
         self.performance = performance
+        self.diagnostics = diagnostics
         self._lock = threading.RLock()
         self._stages = defaultdict(list)
         self._warmup = defaultdict(list)
@@ -159,10 +160,14 @@ class ProbeMetrics:
                 self._h9_calls[name] += 1
                 phase = 'warmup' if self._h9_calls[name] <= self.h9_warmup_calls else 'steady'
         start = self.clock_ns()
+        diagnostic_start = self.diagnostics.clock_ns() if self.diagnostics is not None else None
         try:
             yield
         finally:
-            self.record_ns(name,self.clock_ns()-start,phase=phase)
+            duration = self.clock_ns()-start
+            if self.diagnostics is not None:
+                self.diagnostics.record_ns(name,self.diagnostics.clock_ns()-diagnostic_start,phase=phase)
+            self.record_ns(name,duration,phase=phase)
 
     def h9_prediction_ready(self,row):
         """Retain first prediction availability even when its stages are warmup."""
@@ -207,10 +212,15 @@ class ProbeMetrics:
     @contextmanager
     def stage(self,name,frame_id=None):
         start = self.clock_ns()
+        diagnostic_start = self.diagnostics.clock_ns() if self.diagnostics is not None else None
         try:
             yield
         finally:
-            self.record_ns(name,self.clock_ns()-start,frame_id)
+            duration = self.clock_ns()-start
+            if self.diagnostics is not None:
+                phase = 'warmup' if frame_id is not None and frame_id <= self.warmup_frames else 'steady'
+                self.diagnostics.record_ns(name,self.diagnostics.clock_ns()-diagnostic_start,frame_id,phase)
+            self.record_ns(name,duration,frame_id)
 
     def start(self):
         if self._thread is not None:
@@ -257,6 +267,8 @@ class ProbeMetrics:
             self._counts['input_framesets'] += 1
             token = self._counts['input_framesets']
             self._pending[token] = self.clock_ns()
+            if self.diagnostics is not None:
+                self.diagnostics.input_received(token)
             if self.performance is not None:
                 self.performance.event('input', token=token, source_frameset_number=source_id,
                                        host_monotonic_ns=self._pending[token])
@@ -279,6 +291,8 @@ class ProbeMetrics:
 
     def invalid_pair(self,token):
         with self._lock:
+            if self.diagnostics is not None:
+                self.diagnostics.discard(token)
             self._counts['missing_color_or_depth'] += 1
             self._pending.pop(token,None)
             if self.performance is not None:
@@ -286,6 +300,8 @@ class ProbeMetrics:
 
     def skip_at_deadline(self,token):
         with self._lock:
+            if self.diagnostics is not None:
+                self.diagnostics.discard(token)
             self._counts['duration_boundary_frames_skipped'] += 1
             self._pending.pop(token,None)
             if self.performance is not None:
@@ -293,12 +309,18 @@ class ProbeMetrics:
 
     def ui_submitted(self,token,frame_id):
         with self._lock:
+            if self.diagnostics is not None:
+                self.diagnostics.endpoint(token,'latency.host_receive_to_ui_submit',frame_id,
+                    'warmup' if frame_id <= self.warmup_frames else 'steady')
             self.record_ns('latency.host_receive_to_ui_submit',self.clock_ns()-self._pending[token],frame_id)
             if self.performance is not None:
                 self.performance.event('ui_submit', token=token, frame_id=frame_id)
 
     def frame_completed(self,token,frame_id):
         with self._lock:
+            if self.diagnostics is not None:
+                self.diagnostics.endpoint(token,'frame.processing',frame_id,
+                    'warmup' if frame_id <= self.warmup_frames else 'steady',complete=True)
             self.record_ns('frame.processing',self.clock_ns()-self._pending.pop(token),frame_id)
             self._counts['processed_frames'] += 1
             if self.performance is not None:
