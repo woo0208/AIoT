@@ -1,0 +1,335 @@
+{
+  "comparison": [
+    {
+      "model": "B0",
+      "scope": "EXPLORATORY",
+      "status": "MEASURED_THIS_RUN",
+      "n": 22,
+      "features": 8,
+      "accuracy": 0.8181818181818182,
+      "macro_f1": 0.7703703703703703,
+      "p0_recall": 0.5,
+      "p1_recall": 0.25,
+      "p5_recall": 1.0,
+      "accuracy_delta_pp": 0.0,
+      "macro_f1_delta_pp": 0.0,
+      "p0_recall_delta_pp": 0.0,
+      "p1_recall_delta_pp": 0.0,
+      "p5_recall_delta_pp": 0.0,
+      "training_mean_ms": 2.6581333333333337,
+      "training_min_ms": 1.7359,
+      "training_max_ms": 6.3519,
+      "model_bytes_mean": 2207.0,
+      "model_bytes_min": 2207,
+      "model_bytes_max": 2207,
+      "calibration_p50_ms": "NOT_APPLICABLE",
+      "calibration_p95_ms": "NOT_APPLICABLE",
+      "c3_extraction_cost": "NOT_MEASURED",
+      "feature_extraction_cost": "NOT_MEASURED",
+      "p0_acquisition_cost": "NOT_MEASURED",
+      "reference_payload_bytes": 0,
+      "classifier_p50_ms": 0.0593,
+      "classifier_p95_ms": 0.06592999999999997,
+      "classifier_predictions_per_second": 16129.538112754433,
+      "classifier_calls": 720,
+      "pipeline_p50_ms": 0.1078,
+      "pipeline_p95_ms": 0.12240499999999999,
+      "pipeline_predictions_per_second": 8997.997945457137,
+      "pipeline_calls": 720
+    },
+    {
+      "model": "B1",
+      "scope": "EXPLORATORY",
+      "status": "MEASURED_THIS_RUN",
+      "n": 22,
+      "features": 8,
+      "accuracy": 0.7272727272727273,
+      "macro_f1": 0.6275613275613275,
+      "p0_recall": 0.0,
+      "p1_recall": 1.0,
+      "p5_recall": 0.5,
+      "accuracy_delta_pp": -9.090909090909093,
+      "macro_f1_delta_pp": -14.280904280904272,
+      "p0_recall_delta_pp": -50.0,
+      "p1_recall_delta_pp": 75.0,
+      "p5_recall_delta_pp": -50.0,
+      "training_mean_ms": 2.5549833333333334,
+      "training_min_ms": 1.7347,
+      "training_max_ms": 6.0199,
+      "model_bytes_mean": 2253.0,
+      "model_bytes_min": 2253,
+      "model_bytes_max": 2253,
+      "calibration_p50_ms": 0.0037,
+      "calibration_p95_ms": 0.005409999999999991,
+      "c3_extraction_cost": "NOT_MEASURED",
+      "feature_extraction_cost": "NOT_MEASURED",
+      "p0_acquisition_cost": "NOT_MEASURED",
+      "reference_payload_bytes": 64,
+      "classifier_p50_ms": 0.0588,
+      "classifier_p95_ms": 0.06491,
+      "classifier_predictions_per_second": 16456.503404439143,
+      "classifier_calls": 720,
+      "pipeline_p50_ms": 0.1077,
+      "pipeline_p95_ms": 0.12314999999999995,
+      "pipeline_predictions_per_second": 8942.710759198884,
+      "pipeline_calls": 720
+    },
+    {
+      "model": "B2",
+      "scope": "EXPLORATORY",
+      "status": "MEASURED_THIS_RUN",
+      "n": 22,
+      "features": 9,
+      "accuracy": 0.7272727272727273,
+      "macro_f1": 0.6275613275613275,
+      "p0_recall": 0.0,
+      "p1_recall": 1.0,
+      "p5_recall": 0.5,
+      "accuracy_delta_pp": -9.090909090909093,
+      "macro_f1_delta_pp": -14.280904280904272,
+      "p0_recall_delta_pp": -50.0,
+      "p1_recall_delta_pp": 75.0,
+      "p5_recall_delta_pp": -50.0,
+      "training_mean_ms": 2.6546833333333333,
+      "training_min_ms": 1.7096,
+      "training_max_ms": 6.3068,
+      "model_bytes_mean": 2351.0,
+      "model_bytes_min": 2351,
+      "model_bytes_max": 2351,
+      "calibration_p50_ms": 0.0036,
+      "calibration_p95_ms": 0.0046,
+      "c3_extraction_cost": "NOT_MEASURED",
+      "feature_extraction_cost": "NOT_MEASURED",
+      "p0_acquisition_cost": "NOT_MEASURED",
+      "reference_payload_bytes": 72,
+      "classifier_p50_ms": 0.0593,
+      "classifier_p95_ms": 0.06631999999999998,
+      "classifier_predictions_per_second": 16240.94341835768,
+      "classifier_calls": 720,
+      "pipeline_p50_ms": 0.108,
+      "pipeline_p95_ms": 0.12515999999999985,
+      "pipeline_predictions_per_second": 8881.914940861248,
+      "pipeline_calls": 720
+    }
+  ],
+  "scores": {
+    "B0": {
+      "accuracy": 0.8181818181818182,
+      "macro_f1": 0.7703703703703703,
+      "recall": [
+        0.5,
+        0.25,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "confusion_matrix": [
+        [
+          1,
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          2,
+          1,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          4,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          4,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          4,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          4
+        ]
+      ],
+      "support": [
+        2,
+        4,
+        4,
+        4,
+        4,
+        4
+      ]
+    },
+    "B1": {
+      "accuracy": 0.7272727272727273,
+      "macro_f1": 0.6275613275613275,
+      "recall": [
+        0.0,
+        1.0,
+        0.5,
+        1.0,
+        1.0,
+        0.5
+      ],
+      "confusion_matrix": [
+        [
+          0,
+          0,
+          1,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          4,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          2,
+          2,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          4,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          4,
+          0
+        ],
+        [
+          0,
+          2,
+          0,
+          0,
+          0,
+          2
+        ]
+      ],
+      "support": [
+        2,
+        4,
+        4,
+        4,
+        4,
+        4
+      ]
+    },
+    "B2": {
+      "accuracy": 0.7272727272727273,
+      "macro_f1": 0.6275613275613275,
+      "recall": [
+        0.0,
+        1.0,
+        0.5,
+        1.0,
+        1.0,
+        0.5
+      ],
+      "confusion_matrix": [
+        [
+          0,
+          1,
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          4,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          2,
+          2,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          4,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          4,
+          0
+        ],
+        [
+          0,
+          2,
+          0,
+          0,
+          0,
+          2
+        ]
+      ],
+      "support": [
+        2,
+        4,
+        4,
+        4,
+        4,
+        4
+      ]
+    }
+  },
+  "class_order": [
+    "upright",
+    "forward_head",
+    "lean_back",
+    "lean_left",
+    "lean_right",
+    "lean_forward"
+  ]
+}

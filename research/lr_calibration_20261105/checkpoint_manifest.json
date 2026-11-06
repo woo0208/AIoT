@@ -1,0 +1,35 @@
+{
+  "scope": "HISTORICAL_EXPLORATORY_CHECKPOINT_ONLY",
+  "new_training_run": false,
+  "source_sha256": {
+    "analysis\\LR_B0_B1_B2_EXPLORATORY_20261105\\test_experiment.py": "d0682aeaa811e7426215b887327e6e5012d131ded2ea70f7c0b4e5a99b444375",
+    "analysis\\LR_B0_B1_B2_EXPLORATORY_20261105\\comparison.csv": "7be54228d3382fac4724412db4816bbd100a5f96c30a8457af470f05fc748877",
+    "analysis\\LR_B0_B1_B2_EXPLORATORY_20261105\\confusion_matrices.csv": "5a6eb9b17434bceb08921144ab72043c1fc1a6b18ddeb5a2211cae35fac623e0",
+    "analysis\\LR_B0_B1_B2_EXPLORATORY_20261105\\resource_by_process.csv": "bd5975b4be5d23abe9561cac90b0b2f4f20b2419ac8676f3425b688797865c12",
+    "analysis\\LR_B0_B1_B2_EXPLORATORY_20261105\\results_summary.json": "2c0a2620cd203fc443bc21f39f552cffdad6d43694ac7e611a0f632b64a37bc1",
+    "analysis\\LR_B0_B1_B2_EXPLORATORY_20261105\\accuracy_f1.png": "8e7e33968ef8d7ee33f2fbae4c68c814be9a572e4a5eede5b7e9713ec2c68618",
+    "analysis\\LR_B0_B1_B2_EXPLORATORY_20261105\\recall_comparison.png": "e264879eb5694eb92557195f6d0d0c7675ac9a1ef88be0993289dd6033721917",
+    "analysis\\LR_B0_B1_B2_EXPLORATORY_20261105\\resource_comparison.png": "c841217487745ab7d0fe09237bcce0aa762fb53b3755ee3ab56bae281b1d78fd",
+    "analysis\\LR_B0_B1_B2_EXPLORATORY_20261105\\measure.py": "b77dc734664c824c1574d3a738e557de557c71ebb929cf49e282520799162b86",
+    "analysis\\LR_C3_COMPARISON_20261106\\accuracy_macro_f1.png": "4cd67dc57fc0f53002329fc442272062e1cac64ba532b5966181dc25a731c94a",
+    "analysis\\LR_C3_COMPARISON_20261106\\recall_comparison.png": "66d5336dc9a48050ca947d31a84a243b6c080fef2490549acdc401cc645028a0",
+    "analysis\\LR_C3_COMPARISON_20261106\\comparison.csv": "aa8035e9ef5851577ee54136aac64277c73c969314156b5dd39368c2b33685cb"
+  },
+  "public_sha256": {
+    "accuracy_f1.png": "8e7e33968ef8d7ee33f2fbae4c68c814be9a572e4a5eede5b7e9713ec2c68618",
+    "c3_accuracy_macro_f1.png": "4cd67dc57fc0f53002329fc442272062e1cac64ba532b5966181dc25a731c94a",
+    "c3_recall_comparison.png": "66d5336dc9a48050ca947d31a84a243b6c080fef2490549acdc401cc645028a0",
+    "comparison.csv": "7be54228d3382fac4724412db4816bbd100a5f96c30a8457af470f05fc748877",
+    "confusion_matrices.csv": "5a6eb9b17434bceb08921144ab72043c1fc1a6b18ddeb5a2211cae35fac623e0",
+    "measure.py": "94e7cc94fc59e756cea84aa3432f71f753dc762bd0cb168e8bc5cd461b1d8574",
+    "recall_comparison.png": "e264879eb5694eb92557195f6d0d0c7675ac9a1ef88be0993289dd6033721917",
+    "resource_by_process.csv": "bd5975b4be5d23abe9561cac90b0b2f4f20b2419ac8676f3425b688797865c12",
+    "resource_comparison.png": "c841217487745ab7d0fe09237bcce0aa762fb53b3755ee3ab56bae281b1d78fd",
+    "results_summary.json": "2c0a2620cd203fc443bc21f39f552cffdad6d43694ac7e611a0f632b64a37bc1",
+    "test_experiment.py": "d0682aeaa811e7426215b887327e6e5012d131ded2ea70f7c0b4e5a99b444375",
+    "c3_comparison.csv": "ed270c4bdd380cfc028444e74fb7e98db9f73e9700a11df8692225d5ef42ea83",
+    "c3_confusion_matrices.json": "16914fc8be0bb9ced23867d35c5db80cddf664b10b3f7fa4272c7b0260276097"
+  },
+  "code_export_change": "One literal report paragraph with recording/reference identity removed; all other AST nodes unchanged.",
+  "c3_export": "Allow-listed pooled metrics and confusion matrices only; OOF identities, folds, scaler statistics and raw timing excluded."
+}
