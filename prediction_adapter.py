@@ -106,3 +106,50 @@ def run_synthetic_demo():
         root.after(1000, update, index + 1)
     update()
     root.mainloop()
+
+
+class DemoPredictionPanel:
+    """The existing Tk six-class presentation, supplied with real demo events."""
+
+    def __init__(self, mode):
+        import tkinter as tk
+        self.root = tk.Tk()
+        self.root.title('AIoT LR B0 | DEMO_ONLY | ' + mode)
+        self.adapter = PredictionAdapter(FORMAL6)
+        self.closed = False
+        self.labels = [tk.Label(self.root, font=('Malgun Gothic', 19), padx=24, pady=7)
+                       for _ in range(7)]
+        for label in self.labels:
+            label.pack()
+        self.root.protocol('WM_DELETE_WINDOW', self.close)
+        self.root.bind('<Escape>', lambda _: self.close())
+
+    def render(self, snapshot, *, fps=0.0, context='', error=''):
+        if self.closed:
+            return
+        view = self.adapter.adapt(snapshot, model_available=not error)
+        state = {'NEW': '정상', 'HOLDING': '정상 (HOLDING)',
+                 'STALE': '입력 부족 (STALE)', 'INSUFFICIENT_DATA': '입력 부족',
+                 'MODEL_UNAVAILABLE': '모델 오류'}[view.status]
+        if (snapshot or {}).get('status') == 'COLLECTING':
+            state = '분석 중'
+        probability = (snapshot or {}).get('probability') if view.class_id else None
+        lines = ['DEMO_ONLY · 파일럿 학습 모델 · 연구 성능 검증 아님',
+                 f"현재 자세: {view.class_id or '--'}  {view.posture_name or '--'}",
+                 f'모델 예측 확률: {probability * 100:.1f}%' if probability is not None else '모델 예측 확률: --',
+                 f'현재 처리 FPS: {fps:.1f}', f'상태: {state}',
+                 f"예측 경과: {view.age_ms:.0f} ms" if view.age_ms is not None else '예측 경과: --',
+                 error or context or 'Esc / 창 닫기: 종료']
+        for widget, line in zip(self.labels, lines):
+            widget.config(text=line)
+
+    def pump(self):
+        if not self.closed:
+            self.root.update_idletasks()
+            self.root.update()
+        return not self.closed
+
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            self.root.destroy()

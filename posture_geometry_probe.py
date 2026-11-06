@@ -2169,12 +2169,14 @@ def run_probe(
     headless: bool = False,
     diagnostics_output_dir: str | None = None,
     frame_provenance_dir: str | None = None,
+    ui_poll: Callable[[], bool] | None = None,
 ) -> None:
     """Run the live D455/MediaPipe loop.  Hardware dependencies load only here.
 
     ``frame_callback``, when given, receives each completed ``ProbeFrame``
     after the existing windows are drawn (e.g. the browser mesh avatar).
     Optional H9 consumes the same GeometryResult and never changes rf_demo.
+    ``ui_poll`` pumps an optional local panel; False requests normal cleanup.
     """
 
     if rf_demo_model_path is not None and not f1_live:
@@ -2414,13 +2416,16 @@ def run_probe(
               "debug display and optional engineering CSV only")
 
         while True:
+            if ui_poll is not None and not ui_poll():
+                control.stop('panel_closed')
+                break
             if control.deadline_reached():
                 break
             if h9 is not None:
                 h9.check_health()
             provenance_row = provenance.begin_receive() if provenance is not None else None
             with _timed(metrics, 'receive.wait'):
-                if h9 is None and duration_seconds is None:
+                if h9 is None and duration_seconds is None and ui_poll is None:
                     frames = pipeline.wait_for_frames()
                     ready = True
                 else:
