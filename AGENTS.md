@@ -38,3 +38,11 @@
 - Run relevant tests after changes.
 - Preserve existing tests unless the requested change intentionally alters their assumptions.
 - Report which tests were actually run and whether they passed.
+
+## Git checkpoints
+- Commit/push only when explicitly authorized by the user; session authorization may cover successive checkpoints.
+- Use one commit per independent feature or experiment; related minimal tests may share that commit. Keep unrelated existing changes separate.
+- Review existing staged changes and stage explicit paths only; never use `git add .` or `git add -A`.
+- Exclude raw RGB/Depth/video, identifying or sensitive participant derivatives, secrets, environments/caches, temporary bulk files, and models without confirmed sharing permission.
+- Before each authorized push, verify origin, branch/upstream, repository visibility, and all outgoing files. Push completed milestones only to the approved branch; stop on ambiguity, conflicts, or sensitive content.
+- At each stage end, report the commit hash, validation actually run, and push status. Do not duplicate work already committed.
