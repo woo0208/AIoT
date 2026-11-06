@@ -246,3 +246,26 @@ if ($LASTEXITCODE -ne 0) { throw 'Headless diagnostic failed; inspect the new ev
 ```
 
 `regression.log`, `verification.json`, `default_equivalence.json` 및 `SYNTHETIC_metadata_cost/`가 최종 근거다. 상위 폴더의 최초180개 로그/예시도 개발 이력으로 보존했으며 실제 D455 결과로 표현하지 않았다. `pre_c6_comparison/`은 시작 source hash 동등성 근거다. `c6_only.diff`는 시작 C probe와 현행의 차이를 별도로 보여준다. `start_state.json`/`end_state.json`은 원본과 동결 source 보존 근거다.
+
+## 15. 2026-11-05 묶음 D 후속 확인 — 최종 25초 × 2 실측
+
+위 본문은 당시 조사 기록으로 보존한다. 이 절은 **이미 저장된 비정식 엔지니어링 메타데이터**의 후속 확인이며 이번에 장치나 연구 모델을 실행한 결과가 아니다.
+
+`git ls-files`와 `git ls-tree -r --name-only HEAD`에서 실제 추적 경로는 처음부터 이 파일의 정상 경로 `STAGE_5E_C6_FRAME_REUSE_REVIEW.md`였다. 하위 디렉터리의 `.md` 파일은 없으므로 이동/이력 변경을 하지 않았다. 확인 기준 HEAD는 `ce3bfba`, branch는 `feat/aiot-stage5e-d455-readiness`다.
+
+원본 위치: `analysis/ENGINEERING_ONLY_C6_LIVE_20261105_170905/`의 `UI_frames`, `HEADLESS_frames`, `UI_performance`, `HEADLESS_performance`. 각 frames의 `frames.jsonl`·`summary.json`, performance의 `performance.json`을 읽었다. raw 영상·Depth 배열은 읽지 않았다. 저장 시작 시각은 UI `2026-11-05T08:09:05.587980+00:00`, Headless `2026-11-05T08:09:36.375687+00:00`다. H9/F1/demo/callback/연구 CSV는 비활성이므로 실제 6-class 영향 측정이 아니다.
+
+| 완료 처리 경계의 재계산 | UI | Headless |
+|---|---:|---:|
+| 실제 run seconds (기존 monotonic 보고값) | 25.000 | 25.016 |
+| 처리 완료 | 365 | 365 |
+| raw→aligned child 식별자 일치 / 비교 수 | 730 / 730 | 730 / 730 |
+| RGB 재사용 전달 수 | 0 | 25 |
+| Depth 재사용 전달 수 | 1 | 23 |
+| 완전히 동일한 RGB-D 식별자 쌍 반복 | 0 | 0 |
+
+식별자는 `(number, timestamp_ms, timestamp_domain, stream_type, stream_index)`로 대조했다. align이 depth profile UID를 복제하는 차이는 별도이며 UID 동일성이나 pixel 동일성을 주장하지 않는다. timeout 등을 포함한 전체 receive call 수 367/368을 처리 수 365와 혼용하지 않는다. 사용자 제공 최종 관측값은 위 저장 증거와 일치한다. 이 절의 숫자는 사용자 관측만을 전사한 값이 아니다.
+
+원 journal SHA-256은 UI `8b18b65fb777c0f577d8025de01b211e305fb39a65831bb865fe775520d8a806`, Headless `af22b91e647c357ed91d6b6e02dd588c726d63648cda00cfd80546db94536d45`이며 summary의 pin과 일치했다. summary에 기록된 `frame_provenance.py`와 `posture_geometry_probe.py`의 SHA-256도 현재 소스와 일치했다. 재계산 코드·상세/hash: `analysis/READ_ONLY_STAGE_5E_BUNDLE_D_20261105/review.py`, `saved_evidence_review.json`.
+
+후속 판정: **SDK 수신 단계 child 재사용 CONFIRMED / align 식별자 보존 해당 실측 범위 PASS / Headless 증가 인과 원인 LIKELY / 정식 Headless 사용 적격 NOT_APPROVED / 실제 6-class 분류 영향 NOT_MEASURED**. 과거 §7의 align 실측 NOT_MEASURED는 이 제한된 후속 측정으로 보충됐다. 다른 장면·장치·촬영 조건까지 PASS를 확장하지 않는다. sensor 실제 생성 수와 missing_rate는 계속 NOT_MEASURED이며 입력 필터/보간/제거·촬영 기본값·과학적 support 계약은 바꾸지 않는다. C6 전체의 PARTIAL 및 CODE_FIX REVIEW_REQUIRED는 유지한다.
