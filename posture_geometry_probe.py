@@ -1654,11 +1654,11 @@ class RFDemoFrame:
 
 @dataclass(frozen=True)
 class ProbeFrame:
-    """One completed probe frame, handed to an optional display callback.
+    """One completed probe frame, handed to an optional engineering callback.
 
     Every field comes from the same RGB/depth frame: ``rf_demo`` is the
     prediction already shown in the RF strip for this frame (``None`` when the
-    RF demo is not enabled), never a previous frame's.  Display only.
+    RF demo is not enabled), never a previous frame's. No posture label is inferred.
     """
 
     frame_index: int
@@ -1668,6 +1668,9 @@ class ProbeFrame:
     face_matrix_values: Mapping[str, Any]
     live_f1: LiveF1Frame | None
     rf_demo: RFDemoFrame | None
+    # Same-frame observation for optional exploratory CSV callbacks. None keeps
+    # older display-only callback fixtures compatible; never infer this flag.
+    pose_detected: bool | None = None
 
 
 def _short_reason(reason: str, limit: int = RF_REASON_MAX_CHARS) -> str:
@@ -2613,6 +2616,7 @@ def run_probe(
                         face_matrix_values=MappingProxyType(dict(face_matrix_values)),
                         live_f1=live_f1,
                         rf_demo=rf_demo,
+                        pose_detected=pose_detected,
                     ))
 
             if csv_writer is not None:
