@@ -50,6 +50,24 @@ def _timed(metrics, name, frame_id=None):
     return metrics.stage(name, frame_id) if metrics is not None else nullcontext()
 
 
+def e0_ui_backend(cv_module, variant):
+    """Read-only support check; E1 never silently falls back to E0."""
+    if variant not in ('E0', 'E1'):
+        raise ValueError('Expected E0 or E1 UI variant')
+    try:
+        backend = cv_module.currentUIFramework()
+    except Exception:
+        backend = 'NOT_MEASURED'
+    if variant == 'E1' and (backend != 'WIN32' or not callable(getattr(cv_module, 'pollKey', None))):
+        raise RuntimeError('E1 requires confirmed WIN32 backend and pollKey support')
+    return backend
+
+
+def _e0_ui_key(cv_module, variant):
+    key = cv_module.pollKey() if variant == 'E1' else cv_module.waitKey(1)
+    return key if key < 0 else key & 0xFF
+
+
 EXPLORATORY_ARTIFACT_KIND = "exploratory-posture-geometry-engineering-measurement"
 FACE_DIAGNOSTIC_ARTIFACT_KIND = (
     "exploratory-face-pipeline-engineering-diagnostic"
@@ -2173,6 +2191,8 @@ def run_probe(
     diagnostics_output_dir: str | None = None,
     frame_provenance_dir: str | None = None,
     ui_poll: Callable[[], bool] | None = None,
+    e0_session=None,
+    e0_ui_variant: str = 'E0',
 ) -> None:
     """Run the live D455/MediaPipe loop.  Hardware dependencies load only here.
 
@@ -2180,8 +2200,26 @@ def run_probe(
     after the existing windows are drawn (e.g. the browser mesh avatar).
     Optional H9 consumes the same GeometryResult and never changes rf_demo.
     ``ui_poll`` pumps an optional local panel; False requests normal cleanup.
+    ``e0_session`` is an opt-in, already constructed E0Session with a selected
+    fitted FS3 T0 model/scaler. Its caller explicitly arms each stable 10s hold.
+    It is separate from the legacy 4s H9/RF mode and never saves images/features.
     """
 
+    if e0_ui_variant not in ('E0', 'E1') or (e0_ui_variant == 'E1' and (e0_session is None or headless)):
+        raise ValueError('E1 UI variant requires a visible E0 engineering session')
+    if e0_session is not None:
+        from e0_fs3 import E0Session
+        if not isinstance(e0_session, E0Session):
+            raise ValueError('e0_session requires E0Session')
+        if e0_session._finished or e0_session._start_ns is not None:
+            raise ValueError('E0Session cannot be reused across probe runs')
+        e0_session.timing.headless = headless
+        e0_session.timing.identity['headless'] = headless
+        if any(x is not None for x in (h9_model_path, rf_demo_model_path, csv_path,
+                upper13_csv_path, session_meta_json_path, face_diag_csv_path,
+                timing_output_path, performance_output_dir, diagnostics_output_dir,
+                frame_provenance_dir)) or f1_live:
+            raise ValueError('E0 uses its own privacy-safe outputs, separate from legacy modes')
     if rf_demo_model_path is not None and not f1_live:
         raise ValueError("rf_demo_model_path requires f1_live")
     if session_meta_json_path is not None and upper13_csv_path is None:
@@ -2227,7 +2265,7 @@ def run_probe(
         for name in ('csv_path', 'face_diag_csv_path', 'upper13_csv_path', 'session_meta_json_path',
                      'timing_output_path', 'performance_output_dir', 'performance_data_id',
                      'subject', 'recording_id', 'h9_subject', 'h9_recording_id', 'performance', 'output_path',
-                     'diagnostics', 'diagnostics_output_dir', 'provenance', 'frame_provenance_dir'):
+                     'diagnostics', 'diagnostics_output_dir', 'provenance', 'frame_provenance_dir', 'e0_ui_variant'):
             options.pop(name, None)
         if not headless:
             options.pop('headless')
@@ -2277,6 +2315,7 @@ def run_probe(
         if provenance is not None:
             provenance.finish(status='FAILED', error=exc)
         raise
+    stages = e0_session.timing if e0_session is not None else metrics
     control = probe_timing.ProbeRunControl(duration_seconds,**(dict(clock_ns=metrics.clock_ns) if metrics is not None else {}))
     h9 = None
     h9_ui = None
@@ -2297,6 +2336,11 @@ def run_probe(
                                      subject=h9_subject or 'unknown',metrics=metrics)
 
         import cv2
+        if e0_session is not None:
+            backend = e0_ui_backend(cv2, e0_ui_variant)
+            e0_session.environment_metadata.update(execution_variant=e0_ui_variant,
+                highgui_backend=backend, ui_key_function='pollKey' if e0_ui_variant == 'E1' else 'waitKey(1)',
+                timing_contract='e0-e1-loop-timing/1')
         import mediapipe as mp
         import numpy as np
         import pyrealsense2 as rs
@@ -2348,7 +2392,7 @@ def run_probe(
         face_diag_handle, face_diag_writer = _open_face_diagnostic_csv(
             face_diag_csv_path
         )
-        with _timed(metrics, 'startup.pipeline'):
+        with _timed(stages, 'startup.pipeline'):
             profile = pipeline.start(capture_d455.make_config())
         if performance is not None:
             performance.device_environment(profile, rs)
@@ -2372,6 +2416,8 @@ def run_probe(
             )
         pose_landmarker = vision.PoseLandmarker.create_from_options(pose_options)
         face_landmarker = vision.FaceLandmarker.create_from_options(face_options)
+        if e0_session is not None:
+            e0_session.observe_backends(pose_options, face_options)
         if face_detector_options is not None:
             face_detector = vision.FaceDetector.create_from_options(
                 face_detector_options
@@ -2385,6 +2431,8 @@ def run_probe(
             print('[probe] H9 + M0 DEVELOPMENT ONLY: separate window; r resets H9; '
                   'unlabelled input has no automatic transition/P5 detection')
         stream_start_ns = metrics.begin_stream() if metrics is not None else None
+        if e0_session is not None:
+            e0_session.begin_stream()
         control.start(stream_start_ns)
         last_mediapipe_timestamp_ms = -1
         frame_index = 0
@@ -2395,7 +2443,7 @@ def run_probe(
             # Pump UI even when no usable RGB-D pair reaches H9.
             if headless:
                 return -1
-            with _timed(metrics, 'ui.idle'):
+            with _timed(stages, 'ui.idle'):
                 snapshot = h9.snapshot()
                 cv2.imshow(h9_ui.WINDOW_NAME, h9_ui.draw_panel(snapshot))
                 h9.mark_displayed(snapshot)
@@ -2419,14 +2467,20 @@ def run_probe(
               "debug display and optional engineering CSV only")
 
         while True:
-            if ui_poll is not None and not ui_poll():
-                control.stop('panel_closed')
-                break
+            if e0_session is not None:
+                e0_session.begin_loop()
+            if ui_poll is not None:
+                with _timed(e0_session.timing if e0_session is not None else None, 'ui.tk_poll'):
+                    ui_running = ui_poll()
+                if not ui_running:
+                    control.stop('panel_closed')
+                    break
             if control.deadline_reached():
                 break
             if h9 is not None:
                 h9.check_health()
             provenance_row = provenance.begin_receive() if provenance is not None else None
+            e0_row = e0_session.begin_receive() if e0_session is not None else None
             with _timed(metrics, 'receive.wait'):
                 if h9 is None and duration_seconds is None and ui_poll is None:
                     frames = pipeline.wait_for_frames()
@@ -2434,6 +2488,9 @@ def run_probe(
                 else:
                     ready, frames = pipeline.try_wait_for_frames(h9_ui.FRAME_WAIT_TIMEOUT_MS if h9 is not None else 250)
                 receive_end_qpc_ns = provenance.clock_ns() if provenance is not None else None
+                e0_receive_end = e0_session.clock_ns() if e0_session is not None else None
+            if e0_session is not None:
+                e0_session.received(e0_row, ready, frames, e0_receive_end)
             source_id = frames.get_frame_number() if ready and metrics is not None and hasattr(frames, 'get_frame_number') else None
             token = metrics.input_received(source_id) if ready and metrics is not None else None
             if provenance is not None:
@@ -2443,13 +2500,19 @@ def run_probe(
             if not ready and metrics is not None:
                 metrics.receive_timeout()
             if control.deadline_reached():
+                if e0_session is not None:
+                    e0_row['status'] = 'deadline_skip' if ready else 'timeout'
                 if token is not None:
                     metrics.skip_at_deadline(token)
                     if provenance is not None:
                         provenance_row['status'] = 'deadline_skip'
                 break
             if not ready:
-                key = -1 if headless else idle_h9_key() if h9 is not None else cv2.waitKey(1)
+                if e0_session is not None and not headless:
+                    with _timed(stages, 'ui.idle_key_wait'):
+                        key = _e0_ui_key(cv2, e0_ui_variant)
+                else:
+                    key = -1 if headless else idle_h9_key() if h9 is not None else cv2.waitKey(1)
                 if h9 is not None:
                     h9.handle_key(key)
                 capture_segment = handle_capture_label_key(key, capture_segment)
@@ -2459,13 +2522,17 @@ def run_probe(
                     break
                 continue
             device_timestamp_ms = float(frames.get_timestamp())
-            with _timed(metrics, 'receive.align'):
+            with _timed(stages, 'receive.align'):
                 aligned = align.process(frames)
             color_frame = aligned.get_color_frame()
             depth_frame = aligned.get_depth_frame()
+            if e0_session is not None:
+                e0_session.aligned(e0_row, color_frame, depth_frame)
             if provenance is not None:
                 provenance.aligned(provenance_row, color_frame, depth_frame)
             if not color_frame or not depth_frame:
+                if e0_session is not None:
+                    e0_row['status'] = 'invalid_pair'
                 if provenance is not None:
                     provenance_row['status'] = 'invalid_pair'
                 if metrics is not None:
@@ -2480,7 +2547,7 @@ def run_probe(
                         break
                 continue
 
-            with _timed(metrics, 'input.convert'):
+            with _timed(stages, 'input.convert'):
                 bgr = np.asanyarray(color_frame.get_data())
                 aligned_depth = np.asanyarray(depth_frame.get_data())
                 rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
@@ -2495,15 +2562,17 @@ def run_probe(
                 performance.event('frame_started', token=token, frame_id=frame_index)
             if provenance is not None:
                 provenance.processing_started(provenance_row, frame_index)
+            if e0_session is not None:
+                e0_session.processing_started(e0_row, frame_index)
             # Both Tasks consume the exact same RGB image and MediaPipe timestamp.
-            inference_kwargs = dict(timing=metrics, frame_id=frame_index) if metrics is not None else {}
+            inference_kwargs = dict(timing=stages, frame_id=frame_index) if stages is not None else {}
             pose_result, face_result = run_frame_inference(
                 pose_landmarker, face_landmarker, mp_image, timestamp_ms, **inference_kwargs
             )
             pose_detected = bool(pose_result.pose_landmarks)
             landmarks = pose_result.pose_landmarks[0] if pose_detected else None
             if upper13_writer is not None:
-                with _timed(metrics, 'io.upper13', frame_index):
+                with _timed(stages, 'io.upper13', frame_index):
                     upper13_writer.writerows(upper13_csv_rows(
                         landmarks, bgr.shape[1], bgr.shape[0],
                         aligned_depth=aligned_depth, depth_scale_m=depth_scale_m,
@@ -2521,9 +2590,9 @@ def run_probe(
             if face_detector is not None:
                 # IMAGE-mode FaceDetector on the same RGB image; the Pose
                 # result above is reused rather than inferred again.
-                with _timed(metrics, 'f1.face_detector', frame_index):
+                with _timed(stages, 'f1.face_detector', frame_index):
                     face_detection = face_detector.detect(mp_image)
-                with _timed(metrics, 'f1.compute', frame_index):
+                with _timed(stages, 'f1.compute', frame_index):
                     live_f1 = compute_live_f1(
                         face_detection,
                         pose_result,
@@ -2532,9 +2601,9 @@ def run_probe(
                     )
                 if rf_demo_state is not None:
                     # Same F1-5 result as the F1 strip; no extra inference.
-                    with _timed(metrics, 'f1_demo.rf', frame_index):
+                    with _timed(stages, 'f1_demo.rf', frame_index):
                         rf_demo = rf_demo_frame(rf_demo_state, live_f1)
-            with _timed(metrics, 'depth_geometry', frame_index):
+            with _timed(stages, 'depth_geometry', frame_index):
                 points = geometry.points_from_pose_landmarks(
                     landmarks,
                     bgr.shape[1],
@@ -2566,14 +2635,17 @@ def run_probe(
                     chest_roi_point=chest_roi_point,
                     chest_roi_point_3d=chest_roi_point_3d,
                 )
+            if e0_session is not None:
+                e0_session.accept(e0_row, result, frame_index, device_timestamp_ms,
+                    pose_detected=pose_detected, face_detected=bool(face_result.face_landmarks))
             if h9 is not None:
-                with _timed(metrics, 'h9.dispatch', frame_index):
+                with _timed(stages, 'h9.dispatch', frame_index):
                     h9.accept(result, frame_index=frame_index, device_timestamp_ms=device_timestamp_ms,
                               segment_id=str(capture_segment.segment_id) if csv_writer is not None else None,
                               source_label=capture_segment.label if csv_writer is not None else None)
             if not headless:
                 diagnostic_phase = 'warmup' if frame_index <= timing_warmup_frames else 'steady'
-                with _timed(metrics, 'ui.render_submit', frame_index):
+                with _timed(stages, 'ui.render_submit', frame_index):
                     with diagnostics.stage('ui.image_build', frame_index, diagnostic_phase) if diagnostics is not None else nullcontext():
                         overlay = geometry.draw_geometry_overlay(bgr, result)
                         display = draw_engineering_panel(
@@ -2607,7 +2679,7 @@ def run_probe(
                 if metrics is not None:
                     metrics.ui_submitted(token, frame_index)
             if frame_callback is not None:
-                with _timed(metrics, 'io.callback', frame_index):
+                with _timed(stages, 'io.callback', frame_index):
                     frame_callback(ProbeFrame(
                         frame_index=frame_index,
                         device_timestamp_ms=device_timestamp_ms,
@@ -2620,7 +2692,7 @@ def run_probe(
                     ))
 
             if csv_writer is not None:
-                with _timed(metrics, 'io.csv', frame_index):
+                with _timed(stages, 'io.csv', frame_index):
                     csv_writer.writerow(exploratory_csv_row(
                         result,
                         pose_detected=pose_detected,
@@ -2635,7 +2707,7 @@ def run_probe(
                     csv_handle.flush()
 
             if face_diag_writer is not None:
-                with _timed(metrics, 'io.face_diag', frame_index):
+                with _timed(stages, 'io.face_diag', frame_index):
                     face_diag_writer.writerow(face_pipeline_diagnostic_row(
                         face_result,
                         frame_index=frame_index,
@@ -2649,8 +2721,8 @@ def run_probe(
 
             key = -1
             if not headless:
-                with _timed(metrics, 'ui.key_wait', frame_index):
-                    key = cv2.waitKey(1)
+                with _timed(stages, 'ui.key_wait', frame_index):
+                    key = _e0_ui_key(cv2, e0_ui_variant) if e0_session is not None else cv2.waitKey(1)
             if h9 is not None:
                 h9.handle_key(key)
             next_segment = handle_capture_label_key(key, capture_segment)
@@ -2659,6 +2731,8 @@ def run_probe(
                 print(f"[probe] segment {capture_segment.segment_id}: "
                       f"{capture_segment.label}")
             should_quit, debug_page = handle_panel_key(key, panel_mode, debug_page)
+            if e0_session is not None:
+                e0_session.frame_completed(e0_row)
             if metrics is not None:
                 metrics.frame_completed(token, frame_index)
             if provenance is not None:
@@ -2673,6 +2747,9 @@ def run_probe(
         cleanup_errors = []
         # A timer/SDK close failure must not skip the remaining resources.
         actions = [h9.stop] if h9 is not None else []
+        if e0_session is not None:
+            actions.append(e0_session.end_loop)
+            actions.append(e0_session.end_stream)
         if metrics is not None:
             # Include completion of an already-running H9 tick in actual time.
             actions.append(metrics.end_stream)
@@ -2712,6 +2789,11 @@ def run_probe(
                                       error=primary_error, cleanup_errors=cleanup_errors)
                 except Exception as exc:
                     cleanup_errors.append(exc)
+        if e0_session is not None:
+            try:
+                e0_session.finish(error=primary_error, cleanup_errors=cleanup_errors)
+            except Exception as exc:
+                cleanup_errors.append(exc)
         if primary_error is not None:
             for exc in cleanup_errors:
                 print(f'[probe] cleanup error: {exc}', file=sys.stderr)

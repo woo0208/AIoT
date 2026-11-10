@@ -24,3 +24,10 @@ __pycache__/
 captures/
 h6_pilot_*.json
 h6_results.json
+
+# Generated local change bundles, not the source of truth
+/artifacts/*.zip
+
+# Test caches and private engineering evidence
+/.pytest_cache/
+local_private/

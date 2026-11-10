@@ -1,20 +1,30 @@
 """Explicit QPC/perf-counter sidecar; legacy monotonic timing stays unchanged."""
 from contextlib import contextmanager
+from collections import defaultdict
 from pathlib import Path
 import threading
 import time
+import numpy as np
 
 import engineering_exports as out
 import performance_output as perf
 from probe_timing import _stats
+from e0_storage import CheckpointList, exact_stats, write_json
 
 
 class ProbeDiagnostics:
-    def __init__(self, directory, *, inputs=(), headless=False, clock_ns=time.perf_counter_ns):
+    def __init__(self, directory, *, inputs=(), headless=False, clock_ns=time.perf_counter_ns,
+                 include_p99=False, redact_errors=False, retain_raw=True, buffer_limit=None):
         self.directory = out.reserve(directory, inputs)
         self.clock_ns = clock_ns
         self.headless = headless
-        self.rows = []
+        self.include_p99 = include_p99
+        self.redact_errors = redact_errors
+        self.retain_raw = retain_raw
+        self.buffer_limit = buffer_limit
+        self._durations = defaultdict(lambda: CheckpointList(self.directory/'buffers'/f'duration_{len(self._durations)}',
+            buffer_limit,clock_ns=clock_ns)) if buffer_limit is not None else defaultdict(list)
+        self.rows = CheckpointList(self.directory/'buffers'/'raw',buffer_limit,clock_ns=clock_ns) if buffer_limit is not None else []
         self._inputs = {}
         self._lock = threading.RLock()
         self._finished = False
@@ -29,7 +39,10 @@ class ProbeDiagnostics:
         if duration_ns < 0:
             raise ValueError('diagnostic clock moved backwards')
         with self._lock:
-            self.rows.append(dict(name=name, duration_ns=duration_ns, frame_id=frame_id, phase=phase))
+            if self.retain_raw:
+                self.rows.append(dict(name=name, duration_ns=duration_ns, frame_id=frame_id, phase=phase))
+            if not self.retain_raw or self.buffer_limit is not None:
+                self._durations[(name,phase)].append(duration_ns/1e6)
 
     @contextmanager
     def stage(self, name, frame_id=None, phase='steady'):
@@ -58,16 +71,50 @@ class ProbeDiagnostics:
         with self._lock:
             if self._finished:
                 return
-            names = sorted({(r['name'],r['phase']) for r in self.rows})
-            summary = [dict(name=name, phase=phase, unit='ms', **_stats([
-                r['duration_ns']/1e6 for r in self.rows if (r['name'],r['phase']) == (name,phase)])) for name,phase in names]
-            document = dict(self.identity, status=status, error=str(error) if error else None,
-                cleanup_errors=[str(e) for e in cleanup_errors], raw=self.rows, stage_milliseconds=summary,
+            durations = self._durations
+            if self.retain_raw and self.buffer_limit is None:
+                durations = defaultdict(list)
+                for row in self.rows:
+                    durations[(row['name'],row['phase'])].append(row['duration_ns']/1e6)
+            summary = [dict(name=name, phase=phase, unit='ms', **exact_stats(values,
+                include_p99=self.include_p99,disk=self.buffer_limit is not None))
+                       for (name,phase),values in sorted(durations.items())]
+            error_text = lambda exc: type(exc).__name__ if self.redact_errors else str(exc)
+            document = dict(self.identity, status=status, error=error_text(error) if error else None,
+                cleanup_errors=[error_text(e) for e in cleanup_errors], raw=self.rows, stage_milliseconds=summary,
                 pending_inputs=len(self._inputs),
                 ui_latency_status='NOT_MEASURED' if self.headless else 'OBSERVED_IF_SUBMITTED',
                 notes=['Independent clock domain; never subtract QPC from legacy monotonic or device clocks.',
                        'Parallel observer adds overhead; tiny interval differences include observer/clock-call cost.',
                        'Raw rows are memory-resident until normal/exception finalization; kill/power loss may leave manifest only.',
                        'No physical display/GPU-completion/sensor-to-screen latency measurement.'])
-            perf._write_json(self.directory/'diagnostics.json', document)
+            if not self.retain_raw:
+                document['raw_status'] = 'NOT_RETAINED_SUMMARY'
+            if self.buffer_limit is not None:
+                document['notes']=[note for note in document['notes'] if not note.startswith('Raw rows are memory-resident')]
+                document['notes'].append('Bounded checkpoints retain every row; checkpoint I/O adds observer overhead.')
+                self.rows.flush()
+                for values in self._durations.values():values.flush()
+                document['buffering']=dict(raw=self.rows.status(),
+                    durations=[values.status() for values in self._durations.values()])
+                write_json(self.directory/'diagnostics.json',document,arrays=('raw',))
+            else:
+                perf._write_json(self.directory/'diagnostics.json', document)
             self._finished = True
+
+
+class DisabledDiagnostics:
+    """No clock reads, buffers or files; retains the stage-call interface."""
+    def __init__(self):
+        self.headless = False
+        self.identity = {}
+
+    def stage(self, *args, **kwargs):
+        from contextlib import nullcontext
+        return nullcontext()
+
+    def record_ns(self, *args, **kwargs):
+        pass
+
+    def finish(self, **kwargs):
+        pass
