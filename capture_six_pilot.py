@@ -67,9 +67,13 @@ class PilotCapture:
     """Pure file/state controller; no camera, GUI, model inference or quality gate."""
 
     def __init__(self, directory, subject, recording_id, fields, *, repeats=10, hold_seconds=10,
-                 operator_metadata=None, supplement_for=None):
+                 operator_metadata=None, supplement_for=None, session_repeats=None):
         if repeats != 10 or hold_seconds != 10:
             raise ValueError("This exploratory request is fixed at 6 postures x 10 x 10 seconds")
+        if session_repeats is not None:
+            if type(session_repeats) is not int or session_repeats not in (2, 3) or supplement_for is not None:
+                raise ValueError("S1/S2 entry requires 3 or 2 repeats without a pilot supplement")
+            repeats = session_repeats
         if supplement_for is not None:
             ids = supplement_for.get("original_segment_ids", [])
             if subject != "P01" or len(ids) != 7 or len(set(ids)) != 7:
