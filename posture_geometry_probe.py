@@ -2193,6 +2193,7 @@ def run_probe(
     ui_poll: Callable[[], bool] | None = None,
     e0_session=None,
     e0_ui_variant: str = 'E0',
+    rgbd_policy=None,
 ) -> None:
     """Run the live D455/MediaPipe loop.  Hardware dependencies load only here.
 
@@ -2203,10 +2204,22 @@ def run_probe(
     ``e0_session`` is an opt-in, already constructed E0Session with a selected
     fitted FS3 T0 model/scaler. Its caller explicitly arms each stable 10s hold.
     It is separate from the legacy 4s H9/RF mode and never saves images/features.
+    ``rgbd_policy`` opts into Research B's idle gate/observer only; None retains
+    the existing E0 path. No extra feature consumers are allowed with this gate.
     """
 
     if e0_ui_variant not in ('E0', 'E1') or (e0_ui_variant == 'E1' and (e0_session is None or headless)):
         raise ValueError('E1 UI variant requires a visible E0 engineering session')
+    if rgbd_policy is not None:
+        from research_b import DemandPolicy
+        from e0_fs3 import E0Session
+        if (not isinstance(rgbd_policy, DemandPolicy) or not isinstance(e0_session, E0Session)
+                or e0_session.mode == 'off' or e0_session.input_scope != 'live' or e0_ui_variant != 'E0'
+                or frame_callback is not None or pyvista_view
+                or show_3d_views not in (None, False, 'none')):
+            raise ValueError('Research B requires measured E0 session without extra consumers/views')
+        if rgbd_policy.counts:
+            raise ValueError('Research B policy cannot be reused across probe runs')
     if e0_session is not None:
         from e0_fs3 import E0Session
         if not isinstance(e0_session, E0Session):
@@ -2265,7 +2278,8 @@ def run_probe(
         for name in ('csv_path', 'face_diag_csv_path', 'upper13_csv_path', 'session_meta_json_path',
                      'timing_output_path', 'performance_output_dir', 'performance_data_id',
                      'subject', 'recording_id', 'h9_subject', 'h9_recording_id', 'performance', 'output_path',
-                     'diagnostics', 'diagnostics_output_dir', 'provenance', 'frame_provenance_dir', 'e0_ui_variant'):
+                     'diagnostics', 'diagnostics_output_dir', 'provenance', 'frame_provenance_dir', 'e0_ui_variant',
+                     'rgbd_policy'):
             options.pop(name, None)
         if not headless:
             options.pop('headless')
@@ -2522,6 +2536,31 @@ def run_probe(
                     break
                 continue
             device_timestamp_ms = float(frames.get_timestamp())
+            if rgbd_policy is not None and not rgbd_policy.select(e0_session, e0_row):
+                # No inference result/feature/callback exists for this input. Show
+                # only the CURRENT raw color, explicitly marked as unmeasured.
+                frame_index += 1
+                e0_session.processing_started(e0_row, frame_index)
+                color_frame = frames.get_color_frame()
+                if not headless:
+                    with _timed(stages, 'ui.render_submit', frame_index):
+                        preview = (np.asanyarray(color_frame.get_data()).copy() if color_frame
+                                   else np.zeros((540, 960, 3), dtype=np.uint8))
+                        cv2.putText(preview, 'B1 IDLE - features/prediction unavailable',
+                                    (12, 32), cv2.FONT_HERSHEY_SIMPLEX, .65, (0, 255, 255), 2)
+                        cv2.imshow(WINDOW_NAME, preview)
+                key = -1
+                if not headless:
+                    with _timed(stages, 'ui.key_wait', frame_index):
+                        key = _e0_ui_key(cv2, e0_ui_variant)
+                should_quit, debug_page = handle_panel_key(key, panel_mode, debug_page)
+                e0_session.frame_completed(e0_row)
+                rgbd_policy.completed(e0_session, e0_row, skipped=True)
+                e0_row['status'] = 'b1_idle_skipped'
+                if should_quit:
+                    control.stop('q')
+                    break
+                continue
             with _timed(stages, 'receive.align'):
                 aligned = align.process(frames)
             color_frame = aligned.get_color_frame()
@@ -2733,6 +2772,8 @@ def run_probe(
             should_quit, debug_page = handle_panel_key(key, panel_mode, debug_page)
             if e0_session is not None:
                 e0_session.frame_completed(e0_row)
+                if rgbd_policy is not None:
+                    rgbd_policy.completed(e0_session, e0_row, skipped=False)
             if metrics is not None:
                 metrics.frame_completed(token, frame_index)
             if provenance is not None:
@@ -2791,6 +2832,8 @@ def run_probe(
                     cleanup_errors.append(exc)
         if e0_session is not None:
             try:
+                if rgbd_policy is not None:
+                    e0_session.environment_metadata['research_b'] = rgbd_policy.summary()
                 e0_session.finish(error=primary_error, cleanup_errors=cleanup_errors)
             except Exception as exc:
                 cleanup_errors.append(exc)
