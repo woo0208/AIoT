@@ -272,3 +272,35 @@ python -X utf8 -B run_e0_check.py --check-only --guided-six --subject P01 --vari
 관련 회귀219개 PASS（기존208+신규11）. 합성 SDK/Tk/시계로 Tk 시간 포함·기존 endpoint 보존·세 모드 기능 동일성·E0/E1 특징/Scaler 입력/판정 동일성·Q 종료·timeout·invalid pair·deadline skip·예외 정리·미지원E1 실행 거부를 검증했다. 실제 artifact의 E0/E1 check-only도 PASS다. 테스트가 주입한 시간 차이는 구조 검증이며 p95/FPS/CPU/RAM의 실제 개선 수치가 아니다. 실측 개선 여부는 NOT_MEASURED다.
 
 이번 수정은 `e0_fs3.py`（공통 loop 계측/summary）, `e0_panel.py`와 `e0_guided_panel.py`（동일 Tk 하위 단계）, `posture_geometry_probe.py`（공통 경계·E1 선택/지원 검사）, `run_e0_check.py`（variant 옵션/분리 출력）, `test_run_e0_check.py`, 신규 `test_e0_e1_ui.py`, 이 문서와 기존 검토 보고서다. 합성 근거는 `analysis/E0_GUIDED_REVIEW_20261109/local_private/e0_e1_common_timing_validation.json`에 보관한다. 원본 영상·특징값·랜드마크·참가자 식별자 저장·실제 카메라·새 학습·Commit·Push는 하지 않았다.
+
+### 카메라 없는 실제 UI 벤치마크 (2026-11-10)
+
+사용자의 명시적 요청으로 `benchmark_ui_native.py`를 추가해 실제 Win32 HighGUI/Tk 창을 실행했다. 입력만 합성 화면이며, 시간은 가상 시계가 아닌 실제 perf_counter_ns다. 범위는 **REAL_UI_SYNTHETIC_SCREEN_ENGINEERING_ONLY**다. 카메라·원본 영상 재생·MediaPipe 추론·모델 로드/학습/판정은 실행하지 않았다. 기존 연구 수식·모델·운영 코드는 수정하지 않았다.
+
+조건은1280×720의 고정 합성 이미지（실제 창960×540）, 기존 OperatorPanel, 같은 Tk 하위 계측과 `_e0_ui_key`,15Hz 입력 제한·실행별225프레임, 새 프로세스6회다. 순서는 E0/E1, E1/E0, E0/E1이며 실행 사이1초 간격을 두었다. 초기 창 생성은 별도 setup으로 기록하고 이후 첫 프레임부터 모두 포함했다. 수동 조작·창 끌기·키 주입 없는 반복 화면 갱신 조건이며, 사용자 입력/닫기 등 간섭 시 자동 재측정하지 않고 중단 기록을 남긴다. GPU query는 양쪽에서 비활성으로 고정하고 기존 ResourceMonitor의 CPU/RAM 관측만 사용했다. 실제 센서·특징·SVM 성공률·GPU 사용률·물리적 표시 완료 지연은 미측정이다.
+
+6회 모두225프레임, 합계1350프레임을 처리했다. 입력 hash·화면 크기가 모두 같고 API상 두 창 표시가 확인됐다. 입력 주기 한 개를 넘는 지연은0건이며, 프레임을 생략하지 않았다. 이는 센서 누락률 측정이 아니다. 각 실행별 p95의 중앙값 기준 결과는 다음과 같다.
+
+|지표|E0|E1|
+|---|---:|---:|
+|키/이벤트 호출 p95|4.3688ms|4.5438ms|
+|Tk poll p95|0.5297ms|0.6361ms|
+|화면 제출→호출 완료 p95|4.8091ms|4.9081ms|
+|입력 대기 포함 루프 p95|67.3428ms|67.4830ms|
+|제출FPS|14.9952|14.9953|
+|프로세스CPU p95（1코어=100%）|3.8331%|3.5532%|
+|전 실행 중 RSS 관측 최고|139.4570MiB|139.3672MiB|
+
+키/이벤트 호출 p95의 관측 차이는 E1이+0.1751ms（+4.01%）다. 작은 차이의 통계적 유의성이나 다른 환경으로의 일반화를 주장하지 않는다. 입력이15Hz로 제한됐으므로 FPS는 최대 처리량 비교가 아니다. 이번 수동 조작 없는 UI 조건에서는 E1의 지연 개선 근거가 없으며, CPU/RAM의 작은 차이를 전체 파이프라인 개선으로 해석하지 않는다. 과거 준비 중0.5~1초 정지는 재현되지 않았다. 결과만으로 기존 긴 정지의 원인/해결을 확정하거나 전체 RGB-D 경로에 대한 채택을 선언하지 않는다.
+
+결과: [UI_NATIVE_BENCHMARK_20261110/REPORT.md](analysis/UI_NATIVE_BENCHMARK_20261110/REPORT.md). 회차별 숫자·자원 표본·측정 소스는 해당 `local_private/`에 보관한다. 실행 후 보고서 검증에서 JSON 정렬에 따른 표 열 순서 오류를 발견해 보고서 생성/검증만 수정했다. 원본 측정 소스를 별도 고정하고 측정 함수 AST 동일성·원본 숫자 hash 불변을 확인했으며 추가 GUI 측정은 하지 않았다. 보고서 표를 재생성한 뒤 검증 PASS다.
+
+신규 구조 테스트5개와 관련 E0/E1·P2/P3 테스트를 포함한42개 PASS. 전체6회·단계별9군（합계54군）의 분위수/최대값과 자원 표본96개의 통계를 원표에서 재계산했다. 변경 파일은 신규 `benchmark_ui_native.py`, `test_benchmark_ui_native.py`, 이 문서와 생성 보고서다. 실제 사람 촬영·연구 자료 변경·새 학습·Commit·Push는 하지 않았다.
+
+### 창 조작 재현 시험의 접근 제한 (2026-11-10)
+
+사용자가 합성 창 이동·크기 변경·포커스 조작과 시간 기록을 요청해 `probe_ui_interaction.py`와 테스트를 추가했다. 기존 frame_step/UI 함수와 같은perf 시계를 재사용하고, 조작 전후 표식 응답 및 native 상태 이벤트를 기록한다. 실제 입력은computer-use 도구에만 맡겼다. 신규3+관련기존14개, 합계17개 구조 테스트 PASS다.
+
+실제 자동화에서는 Python 앱 접근 요청이 두 번 모두 `Computer Use app approval timed out`으로 종료돼 조작0건이다. E0 기록기는600초 안전 상한까지 조작 없는9000프레임을 보존하고 종료됐다. 키 호출 최대29.3858ms/Tk poll 최대19.7257ms,100ms 이상 호출0건이다. 이는 계획한 조작 조건의 결과가 아니므로 E2를 선정하지 않았다. E1 조작 시험도 시작하지 않았다. 앱 접근 허용 후 별도 실행에서 재개해야 한다. 원본 연구자료·기존 실행 코드·모델·공식8조합·B6·IRB 상태는 유지한다.
+
+보고서: [UI_INTERACTION_PROBE_20261110/REPORT.md](analysis/UI_INTERACTION_PROBE_20261110/REPORT.md). 원표·해시는local_private에 보존한다. 실제 사람/카메라·새 학습·Commit·Push는 수행하지 않았다.
