@@ -1,5 +1,10 @@
 # 연구 B — B1 수동 측정 수요에 따른 RGB-D 처리 (1차 구현)
 
+2026-11-17 후속: `--save-raw on/off`와 조작창 원본 ON/OFF 버튼을 추가했다.
+기본은 OFF이며, ON 중에는 B1 유휴 구간도 추론 전 원본으로 별도 저장한다.
+이전 원본 미저장 설명은 당시 상태다. 최신 저장 형식·명령·성능 비교 주의점은
+[RAW_RGBD_RECORDING.md](RAW_RGBD_RECORDING.md)를 따른다. 분류/평가 규칙과 HOLD는 그대로다.
+
 2026-11-16. 상태: **구현 / 합성 구조 검증; 실제 절감·정확도 유지 UNVERIFIED**.
 현재 사용자 요청에 따른 비정식 engineering 후보이며 공식 평가·B6·CAP-007/009·Patch 8 HOLD는 유지한다.
 과거 Decision Log·Master·Schema·촬영·연구 A 산출물은 변경하지 않는다. 새 정식 schema나 execution registry도 없다.

@@ -57,7 +57,7 @@ class E0Session:
                  mode='detailed', resource_monitor=None, synthetic=False,
                  log_buffer_limit=256, input_scope='live', model_binding=None):
         validate_model(model, scaler)
-        if type(log_buffer_limit) is not int or log_buffer_limit<1 or input_scope not in ('live','stored_features'):
+        if type(log_buffer_limit) is not int or log_buffer_limit<1 or input_scope not in ('live','stored_features','raw_replay'):
             raise ValueError('invalid E0 buffer/input scope')
         if mode not in ('off','summary','detailed'):
             raise ValueError('E0 mode must be off, summary or detailed')
@@ -462,6 +462,10 @@ class E0Session:
                 'Metadata reuse is not pixel comparison or proof of sensor production/drop count',
                 'Bounded record checkpoints add I/O overhead; stream FPS includes it; publication is separate',
                 'No raw RGB/Depth, landmarks, features, ground-truth labels, subject or device identity logged'])
+        if self.environment_metadata.get('raw_recording', {}).get('frames', 0):
+            summary['limitations'][-1] = (
+                'Numeric logs contain no images/features/ground-truth labels; '
+                'opt-in native RGB-D arrays and calibration are stored separately in raw_rgbd/')
         if seconds is not None and seconds > 0:
             summary['processed_fps'] = summary['completed_frames']/seconds
             summary['valid_feature_fps'] = summary['feature_success_frames']/seconds

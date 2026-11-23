@@ -15,6 +15,7 @@ import uuid
 from e0_model import load_fs3,environment_record
 from e0_panel import run_bound_probe
 from posture_geometry_probe import run_probe, e0_ui_backend
+from raw_rgbd_events import add_context_arguments,validate_context
 
 
 ROOT=Path(__file__).resolve().parent
@@ -31,12 +32,19 @@ def main(argv=None):
     parser.add_argument('--guided-six',action='store_true',help='six posture blocks, five manual 10s holds each')
     parser.add_argument('--subject',choices=('P01','P02'),help='guided window label only; never exported')
     parser.add_argument('--mode',choices=('summary','detailed'),default='summary')
+    parser.add_argument('--save-raw',choices=('on','off'),default='off',help='initial raw RGB-D save state; UI can toggle')
     parser.add_argument('--pc-id',default='PC01')
     parser.add_argument('--variant',choices=('E0','E1'),default='E0')
     parser.add_argument('--output-dir',type=Path)
+    add_context_arguments(parser)
     args=parser.parse_args(argv)
     if args.guided_six != (args.subject is not None):
         parser.error('--guided-six and --subject must be used together')
+    context=validate_context(args.participant_id or args.subject,args.session_label,args.repetition)
+    if args.participant_id and args.subject and args.participant_id!=args.subject:
+        parser.error('participant-id must match the guided subject')
+    if args.guided_six and args.repetition is not None:
+        parser.error('guided mode records its existing repeat indices 1..5; omit --repetition')
     if args.duration_seconds is None:
         args.duration_seconds=1800. if args.guided_six else 90.
     if not math.isfinite(args.duration_seconds) or args.duration_seconds<=0:
@@ -65,6 +73,7 @@ def main(argv=None):
     print(f"artifact_sha256={verified['artifact_sha256']}")
     print(f"output={target.relative_to(ROOT)}")
     print(f"execution_variant={args.variant}; timing_contract=e0-e1-loop-timing/1")
+    print(f"raw_recording_initial={args.save_raw}; raw_format=lossless native RGB-D NPZ")
     if not args.live:
         print('CHECK_ONLY_PASS: camera/GUI NOT_STARTED; no output directory created')
         return 0
@@ -88,7 +97,7 @@ def main(argv=None):
                 ROOT.joinpath('e0_guided_panel.py').read_bytes()).hexdigest()
         return run_probe(duration_seconds=args.duration_seconds,e0_ui_variant=args.variant,**kwargs)
     run_bound_probe(path,binding,target,execution_authorized=True,pc_id=args.pc_id,mode=args.mode,
-                    probe_runner=runner,**panel_options)
+                    probe_runner=runner,save_raw=args.save_raw,recording_context=context,**panel_options)
     print(f'PREFLIGHT_FINISHED: {target.relative_to(ROOT)}')
     return 0
 

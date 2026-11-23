@@ -69,7 +69,7 @@ def report(run, labels_path=None):
     stages = {s['name']: s for s in timing['stage_milliseconds']}
     names = ('receive.wait', 'receive.align', 'input.convert', 'mediapipe.pose', 'mediapipe.face',
              'depth_geometry', 'fs3.feature_select', 'fs3.aggregate', 'fs3.scale', 'fs3.svm',
-             'ui.tk_poll', 'ui.render_submit', 'ui.key_wait', 'loop.total',
+             'ui.tk_poll', 'ui.render_submit', 'ui.key_wait', 'io.raw_rgbd', 'loop.total',
              'latency.receive_to_frame_complete', 'latency.loop_start_to_frame_complete',
              'research_b.full.receive_to_complete', 'research_b.idle.receive_to_complete',
              'research_b.full.demand.receive_to_complete', 'research_b.full.idle.receive_to_complete')
@@ -84,6 +84,7 @@ def report(run, labels_path=None):
         idle_preview_fps=fps(count.get('idle_completed', 0)),
         completed_delivery_fps=fps(count.get('full_completed', 0)+count.get('idle_completed', 0)),
         counts=count, transitions=policy['transitions'],
+        raw_recording=summary['environment'].get('raw_recording', dict(status='NOT_CONFIGURED')),
         frame_status_counts=summary['frame_status_counts'],
         loop_status_counts=summary['loop_status_counts'],
         sensor_missing_rate='NOT_MEASURED',

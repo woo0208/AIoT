@@ -92,6 +92,9 @@ class GuidedPanel(OperatorPanel):
     def __init__(self, session, *, subject, tk_module=None):
         if subject not in ('P01', 'P02'):
             raise ValueError('Use an anonymous operator label P01 or P02')
+        raw=getattr(session,'raw_recording',None)
+        if raw is not None and raw.events is not None and raw.events.context['participant_id'] not in (None,subject):
+            raise ValueError('Guided display and private participant identity must match')
         if tk_module is None:
             import tkinter as tk_module
         self.control = GuidedControl(session)
@@ -114,6 +117,11 @@ class GuidedPanel(OperatorPanel):
                              ('구간 취소 (T)', self.control.cancel), ('종료 (Q)', self.control.close)):
             tk_module.Button(self.root, text=text, command=action,
                              font=('Malgun Gothic', 13)).pack(pady=4)
+        self._add_raw_controls(tk_module)
+        self._raw_instruction_key=None
+        if self.raw_recording is not None:
+            self.root.geometry('820x660')
+            self.root.minsize(760, 640)
         self.pressed = set()
         self.root.bind('<KeyPress>', self._key)
         self.root.bind('<KeyRelease>', lambda event: self.pressed.discard(event.keysym))
@@ -144,8 +152,14 @@ class GuidedPanel(OperatorPanel):
         expected = self.control.expected
         self.target.set('30구간 완료' if expected is None else
                         f'P{expected} {NAMES[expected]} [{KEY_TEXT[expected]}] — {self.control.completed % 5 + 1}/5회')
+        token=(expected,self.control.completed)
+        if self.raw_recording is not None and expected is not None and token!=self._raw_instruction_key:
+            self.raw_recording.instruction(f'P{expected}',source='guided_target_display',
+                                           repetition=self.control.completed%5+1)
+            self._raw_instruction_key=token
         self.status.set(f'{self.control.state} | 완료 {self.control.completed}/30')
         active = self.control.session.active
         elapsed = (active['last_device_ms'] - active['first_device_ms']) / 1000 if active else None
         self.detail.set(self.control.message + (f'\n측정 {elapsed:.1f}/10.0초' if elapsed is not None else ''))
+        self._update_raw_controls()
         return running

@@ -1,6 +1,7 @@
 """Manual stable-hold UI: no posture labels, calibration or automatic capture."""
 from e0_fs3 import E0Session
 from e0_model import load_fs3, environment_record
+import sys
 
 
 class OperatorControl:
@@ -14,6 +15,8 @@ class OperatorControl:
         if not self.running or self.session.active is not None or self.session.armed:return False
         self.session.arm_segment()
         self.state='ARMED'
+        raw=getattr(self.session,'raw_recording',None)
+        if raw is not None:raw.observe_measurement(self.session)
         return True
 
     def cancel(self):
@@ -21,6 +24,8 @@ class OperatorControl:
             self.session.cancel_segment()
             self._seen=len(self.session.segments)
             self.state='CANCELLED'
+            raw=getattr(self.session,'raw_recording',None)
+            if raw is not None:raw.observe_measurement(self.session)
 
     def close(self):
         self.cancel()
@@ -51,6 +56,7 @@ class OperatorPanel:
         tk_module.Button(self.root,text='Start 10s',command=self.control.start).pack()
         tk_module.Button(self.root,text='Cancel',command=self.control.cancel).pack()
         tk_module.Button(self.root,text='Close',command=self.control.close).pack()
+        self._add_raw_controls(tk_module)
         self.pressed=set()
         self.root.bind('<KeyPress>',self._key)
         self.root.bind('<KeyRelease>',lambda event:self.pressed.discard(event.keysym))
@@ -66,6 +72,44 @@ class OperatorPanel:
         elif key.lower()=='q':self.control.close()
         return 'break'
 
+    def _add_raw_controls(self, tk_module):
+        self.raw_recording = getattr(self.control.session, 'raw_recording', None)
+        if self.raw_recording is None:
+            return
+        self.raw_status = tk_module.StringVar(value=self.raw_recording.display())
+        tk_module.Label(self.root, textvariable=self.raw_status, wraplength=760).pack()
+        self.raw_button = tk_module.Button(self.root, text='원본 저장 ON/OFF', command=self._toggle_raw,
+                                          takefocus=False)
+        self.raw_button.pack()
+        if self.raw_recording.events is not None:
+            identity=self.raw_recording.events.context
+            tk_module.Label(self.root,text=f"참가자 {identity['participant_id'] or 'UNASSIGNED'} / "
+                f"{identity['session_label'] or 'UNASSIGNED'} — 실제 움직임 시각 UNANNOTATED").pack()
+            if not hasattr(self.control,'expected'):
+                from capture_six_pilot import NAMES
+                bar=tk_module.Frame(self.root);bar.pack()
+                for index,name in enumerate(NAMES):
+                    tk_module.Button(bar,text=f'P{index} {name}',takefocus=False,
+                        command=lambda index=index:self._raw_instruction(f'P{index}')).pack(side='left')
+
+    def _raw_instruction(self,code):
+        self.raw_status.set(f'자세 안내 {code} (실제 움직임 UNANNOTATED)')
+        self.raw_recording.instruction(code)
+        self.raw_status.set(self.raw_recording.display())
+
+    def _toggle_raw(self):
+        from raw_rgbd_recording import RawRecordingError
+        try:
+            self.raw_recording.set_enabled(not self.raw_recording.requested)
+        except RawRecordingError:
+            pass  # Tk swallows callback exceptions; poll propagates logger health.
+        self.raw_status.set(self.raw_recording.display())
+
+    def _update_raw_controls(self):
+        if self.raw_recording is not None:
+            self.raw_status.set(self.raw_recording.display())
+            self.raw_recording.check_health()
+
     def poll(self):
         with self.control.session.timing.stage('ui.tk_idle'):
             self.root.update_idletasks()
@@ -73,6 +117,7 @@ class OperatorPanel:
             self.root.update()
         running=self.control.poll()
         self.status.set(self.control.state)
+        self._update_raw_controls()
         return running
 
     def close(self):
@@ -80,19 +125,35 @@ class OperatorPanel:
 
 
 def run_bound_probe(path,binding,directory,*,execution_authorized=False,pc_id='PC_UNSPECIFIED',mode='summary',
-                    panel_factory=OperatorPanel,probe_runner=None):
+                    panel_factory=OperatorPanel,probe_runner=None,save_raw=None,recording_context=None):
     """Future explicit engineering invocation; no CLI or implicit authorization."""
     if not execution_authorized:raise PermissionError('E0 execution not authorized')
+    if save_raw not in (None, 'on', 'off') or (save_raw is not None and mode == 'off'):
+        raise ValueError('Raw recording controls require measured session and on/off state')
     model,scaler,verified=load_fs3(path,binding['artifact_sha256'],binding['feature_ids'],
         expected_model_sha256=binding['model_sha256'],expected_scaler_sha256=binding['scaler_sha256'])
     session=E0Session(directory,model,scaler,mode=mode,model_binding=verified)
     session.environment_metadata=environment_record(pc_id)
+    raw_recording = None
+    if save_raw is not None:
+        from raw_rgbd_recording import RawRecordingControl
+        raw_recording = RawRecordingControl(session.directory/'raw_rgbd', initial=save_raw,
+            scope=session.scope, model_binding=verified,session_context=recording_context,
+            clock_ns=session.clock_ns)
+        session.raw_recording = raw_recording
     panel=panel_factory(session)
     if probe_runner is None:
         from posture_geometry_probe import run_probe
         probe_runner=run_probe
     try:
-        probe_runner(e0_session=session,ui_poll=panel.poll,show_3d_views='none')
+        options = dict(e0_session=session,ui_poll=panel.poll,show_3d_views='none')
+        if raw_recording is not None:
+            options['raw_recording'] = raw_recording
+        probe_runner(**options)
     finally:
-        panel.close()
+        try:
+            if raw_recording is not None:
+                raw_recording.finish(error=sys.exc_info()[1])
+        finally:
+            panel.close()
     return session

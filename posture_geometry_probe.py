@@ -2194,8 +2194,10 @@ def run_probe(
     e0_session=None,
     e0_ui_variant: str = 'E0',
     rgbd_policy=None,
+    raw_recording=None,
+    replay_input=None,
 ) -> None:
-    """Run the live D455/MediaPipe loop.  Hardware dependencies load only here.
+    """Run the shared D455/MediaPipe loop. Hardware dependencies load only here.
 
     ``frame_callback``, when given, receives each completed ``ProbeFrame``
     after the existing windows are drawn (e.g. the browser mesh avatar).
@@ -2203,11 +2205,20 @@ def run_probe(
     ``ui_poll`` pumps an optional local panel; False requests normal cleanup.
     ``e0_session`` is an opt-in, already constructed E0Session with a selected
     fitted FS3 T0 model/scaler. Its caller explicitly arms each stable 10s hold.
-    It is separate from the legacy 4s H9/RF mode and never saves images/features.
+    It is separate from the legacy 4s H9/RF mode. Raw arrays are saved only
+    when its explicit ``raw_recording`` control is switched ON.
     ``rgbd_policy`` opts into Research B's idle gate/observer only; None retains
     the existing E0 path. No extra feature consumers are allowed with this gate.
+    ``replay_input`` supplies read-only file frames to this same full E0 loop,
+    without camera discovery, UI, the B1 policy, or live timestamp repair.
     """
 
+    if replay_input is not None:
+        from e0_replay import ReplayInput
+        if (not isinstance(replay_input, ReplayInput) or e0_session is None
+                or e0_session.input_scope != 'raw_replay' or not headless
+                or rgbd_policy is not None or raw_recording is not None or ui_poll is not None):
+            raise ValueError('Replay requires a headless raw_replay E0 session without live controls/policies')
     if e0_ui_variant not in ('E0', 'E1') or (e0_ui_variant == 'E1' and (e0_session is None or headless)):
         raise ValueError('E1 UI variant requires a visible E0 engineering session')
     if rgbd_policy is not None:
@@ -2233,6 +2244,13 @@ def run_probe(
                 timing_output_path, performance_output_dir, diagnostics_output_dir,
                 frame_provenance_dir)) or f1_live:
             raise ValueError('E0 uses its own privacy-safe outputs, separate from legacy modes')
+    if raw_recording is not None:
+        from raw_rgbd_recording import RawRecordingControl
+        if (not isinstance(raw_recording, RawRecordingControl) or e0_session is None
+                or e0_session.mode == 'off' or e0_session.input_scope != 'live'
+                or getattr(e0_session, 'raw_recording', None) is not raw_recording
+                or raw_recording._finished or raw_recording._metadata is not None):
+            raise ValueError('Raw recording requires its fresh, bound live E0 control')
     if rf_demo_model_path is not None and not f1_live:
         raise ValueError("rf_demo_model_path requires f1_live")
     if session_meta_json_path is not None and upper13_csv_path is None:
@@ -2250,7 +2268,7 @@ def run_probe(
     if timing_h9_warmup_calls < 0 or (timing_h9_warmup_calls != 1 and timing_output_path is None and performance_output_dir is None):
         raise ValueError('H9 timing warmup requires timing output and nonnegative calls')
     probe_timing.ProbeRunControl(duration_seconds)
-    if headless and (duration_seconds is None or pyvista_view or show_3d_views not in (None, False, 'none')):
+    if headless and ((duration_seconds is None and replay_input is None) or pyvista_view or show_3d_views not in (None, False, 'none')):
         raise ValueError('headless requires duration and no optional UI')
     if diagnostics_output_dir is not None and timing_output_path is None and performance_output_dir is None:
         raise ValueError('diagnostics require timing/performance output')
@@ -2279,7 +2297,7 @@ def run_probe(
                      'timing_output_path', 'performance_output_dir', 'performance_data_id',
                      'subject', 'recording_id', 'h9_subject', 'h9_recording_id', 'performance', 'output_path',
                      'diagnostics', 'diagnostics_output_dir', 'provenance', 'frame_provenance_dir', 'e0_ui_variant',
-                     'rgbd_policy'):
+                     'rgbd_policy', 'raw_recording', 'replay_input'):
             options.pop(name, None)
         if not headless:
             options.pop('headless')
@@ -2344,6 +2362,8 @@ def run_probe(
     face_detector = None
     pyvista_window = None
     try:
+        if raw_recording is not None:
+            raw_recording.begin_session()
         if h9_model_path is not None:
             import h9_probe_session as h9_ui
             h9 = h9_ui.H9ProbeSession(h9_model_path,recording_id=h9_recording_id or 'h9-probe-development',
@@ -2375,7 +2395,11 @@ def run_probe(
             print(f"[probe] RF demo model {rf_demo_state.status}: "
                   f"{rf_demo_state.artifact_name} ({rf_demo_state.detail})")
 
-        model_paths = analyze_d455.ensure_models()
+        if replay_input is None:
+            model_paths = analyze_d455.ensure_models()
+        else:
+            # Replay never provisions packages/models or reaches a live device.
+            model_paths = replay_input.locked_models(analyze_d455)
         if performance is not None:
             performance.pin_models(dict(pose=model_paths['pose'], mesh=model_paths['mesh'],
                                         face=model_paths['face'] if f1_live else None,
@@ -2398,7 +2422,7 @@ def run_probe(
                 base_options=mpt.BaseOptions(model_asset_path=model_paths["face"]),
                 min_detection_confidence=analyze_d455.FACE_MIN_DETECTION_CONFIDENCE,
             )
-        pipeline = rs.pipeline()
+        pipeline = rs.pipeline() if replay_input is None else replay_input
         if metrics is not None:
             metrics.start()
         csv_handle, csv_writer = _open_csv(csv_path)
@@ -2407,14 +2431,21 @@ def run_probe(
             face_diag_csv_path
         )
         with _timed(stages, 'startup.pipeline'):
-            profile = pipeline.start(capture_d455.make_config())
+            profile = pipeline.start(capture_d455.make_config()) if replay_input is None else pipeline.start(rs)
         if performance is not None:
             performance.device_environment(profile, rs)
         if provenance is not None:
             provenance.device_environment(profile, rs)
         align = rs.align(rs.stream.color)
-        depth_scale_m = profile.get_device().first_depth_sensor().get_depth_scale()
-        color_intrinsics = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+        if replay_input is None:
+            depth_scale_m = profile.get_device().first_depth_sensor().get_depth_scale()
+            color_intrinsics = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+        else:
+            depth_scale_m = replay_input.camera['depth_scale_m']
+            color_intrinsics = replay_input.color_intrinsics(rs)
+        if raw_recording is not None:
+            from raw_rgbd_recording import camera_metadata
+            raw_recording.bind(lambda: camera_metadata(profile, rs))
         if session_meta_json_path is not None:
             write_upper13_session_metadata(
                 session_meta_json_path,
@@ -2447,6 +2478,8 @@ def run_probe(
         stream_start_ns = metrics.begin_stream() if metrics is not None else None
         if e0_session is not None:
             e0_session.begin_stream()
+        if replay_input is not None:
+            replay_input.begin_stream()
         control.start(stream_start_ns)
         last_mediapipe_timestamp_ms = -1
         frame_index = 0
@@ -2463,13 +2496,16 @@ def run_probe(
                 h9.mark_displayed(snapshot)
                 return cv2.waitKey(1)
 
-        print('[probe] headless: duration-based stop; built-in UI/key input disabled' if headless else
+        print('[probe] file replay: EOF-based stop; camera/UI disabled' if replay_input is not None else
+              '[probe] headless: duration-based stop; built-in UI/key input disabled' if headless else
               '[probe] live RGB + aligned depth started; press q in the window to quit')
         if csv_writer is not None:
             print("[probe] labels: 1=upright, 2=forward_head, 3=lean_back, "
                   "4=lean_left, 5=lean_right, 6=lean_forward, t=TRANSITION; "
                   "initial=PREP")
-        if rf_demo_state is None:
+        if replay_input is not None:
+            print('[probe] original E0 Align/Pose/Face/Depth/H9/FS3; SVM only for eligible complete 10s holds')
+        elif rf_demo_state is None:
             print("[probe] diagnostic-only: no posture classification and no production gate changes")
         else:
             print("[probe] ENGINEERING RF DEMO - ACCURACY NOT VALIDATED: "
@@ -2486,6 +2522,8 @@ def run_probe(
             if ui_poll is not None:
                 with _timed(e0_session.timing if e0_session is not None else None, 'ui.tk_poll'):
                     ui_running = ui_poll()
+                if raw_recording is not None:
+                    raw_recording.observe_measurement(e0_session)
                 if not ui_running:
                     control.stop('panel_closed')
                     break
@@ -2496,15 +2534,31 @@ def run_probe(
             provenance_row = provenance.begin_receive() if provenance is not None else None
             e0_row = e0_session.begin_receive() if e0_session is not None else None
             with _timed(metrics, 'receive.wait'):
-                if h9 is None and duration_seconds is None and ui_poll is None:
+                if replay_input is not None:
+                    ready, frames = replay_input.read()
+                elif h9 is None and duration_seconds is None and ui_poll is None:
                     frames = pipeline.wait_for_frames()
                     ready = True
                 else:
                     ready, frames = pipeline.try_wait_for_frames(h9_ui.FRAME_WAIT_TIMEOUT_MS if h9 is not None else 250)
                 receive_end_qpc_ns = provenance.clock_ns() if provenance is not None else None
                 e0_receive_end = e0_session.clock_ns() if e0_session is not None else None
+            if replay_input is not None and not ready:
+                e0_row['status'] = 'replay_eof'
+                control.stop('completed')
+                break
             if e0_session is not None:
                 e0_session.received(e0_row, ready, frames, e0_receive_end)
+            if ready and raw_recording is not None:
+                raw_recording.observe_input(frames,e0_row)
+            if raw_recording is not None:
+                raw_recording.check_health()
+                if ready and raw_recording.requested:
+                    # Preserve delivered native arrays before Align and B1's gate,
+                    # even when no measurement was requested or inference fails.
+                    with _timed(stages, 'io.raw_rgbd'):
+                        raw_recording.capture(frames, e0_row, armed=e0_session.armed,
+                            active_segment=e0_session.active['segment_index'] if e0_session.active else None)
             source_id = frames.get_frame_number() if ready and metrics is not None and hasattr(frames, 'get_frame_number') else None
             token = metrics.input_received(source_id) if ready and metrics is not None else None
             if provenance is not None:
@@ -2536,6 +2590,12 @@ def run_probe(
                     break
                 continue
             device_timestamp_ms = float(frames.get_timestamp())
+            if replay_input is not None and not replay_input.validate(e0_session, e0_row):
+                continue
+            if replay_input is not None and not replay_input.select_full():
+                frame_index += 1
+                replay_input.skipped(e0_session,e0_row,frame_index,device_timestamp_ms)
+                continue
             if rgbd_policy is not None and not rgbd_policy.select(e0_session, e0_row):
                 # No inference result/feature/callback exists for this input. Show
                 # only the CURRENT raw color, explicitly marked as unmeasured.
@@ -2561,8 +2621,8 @@ def run_probe(
                     control.stop('q')
                     break
                 continue
-            with _timed(stages, 'receive.align'):
-                aligned = align.process(frames)
+            with _timed(stages, 'receive.align', frame_index+1 if replay_input is not None else None):
+                aligned = align.process(frames if replay_input is None else frames.sdk_frames)
             color_frame = aligned.get_color_frame()
             depth_frame = aligned.get_depth_frame()
             if e0_session is not None:
@@ -2586,13 +2646,13 @@ def run_probe(
                         break
                 continue
 
-            with _timed(stages, 'input.convert'):
+            with _timed(stages, 'input.convert', frame_index+1 if replay_input is not None else None):
                 bgr = np.asanyarray(color_frame.get_data())
                 aligned_depth = np.asanyarray(depth_frame.get_data())
                 rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
                 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
                 timestamp_ms = int(device_timestamp_ms)
-                if timestamp_ms <= last_mediapipe_timestamp_ms:
+                if replay_input is None and timestamp_ms <= last_mediapipe_timestamp_ms:
                     timestamp_ms = last_mediapipe_timestamp_ms + 1
                 last_mediapipe_timestamp_ms = timestamp_ms
                 frame_index += 1
@@ -2677,6 +2737,10 @@ def run_probe(
             if e0_session is not None:
                 e0_session.accept(e0_row, result, frame_index, device_timestamp_ms,
                     pose_detected=pose_detected, face_detected=bool(face_result.face_landmarks))
+                if replay_input is not None:
+                    replay_input.observe_features(result)
+                if raw_recording is not None:
+                    raw_recording.observe_measurement(e0_session)
             if h9 is not None:
                 with _timed(stages, 'h9.dispatch', frame_index):
                     h9.accept(result, frame_index=frame_index, device_timestamp_ms=device_timestamp_ms,
@@ -2772,6 +2836,8 @@ def run_probe(
             should_quit, debug_page = handle_panel_key(key, panel_mode, debug_page)
             if e0_session is not None:
                 e0_session.frame_completed(e0_row)
+                if replay_input is not None:
+                    replay_input.completed(e0_row)
                 if rgbd_policy is not None:
                     rgbd_policy.completed(e0_session, e0_row, skipped=False)
             if metrics is not None:
@@ -2788,14 +2854,19 @@ def run_probe(
         cleanup_errors = []
         # A timer/SDK close failure must not skip the remaining resources.
         actions = [h9.stop] if h9 is not None else []
+        if replay_input is not None:
+            # Stop replay counters before resource-monitor join/model/source close.
+            actions.append(replay_input.end_stream)
         if e0_session is not None:
             actions.append(e0_session.end_loop)
             actions.append(e0_session.end_stream)
         if metrics is not None:
             # Include completion of an already-running H9 tick in actual time.
             actions.append(metrics.end_stream)
+        if raw_recording is not None:
+            actions.append(lambda: raw_recording.finish(error=primary_error,termination=control.summary()['reason']))
         actions += [obj.close for obj in (pose_landmarker, face_landmarker, face_detector) if obj is not None]
-        if profile is not None:
+        if profile is not None or replay_input is not None and pipeline is not None:
             actions.append(pipeline.stop)
         actions += [obj.close for obj in (csv_handle, face_diag_handle, upper13_handle, pyvista_window) if obj is not None]
         if cv2 is not None and not headless:
@@ -2834,6 +2905,8 @@ def run_probe(
             try:
                 if rgbd_policy is not None:
                     e0_session.environment_metadata['research_b'] = rgbd_policy.summary()
+                if raw_recording is not None:
+                    e0_session.environment_metadata['raw_recording'] = raw_recording.summary()
                 e0_session.finish(error=primary_error, cleanup_errors=cleanup_errors)
             except Exception as exc:
                 cleanup_errors.append(exc)
