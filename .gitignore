@@ -1,6 +1,9 @@
 # RealSense raw recordings
 *.bag
 *.db3
+raw_rgbd/
+recording_metadata/
+/another_team/
 
 # Generated research data
 data/
