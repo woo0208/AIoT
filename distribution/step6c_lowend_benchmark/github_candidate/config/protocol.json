@@ -1,0 +1,45 @@
+{
+  "format": "research-b-final-protocol/1",
+  "methods": [
+    "E0",
+    "Fixed_2_matched",
+    "Uniform_85",
+    "V2_85"
+  ],
+  "binding": {
+    "artifact_sha256": "e9da4811e6549b474219637e77879433829d7e9a1ecdba54ca1ac34dbaafa249",
+    "model_sha256": "913bbf2446a770054de8ca6058eb2ca52db7779e0c9342e3719c093e59d4315b",
+    "scaler_sha256": "41c051ec8e2293f81aa752562fcc9f81cdc6396a0027ba8bb461cb2617594113",
+    "feature_ids": [
+      "F1",
+      "F3",
+      "F4",
+      "F5",
+      "F6",
+      "F7",
+      "F8"
+    ]
+  },
+  "implementation_sha256": {
+    "mediapipe_model_lock.json": "2fc1cf93cb9fdf1021699ee97001e1f52fefaac81255ce8f942e4751bb470f94",
+    "analyze_d455.py": "3a4d009ea8cbb155ac6a88240ab508af37bbb54d303d10ae7f70192e238ebd71",
+    "raw_rgbd_recording.py": "aa855f55e208097a74cc32606159eddacd6fbcf1823d488515678a72d37d2b65",
+    "raw_rgbd_replay.py": "a61b434a17b76d622b865a782a57b7436b64b6b4e75009c36d566a9ff702c36a",
+    "research_b_preflight.py": "2325095e3def68dce4d317e42cadf18aac2cc501873eff98509d293f684ad8b0",
+    "face_recovery_replay.py": "d722449717d58ca28b50ce0a33fe2124d0d43c6bcdcf44e89eb4f7b336adbb77",
+    "adaptive_v2_replay.py": "fea0ecd3ba761a9e39a98d0f86e5b5c6601cc3aae5e652451e8c488abbdd1193",
+    "replay_policy.py": "1e2e23fe4d718da1c13c72cb1923b3b5ca97f456c63bff783f99281ce6cd0544",
+    "research_b_fair_replay.py": "62a5be92776974345100788e83ab05a2e5faa0618afaf7a2086167af2cacd9cb",
+    "research_b_robustness_replay.py": "ee77f707958ed87e7dfca746c6ea42b802656545fb647a7a42bdfb2dac575127",
+    "e0_replay.py": "5d4ad4192af97346b03b8ef553662936c242029650cffac2a138a629b82ebbb6",
+    "e0_fs3.py": "426455edf068fa64068f048788801bf33c385cfd4655cdef5ae18fd9d2d4b3cd",
+    "e0_panel.py": "833b2a6e42561a1a08ab1fe2f626213885fb2d7fad216065240621438c456afc",
+    "e0_model.py": "7dd3e250070ea40ccde7b4dc17998423f119ff2de235665625f8f3c26525bfd5",
+    "e0_resources.py": "e6a2b448d2762fbb75b8b25dd759fe4fc11cf3f0c7b0f1fbea76455f09c7d4e4",
+    "e0_storage.py": "e46e6f20ce45674cf62f69ac88308f18f21f0e37b9790f5c5b038f9b182b7ecf",
+    "probe_diagnostics.py": "036588cbdd9b44981b58075788a0739c8bd1618a9fd7dda85b7ae50f8ffa7e0b",
+    "f1_sample_aggregator.py": "d9c6f55202a746a9be89d41822f9b22e0cd77ddaace6769f85bad3a777139ba3",
+    "posture_geometry_probe.py": "1308874027915fe788c64bddadfa66821b1eba9c25b984ae9d32063c9caa88ca",
+    "posture_geometry.py": "e43fb04ac355379e5bba40de611c1ea6ed4352b70b0eec92d8cf96988fa38e05"
+  }
+}

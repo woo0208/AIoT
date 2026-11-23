@@ -1,0 +1,2 @@
+# STEP 5E verifies source bytes; preserve existing line endings across checkout.
+* -text
