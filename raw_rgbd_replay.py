@@ -16,7 +16,8 @@ import numpy as np
 from e0_storage import write_json
 from frame_provenance import snapshot
 from research_recording import read_json
-from raw_rgbd_recording import FORMAT, SensorTrace, _sha, camera_metadata, load_raw_frame, pairing_info
+from raw_rgbd_recording import (EXCHANGE_VALIDATION_FILE, EXCHANGE_VALIDATION_FORMAT, FORMAT,
+                                SensorTrace, _sha, camera_metadata, load_raw_frame, pairing_info)
 
 
 @dataclass
@@ -51,6 +52,24 @@ class RawClipReader:
                     for key,name in (('recording_sha256','recording.json'),('frames_index_sha256','frames.jsonl'))):
                 raise ValueError('Clip metadata/index hash mismatch')
             self.hashes['end.json']=_sha(end)
+        if 'exchange_validation' in self.identity and not allow_incomplete:
+            self._require_exchange_validation()
+
+    def _require_exchange_validation(self):
+        proof = self.directory/EXCHANGE_VALIDATION_FILE
+        if not proof.is_file():
+            raise ValueError('Final exchange validation is missing')
+        validation = read_json(proof)
+        if (self.identity['exchange_validation'] != EXCHANGE_VALIDATION_FORMAT
+                or validation.get('format') != EXCHANGE_VALIDATION_FORMAT
+                or validation.get('session_id') != self.identity.get('session_id')
+                or validation.get('write_status') != self.end['status']
+                or validation.get('session_status') != 'COMPLETED'
+                or validation.get('status') not in ('PASS', 'WARNING')
+                or validation.get('file_integrity') != 'PASS'
+                or validation.get('clip_sha256') != self.hashes):
+            raise ValueError('Final exchange validation did not authorize this clip')
+        self.hashes[proof.name] = _sha(proof)
 
     def packets(self):
         count=0;source_hashes={}
@@ -67,7 +86,10 @@ class RawClipReader:
                         info=self.camera['streams'][name]
                         if arrays[key].shape[:2]!=(info['height'],info['width']):
                             raise ValueError('Raw profile/shape mismatch')
-                if record.get('pairing') is not None and record['pairing']!=pairing_info(record['sensors'],arrays):
+                source = record.get('pairing_source', 'SDK_DELIVERED_FRAMESET')
+                if source not in ('SDK_DELIVERED_FRAMESET', 'NATIVE_ONE_USE_TIMESTAMP_PAIR'):
+                    raise ValueError('Unknown RGB/Depth pairing source')
+                if record.get('pairing') is not None and record['pairing']!=pairing_info(record['sensors'],arrays,source):
                     raise ValueError('RGB/Depth correspondence mismatch')
                 source_hashes[path]=record['sha256'];count=index
                 yield RawPacket(arrays.get('color_bgr'),arrays.get('depth_z16'),record,self.camera)

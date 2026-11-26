@@ -1,5 +1,15 @@
 # E0/B1 원본 RGB-D 저장 ON/OFF
 
+## 연구 B의 외부 교환용 촬영
+
+`run_research_b.py --live --exchange-capture`는 세션 내내 원본을 기록한다. `--participant-id Pxx`에 실제 배정한 가명을 넣거나 `--participant-unregistered`를 명시한다. `--session-label S1` 또는 `S2`, `--repetition`, `--duration-seconds`, `--capture-environment <JSON>`, `--record-imu`를 함께 사용할 수 있다. `--check-only`는 모델·옵션 점검까지 수행하며 장치·실제 디스크 기록 사전 검사는 라이브 시작 시 진행한다. 일반 개발 모드에는 아래 기존 ON/OFF 동작이 적용된다.
+
+교환 모드는 SDK 수신과 NPZ 쓰기, MediaPipe를 분리한다. 원본 큐 포화나 디스크 오류는 실패다. `exchange_verification.json`에서 종료 상태, 파일 무결성, 감지한 번호 공백과 FPS를 확인한다. 최종 `recording_metadata/session_manifest.json`이 `PENDING_VERIFICATION`이거나 `exchange_files.json`이 없으면 전달 절차가 끝나지 않았다. `stable_intervals_template.json`은 별도 수동 검토용이다. 수신 팀의 NPZ 호환성·제공 권한·실물 장치 성능은 별도로 확인한다.
+
+교환 모드의 `--exchange-fps`는 15 또는 30을 받으며 기본값은 15다. SDK가 요청한 두 프로파일 조합을 열 수 있어야 한다. 검증 보고서는 요청 FPS와 수신·저장·쓰기·추론 FPS를 각각 기록한다. 활성 촬영의 수신 공백과 동일 센서·프로파일·시계의 시각 간격이 500ms 이상이면 실패로 처리한다. 500ms는 SDK의 250ms 대기 두 번을 기준으로 잡았으며 종료 요청 이후 정리 시간은 제외한다. 실물 30 FPS 지속 저장 상태는 `NOT_TESTED`다.
+
+새 교환 클립을 단독으로 제공할 때는 폴더 안의 `exchange_validation.json`을 함께 제공한다. 이 파일은 쓰기 완료 상태와 최종 세션 검증 상태를 별도로 보존하고 파일 해시로 클립에 연결된다. 새 클립은 최종 검증이 없거나 실패하면 기본 Reader가 거부한다. 진단용 `--allow-incomplete`에서도 원본 해시 검사는 수행한다.
+
 2026-11-17. 사용자 요청에 따라 원본 저장 버튼과 시작 옵션을 추가했다.
 이 문서는 engineering 저장 기능 설명이며 공식 수집/평가·B6·IRB·Patch 8 HOLD를 변경하지 않는다.
 이번에는 실제 카메라·참가자 촬영이나 실제 자료 평가를 실행하지 않는다.

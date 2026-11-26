@@ -80,6 +80,12 @@ class OperatorPanel:
         tk_module.Label(self.root, textvariable=self.raw_status, wraplength=760).pack()
         self.raw_button = tk_module.Button(self.root, text='원본 저장 ON/OFF', command=self._toggle_raw,
                                           takefocus=False)
+        exchange = getattr(self.raw_recording, 'exchange', None)
+        if exchange is not None:
+            if exchange.guided:
+                self.raw_button.configure(text='원본 녹화 시작')
+            else:
+                self.raw_button.configure(text='교환용 원본 저장 ON', state='disabled')
         self.raw_button.pack()
         if self.raw_recording.events is not None:
             identity=self.raw_recording.events.context
@@ -104,6 +110,8 @@ class OperatorPanel:
         except RawRecordingError:
             pass  # Tk swallows callback exceptions; poll propagates logger health.
         self.raw_status.set(self.raw_recording.display())
+        if getattr(getattr(self.raw_recording, 'exchange', None), 'guided', False) and self.raw_recording.requested:
+            self.raw_button.configure(text='원본 녹화 중', state='disabled')
 
     def _update_raw_controls(self):
         if self.raw_recording is not None:
@@ -125,28 +133,44 @@ class OperatorPanel:
 
 
 def run_bound_probe(path,binding,directory,*,execution_authorized=False,pc_id='PC_UNSPECIFIED',mode='summary',
-                    panel_factory=OperatorPanel,probe_runner=None,save_raw=None,recording_context=None):
+                    panel_factory=OperatorPanel,probe_runner=None,save_raw=None,recording_context=None,
+                    exchange_options=None,engineering_test=False):
     """Future explicit engineering invocation; no CLI or implicit authorization."""
     if not execution_authorized:raise PermissionError('E0 execution not authorized')
+    guided_exchange = exchange_options is not None and exchange_options.get('guided', False)
+    if exchange_options is not None and (save_raw != ('off' if guided_exchange else 'on') or recording_context is None):
+        raise ValueError('Exchange capture requires the mode-specific raw state and explicit participant context')
+    if engineering_test and (not guided_exchange or any(
+            recording_context.get(key) is not None for key in ('participant_id', 'session_label', 'repetition'))):
+        raise ValueError('Guided engineering requires unregistered guided exchange capture')
     if save_raw not in (None, 'on', 'off') or (save_raw is not None and mode == 'off'):
         raise ValueError('Raw recording controls require measured session and on/off state')
     model,scaler,verified=load_fs3(path,binding['artifact_sha256'],binding['feature_ids'],
         expected_model_sha256=binding['model_sha256'],expected_scaler_sha256=binding['scaler_sha256'])
     session=E0Session(directory,model,scaler,mode=mode,model_binding=verified)
     session.environment_metadata=environment_record(pc_id)
+    if engineering_test:
+        session.environment_metadata['guided_engineering_test'] = True
     raw_recording = None
     if save_raw is not None:
         from raw_rgbd_recording import RawRecordingControl
         raw_recording = RawRecordingControl(session.directory/'raw_rgbd', initial=save_raw,
-            scope=session.scope, model_binding=verified,session_context=recording_context,
+            scope='NON_FORMAL_GUIDED_ENGINEERING_TEST' if engineering_test else session.scope,
+            model_binding=verified,session_context=recording_context,
             clock_ns=session.clock_ns)
+        if exchange_options is not None:
+            from exchange_capture import ExchangeCapture
+            raw_recording.exchange = ExchangeCapture(raw_recording, **exchange_options)
         session.raw_recording = raw_recording
-    panel=panel_factory(session)
+    panel=None
     if probe_runner is None:
         from posture_geometry_probe import run_probe
         probe_runner=run_probe
     try:
+        panel=panel_factory(session)
         options = dict(e0_session=session,ui_poll=panel.poll,show_3d_views='none')
+        if guided_exchange:
+            options['ui_stop_reason'] = panel.stop_reason
         if raw_recording is not None:
             options['raw_recording'] = raw_recording
         probe_runner(**options)
@@ -155,5 +179,10 @@ def run_bound_probe(path,binding,directory,*,execution_authorized=False,pc_id='P
             if raw_recording is not None:
                 raw_recording.finish(error=sys.exc_info()[1])
         finally:
-            panel.close()
+            try:
+                if panel is not None:
+                    panel.close()
+            finally:
+                if raw_recording is not None and raw_recording.exchange is not None:
+                    raw_recording.exchange.publish(sys.exc_info()[1])
     return session

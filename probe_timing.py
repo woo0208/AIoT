@@ -68,10 +68,13 @@ class ProbeRunControl:
     def start(self,start_ns=None):
         self.start_ns=self.clock_ns() if start_ns is None else start_ns
 
-    def stop(self,reason):
+    def stop(self,reason,*,respect_deadline=False):
         if self.reason is None:
-            self.reason=reason
             self.stop_ns=self.clock_ns()
+            if (respect_deadline and self.start_ns is not None and self.duration_ns is not None
+                    and self.stop_ns-self.start_ns >= self.duration_ns):
+                reason = 'duration_elapsed'
+            self.reason=reason
 
     def deadline_reached(self):
         if self.start_ns is not None and self.duration_ns is not None and self.clock_ns()-self.start_ns >= self.duration_ns:

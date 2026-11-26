@@ -2191,6 +2191,7 @@ def run_probe(
     diagnostics_output_dir: str | None = None,
     frame_provenance_dir: str | None = None,
     ui_poll: Callable[[], bool] | None = None,
+    ui_stop_reason: Callable[[], str] | None = None,
     e0_session=None,
     e0_ui_variant: str = 'E0',
     rgbd_policy=None,
@@ -2362,7 +2363,8 @@ def run_probe(
     face_detector = None
     pyvista_window = None
     try:
-        if raw_recording is not None:
+        exchange = getattr(raw_recording, 'exchange', None)
+        if raw_recording is not None and exchange is None:
             raw_recording.begin_session()
         if h9_model_path is not None:
             import h9_probe_session as h9_ui
@@ -2431,7 +2433,10 @@ def run_probe(
             face_diag_csv_path
         )
         with _timed(stages, 'startup.pipeline'):
-            profile = pipeline.start(capture_d455.make_config()) if replay_input is None else pipeline.start(rs)
+            if exchange is not None:
+                profile = exchange.start_pipeline(pipeline, capture_d455.make_config, rs)
+            else:
+                profile = pipeline.start(capture_d455.make_config()) if replay_input is None else pipeline.start(rs)
         if performance is not None:
             performance.device_environment(profile, rs)
         if provenance is not None:
@@ -2475,6 +2480,8 @@ def run_probe(
             h9.start()
             print('[probe] H9 + M0 DEVELOPMENT ONLY: separate window; r resets H9; '
                   'unlabelled input has no automatic transition/P5 detection')
+        if exchange is not None:
+            exchange.start(pipeline, profile, rs)
         stream_start_ns = metrics.begin_stream() if metrics is not None else None
         if e0_session is not None:
             e0_session.begin_stream()
@@ -2525,7 +2532,11 @@ def run_probe(
                 if raw_recording is not None:
                     raw_recording.observe_measurement(e0_session)
                 if not ui_running:
-                    control.stop('panel_closed')
+                    reason = ui_stop_reason() if ui_stop_reason is not None else 'panel_closed'
+                    if reason == 'guided_completed':
+                        control.stop(reason, respect_deadline=True)
+                    else:
+                        control.stop(reason)
                     break
             if control.deadline_reached():
                 break
@@ -2536,6 +2547,8 @@ def run_probe(
             with _timed(metrics, 'receive.wait'):
                 if replay_input is not None:
                     ready, frames = replay_input.read()
+                elif exchange is not None:
+                    ready, frames = exchange.analysis_frame()
                 elif h9 is None and duration_seconds is None and ui_poll is None:
                     frames = pipeline.wait_for_frames()
                     ready = True
@@ -2549,11 +2562,11 @@ def run_probe(
                 break
             if e0_session is not None:
                 e0_session.received(e0_row, ready, frames, e0_receive_end)
-            if ready and raw_recording is not None:
+            if ready and raw_recording is not None and exchange is None:
                 raw_recording.observe_input(frames,e0_row)
             if raw_recording is not None:
                 raw_recording.check_health()
-                if ready and raw_recording.requested:
+                if ready and raw_recording.requested and exchange is None:
                     # Preserve delivered native arrays before Align and B1's gate,
                     # even when no measurement was requested or inference fails.
                     with _timed(stages, 'io.raw_rgbd'):
@@ -2668,6 +2681,8 @@ def run_probe(
             pose_result, face_result = run_frame_inference(
                 pose_landmarker, face_landmarker, mp_image, timestamp_ms, **inference_kwargs
             )
+            if exchange is not None:
+                exchange.analysis_completed += 1
             pose_detected = bool(pose_result.pose_landmarks)
             landmarks = pose_result.pose_landmarks[0] if pose_detected else None
             if upper13_writer is not None:
@@ -2740,7 +2755,7 @@ def run_probe(
                 if replay_input is not None:
                     replay_input.observe_features(result)
                 if raw_recording is not None:
-                    raw_recording.observe_measurement(e0_session)
+                    raw_recording.observe_measurement(e0_session, device_timestamp_ms=device_timestamp_ms)
             if h9 is not None:
                 with _timed(stages, 'h9.dispatch', frame_index):
                     h9.accept(result, frame_index=frame_index, device_timestamp_ms=device_timestamp_ms,
@@ -2854,6 +2869,8 @@ def run_probe(
         cleanup_errors = []
         # A timer/SDK close failure must not skip the remaining resources.
         actions = [h9.stop] if h9 is not None else []
+        if getattr(raw_recording, 'exchange', None) is not None:
+            actions.insert(0, raw_recording.exchange.stop)
         if replay_input is not None:
             # Stop replay counters before resource-monitor join/model/source close.
             actions.append(replay_input.end_stream)
@@ -2864,9 +2881,12 @@ def run_probe(
             # Include completion of an already-running H9 tick in actual time.
             actions.append(metrics.end_stream)
         if raw_recording is not None:
-            actions.append(lambda: raw_recording.finish(error=primary_error,termination=control.summary()['reason']))
+            actions.append(lambda: raw_recording.finish(error=primary_error or next(iter(cleanup_errors), None),termination=control.summary()['reason']))
         actions += [obj.close for obj in (pose_landmarker, face_landmarker, face_detector) if obj is not None]
-        if profile is not None or replay_input is not None and pipeline is not None:
+        native_source = getattr(getattr(raw_recording, 'exchange', None), 'native_source', None)
+        if native_source is not None:
+            actions.append(native_source.stop)
+        elif profile is not None or replay_input is not None and pipeline is not None:
             actions.append(pipeline.stop)
         actions += [obj.close for obj in (csv_handle, face_diag_handle, upper13_handle, pyvista_window) if obj is not None]
         if cv2 is not None and not headless:

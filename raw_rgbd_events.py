@@ -89,7 +89,7 @@ class SessionEvents:
             movement_start=dict(status='UNANNOTATED',frame_reference=None),
             target_reached=dict(status='UNANNOTATED',frame_reference=None)))
 
-    def watch_measurement(self, session):
+    def watch_measurement(self, session, *, guided_frame=None):
         if not self.started or self.finished:return
         if self.measurement is None and (session.armed or session.active is not None):
             if self.idle:self.emit('IDLE_END');self.idle=False
@@ -98,28 +98,34 @@ class SessionEvents:
                                   held=False,e0_segment_index=None)
             self.emit('MEASUREMENT_START',source='E0 armed/active state',status='REQUESTED')
         if self.measurement is None:return
+        if session.active is not None and guided_frame is not None:
+            self.measurement['last_guided_frame'] = guided_frame
         if session.active is not None and not self.measurement['held']:
             self.measurement.update(held=True,e0_segment_index=session.active['segment_index'])
             self.emit('POSTURE_HOLD_START',e0_segment_index=session.active['segment_index'],
                 first_device_ms=session.active['first_device_ms'],
-                meaning='measurement window start; not actual movement completion')
+                meaning='measurement window start; not actual movement completion',
+                **(dict(start_frame_reference=guided_frame['reference']) if guided_frame is not None else {}))
         if session.active is None and not session.armed:
             index=self.measurement['e0_segment_index']
             segment=next((s for s in reversed(session.segments) if s['segment_index']==index),{})
             self._end_measurement(segment.get('status','CANCELLED_BEFORE_INPUT'),segment.get('reason'),
-                                  resume_idle=True)
+                                  resume_idle=True, guided_frame=guided_frame)
 
-    def _end_measurement(self,status,reason,*,resume_idle):
+    def _end_measurement(self,status,reason,*,resume_idle,guided_frame=None):
         if self.measurement is None:return
         if self.measurement['held']:
+            boundary = guided_frame or self.measurement.get('last_guided_frame')
             self.emit('POSTURE_HOLD_END',status=status,reason=reason,
-                      e0_segment_index=self.measurement['e0_segment_index'])
+                      e0_segment_index=self.measurement['e0_segment_index'],
+                      **(dict(end_frame_reference=boundary['reference'], end_device_ms=boundary['device_ms'])
+                         if boundary is not None else {}))
         self.emit('MEASUREMENT_END',status=status,reason=reason,
                   e0_segment_index=self.measurement['e0_segment_index'])
         self.measurement=None
         if resume_idle:self.emit('IDLE_START');self.idle=True
 
-    def finish(self, *, status, reason, raw_summary, files):
+    def finish(self, *, status, reason, raw_summary, files, verification_pending=False):
         if not self.started or self.finished:return
         try:
             if self.measurement:self._end_measurement('INTERRUPTED',reason,resume_idle=False)
@@ -138,7 +144,8 @@ class SessionEvents:
         inventory['recording_metadata/events.jsonl']=_sha(self.directory/'events.jsonl')
         inventory['recording_metadata/annotations_template.json']=_sha(self.directory/'annotations_template.json')
         document=dict(format='research-b-raw-session/1',session_id=self.session_id,scope=self.scope,
-            context=self.context,status=status,reason=reason,event_count=self.count,
+            context=self.context,status='PENDING_VERIFICATION' if verification_pending else status,
+            reason=reason,event_count=self.count,
             configuration=dict(raw_format=raw_summary['format'],initial_recording=raw_summary['initial'],
                                event_format=EVENT_FORMAT),
             host_clock=dict(api='time.perf_counter_ns' if self.clock_ns is time.perf_counter_ns else 'injected_test_clock',

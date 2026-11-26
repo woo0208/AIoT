@@ -239,10 +239,10 @@ def median_face_distance(samples, min_samples=1, last_n=None, *, sample_counts=N
     return statistics.median(values[-last_n:] if last_n is not None else values)
 
 
-def make_config(record_path=None):
+def make_config(record_path=None, *, fps=FPS):
     cfg = rs.config()
-    cfg.enable_stream(rs.stream.depth, 848, 480, rs.format.z16, FPS)
-    cfg.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, FPS)
+    cfg.enable_stream(rs.stream.depth, 848, 480, rs.format.z16, fps)
+    cfg.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, fps)
     if record_path:
         cfg.enable_record_to_file(record_path)
     return cfg
