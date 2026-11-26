@@ -1,0 +1,2 @@
+/manifests/selection_events.jsonl text eol=lf
+/manifests/datasets/*.json text eol=lf

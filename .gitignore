@@ -1,0 +1,79 @@
+# RealSense raw recordings
+*.bag
+*.db3
+raw_rgbd/
+recording_metadata/
+/another_team/
+
+# Generated research data
+data/
+analysis/
+results/
+
+# Patch 8 validation runtime / governance outputs (CAP-005 §23)
+validation/
+
+# Local MediaPipe runtime artifacts (contract: mediapipe_model_lock.json)
+models/
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Local participant recordings and pilot evaluation outputs
+captures/
+h6_pilot_*.json
+h6_results.json
+
+# Generated local change bundles, not the source of truth
+/artifacts/*.zip
+
+# Test caches and private engineering evidence
+/.pytest_cache/
+local_private/
+
+# Keep project data, local reproducibility artifacts and environment files local.
+research_data/
+research_analysis/
+outputs/
+private/
+REEXPERIMENT_WORKSPACE/
+CLEAN_OWN_TEAM_EXPERIMENT/config.json
+approved_local*.json
+.env
+.env.*
+.venv/
+venv/
+*.log
+*.npz
+*.npy
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.wmv
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.pkl
+*.joblib
+*.task
+*.tflite
+*.onnx
+*.zip
+*.7z
+*.csv
+*.tsv
+*.xlsx
+*.jsonl
+*.gif
+*.wav
+*.flac
+*.pdf
+*.pem
+*.key
+manifests/

@@ -1,0 +1,15 @@
+{
+  "path": "models/your-authorized-fs3-artifact.pkl",
+  "artifact_sha256": "REPLACE_WITH_ARTIFACT_SHA256",
+  "model_sha256": "REPLACE_WITH_MODEL_SHA256",
+  "scaler_sha256": "REPLACE_WITH_SCALER_SHA256",
+  "feature_ids": [
+    "F1",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8"
+  ]
+}
